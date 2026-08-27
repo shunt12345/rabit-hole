@@ -769,7 +769,12 @@ export default function RabbitHole() {
   return (
     <div className="w-full flex flex-col rh-body" style={{ backgroundColor: "#14100C", height: viewportH }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+        /* Fraunces requested WITHOUT the opsz (optical size) axis range —
+           with it, some Android renderers interpolate the italic instance
+           incorrectly at large sizes and flip specific glyphs (f, t)
+           upside down. Fixed static optical size avoids the bad
+           interpolation entirely. */
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;1,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
         .rh-display { font-family: 'Fraunces', serif; }
         .rh-body { font-family: 'Inter', sans-serif; }
         .rh-mono { font-family: 'JetBrains Mono', monospace; }
@@ -877,13 +882,13 @@ export default function RabbitHole() {
                 date reflects the actual cache timestamp now, not a
                 hand-maintained string that can silently go stale. */}
             {trendingTopics.length > 0 && (
-              <div className="mt-8">
+              <div className="mt-10">
                 <div className="flex items-center justify-center gap-1.5 mb-1">
-                  <span className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: "#C9B896" }}>
+                  <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
                     In the news
                   </span>
                 </div>
-                <div className="rh-mono mb-3" style={{ fontSize: "9px", color: "#A89478" }}>
+                <div className="rh-mono text-sm mb-6" style={{ color: "#A89478" }}>
                   as of{" "}
                   <span className="font-semibold" style={{ color: "#E3A73C" }}>
                     {new Date(trendingTopics[0].generated_at).toLocaleDateString(undefined, {
@@ -892,23 +897,26 @@ export default function RabbitHole() {
                     })}
                   </span>
                 </div>
-                <div className="flex flex-wrap justify-center gap-3">
+                <div className="flex flex-col gap-3 max-w-md mx-auto">
                   {trendingTopics.map((t, i) => (
-                    <div key={`${t.field}-${i}`} className="flex flex-col items-center gap-1">
-                      <span className="rh-mono uppercase tracking-wider font-semibold" style={{ fontSize: "8px", color: "#E3A73C" }}>
+                    <button
+                      key={`${t.field}-${i}`}
+                      type="button"
+                      onClick={() => startTopic(t.topic)}
+                      disabled={rootLoading}
+                      className="rh-chip text-left p-4 rounded-2xl border transition-colors disabled:opacity-40"
+                      style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}
+                    >
+                      <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
                         {t.field}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => startTopic(t.topic)}
-                        disabled={rootLoading}
-                        title={t.teaser}
-                        className="rh-chip rh-body text-xs rounded-full px-3.5 py-1.5 border transition-colors disabled:opacity-40"
-                        style={{ borderColor: "#5A4C38", color: "#F1E6D3", backgroundColor: "transparent" }}
-                      >
+                      <div className="rh-body text-lg font-semibold mt-1" style={{ color: "#F1E6D3" }}>
                         {t.topic}
-                      </button>
-                    </div>
+                      </div>
+                      <p className="rh-body text-sm mt-1" style={{ color: "#B8A886" }}>
+                        {t.teaser}
+                      </p>
+                    </button>
                   ))}
                 </div>
               </div>
