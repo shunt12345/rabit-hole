@@ -847,11 +847,11 @@ export default function RabbitHole() {
             {trendingTopics.length > 0 && (
               <div className="mt-8">
                 <div className="flex items-center justify-center gap-1.5 mb-1">
-                  <span className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: "#6B5B45" }}>
+                  <span className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: "#C9B896" }}>
                     In the news
                   </span>
                 </div>
-                <div className="rh-mono mb-3" style={{ fontSize: "9px", color: "#5A4C38" }}>
+                <div className="rh-mono mb-3" style={{ fontSize: "9px", color: "#A89478" }}>
                   as of{" "}
                   {new Date(trendingTopics[0].generated_at).toLocaleDateString(undefined, {
                     month: "long",
@@ -861,7 +861,7 @@ export default function RabbitHole() {
                 <div className="flex flex-wrap justify-center gap-3">
                   {trendingTopics.map((t, i) => (
                     <div key={`${t.field}-${i}`} className="flex flex-col items-center gap-1">
-                      <span className="rh-mono uppercase tracking-wider" style={{ fontSize: "8px", color: "#5A4C38" }}>
+                      <span className="rh-mono uppercase tracking-wider" style={{ fontSize: "8px", color: "#A89478" }}>
                         {t.field}
                       </span>
                       <button
@@ -870,7 +870,7 @@ export default function RabbitHole() {
                         disabled={rootLoading}
                         title={t.teaser}
                         className="rh-chip rh-body text-xs rounded-full px-3.5 py-1.5 border transition-colors disabled:opacity-40"
-                        style={{ borderColor: "#3A2E20", color: "#A89478", backgroundColor: "transparent" }}
+                        style={{ borderColor: "#5A4C38", color: "#F1E6D3", backgroundColor: "transparent" }}
                       >
                         {t.topic}
                       </button>
