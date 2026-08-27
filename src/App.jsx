@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, ChevronDown } from "lucide-react";
-import { callClaude, streamTextFromPrompt } from "./lib/api.js";
+import { callClaude, streamJSON, streamTextFromPrompt } from "./lib/api.js";
+import { createPacedReveal } from "./lib/pacedReveal.js";
 
 const TYPE_COLOR = {
   root: "#C1552E",
@@ -265,6 +266,7 @@ export default function RabbitHole() {
   const [selectedId, setSelectedId] = useState(null);
   const [rootLoading, setRootLoading] = useState(false);
   const [rootError, setRootError] = useState(null);
+  const [rootPreview, setRootPreview] = useState("");
   const [shownTopics, setShownTopics] = useState(() => TODAYS_TOPICS_POOL.slice(0, 2));
 
   const nodesRef = useRef([]);
@@ -412,10 +414,19 @@ export default function RabbitHole() {
     if (!t) return;
     setRootError(null);
     setRootLoading(true);
+    setRootPreview("");
     idCounter = 0;
 
+    // Streams the overview in at reading pace while the rest of the JSON
+    // (children, etc.) keeps generating — the wait feels like reading
+    // something appear rather than staring at a spinner. `finish` is
+    // awaited below so the reveal has visibly caught up before the screen
+    // switches over to the real root node.
+    const reveal = createPacedReveal((revealed) => setRootPreview(revealed));
+
     try {
-      const data = await callClaude(rootPrompt(t), "root");
+      const data = await streamJSON(rootPrompt(t), "root", (partialOverview) => reveal.push(partialOverview));
+      await reveal.finish(data.overview || "");
       const root = {
         id: nextId(),
         label: (data.rootLabel && data.rootLabel.trim()) || t,
@@ -443,9 +454,11 @@ export default function RabbitHole() {
       setSelectedId(root.id);
     } catch (e) {
       console.error("Rabbit Hole: startTopic failed", e);
+      reveal.cancel();
       setRootError(e.message || "Something went wrong reaching Claude. Try again.");
     } finally {
       setRootLoading(false);
+      setRootPreview("");
     }
   };
 
@@ -534,6 +547,10 @@ export default function RabbitHole() {
 
     const path = pathToNode(node);
     const childLabels = nodesRef.current.filter((n) => n.parentId === node.id).map((n) => n.label);
+    const reveal = createPacedReveal((revealed) => {
+      node.article = stripMarkdown(revealed);
+      setNodes([...nodesRef.current]);
+    });
     try {
       let first = true;
       const finalText = await fetchArticleTextStreaming(node.label, path, childLabels, (partial) => {
@@ -541,15 +558,17 @@ export default function RabbitHole() {
           node.articleLoading = false;
           node.articleStreaming = true;
           first = false;
+          setNodes([...nodesRef.current]);
         }
-        node.article = stripMarkdown(partial);
-        setNodes([...nodesRef.current]);
+        reveal.push(partial);
       });
+      await reveal.finish(finalText);
       node.article = stripMarkdown(finalText);
       node.articleStreaming = false;
       node.articleLoading = false;
     } catch (e) {
       console.error("Rabbit Hole: loadArticle failed", e);
+      reveal.cancel();
       node.articleLoading = false;
       node.articleStreaming = false;
       node.article = null;
@@ -573,16 +592,21 @@ export default function RabbitHole() {
     setNodes([...nodesRef.current]);
 
     const path = pathToNode(node);
+    const reveal = createPacedReveal((revealed) => {
+      node.article = `${baseArticle}\n\n${stripMarkdown(revealed)}`;
+      setNodes([...nodesRef.current]);
+    });
     try {
       const finalText = await fetchArticleContinuationStreaming(node.label, path, baseArticle, (partial) => {
-        node.article = `${baseArticle}\n\n${stripMarkdown(partial)}`;
-        setNodes([...nodesRef.current]);
+        reveal.push(partial);
       });
+      await reveal.finish(finalText);
       node.article = `${baseArticle}\n\n${stripMarkdown(finalText)}`;
       node.articleStreaming = false;
       node.deepened = true;
     } catch (e) {
       console.error("Rabbit Hole: deepenArticle failed", e);
+      reveal.cancel();
       node.article = baseArticle;
       node.articleStreaming = false;
       node.deepenError = e.message || "Couldn't dig deeper — try again.";
@@ -784,6 +808,15 @@ export default function RabbitHole() {
             {rootError && (
               <div className="mt-4 flex items-center justify-center gap-1.5 text-xs rh-body" style={{ color: "#D98A6E" }}>
                 <AlertCircle size={13} /> {rootError}
+              </div>
+            )}
+
+            {rootLoading && rootPreview && (
+              <div className="mt-4 max-w-lg mx-auto text-sm rh-body" style={{ color: "#A89478" }}>
+                {rootPreview}
+                <span className="rh-cursor-blink" style={{ color: "#E3A73C" }}>
+                  {"▌"}
+                </span>
               </div>
             )}
 

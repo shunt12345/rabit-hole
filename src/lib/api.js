@@ -91,13 +91,11 @@ export async function callClaude(prompt, endpoint) {
   }
 }
 
-// "Read more" content: real prose, not JSON, so no parsing needed beyond
-// trimming stray markdown fences a model might add out of habit. Streams
-// the article as it's generated instead of waiting for the whole thing —
-// parses the API's server-sent-event chunks directly and calls onChunk
-// with the accumulated text so far after every delta, so the screen can
-// render it growing in real time rather than sitting on a spinner.
-export async function streamTextFromPrompt(prompt, maxTokens, timeoutMs, endpoint, onChunk) {
+// Shared streaming core: opens the request with stream:true, parses the
+// API's server-sent-event chunks, and calls onChunk with the accumulated
+// text so far after every delta. Returns the final raw accumulated text —
+// callers apply their own cleanup/parsing on top (plain prose vs. JSON).
+async function streamRaw(prompt, maxTokens, timeoutMs, endpoint, onChunk) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   let res;
@@ -119,7 +117,7 @@ export async function streamTextFromPrompt(prompt, maxTokens, timeoutMs, endpoin
     if (networkErr.name === "AbortError") {
       throw new Error("Request timed out — no response from the API.");
     }
-    console.error("Rabbit Hole: network error streaming text", networkErr);
+    console.error("Rabbit Hole: network error streaming", networkErr);
     throw new Error(`Network error: ${networkErr.message || "fetch failed"}`);
   }
 
@@ -139,7 +137,7 @@ export async function streamTextFromPrompt(prompt, maxTokens, timeoutMs, endpoin
     const data = await res.json();
     const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
     onChunk(text);
-    return text.replace(/```/g, "").trim();
+    return text;
   }
 
   const reader = res.body.getReader();
@@ -175,7 +173,7 @@ export async function streamTextFromPrompt(prompt, maxTokens, timeoutMs, endpoin
       }
     }
   } catch (streamErr) {
-    console.error("Rabbit Hole: text stream failed", streamErr);
+    console.error("Rabbit Hole: stream failed", streamErr);
     if (!gotAnyData) throw streamErr;
     // if we already streamed in some real text before failing, keep it rather
     // than throwing the whole thing away — partial content is still useful
@@ -183,5 +181,52 @@ export async function streamTextFromPrompt(prompt, maxTokens, timeoutMs, endpoin
     clearTimeout(timeoutId);
   }
 
+  return fullText;
+}
+
+// "Read more" content: real prose, not JSON, so no parsing needed beyond
+// trimming stray markdown fences a model might add out of habit.
+export async function streamTextFromPrompt(prompt, maxTokens, timeoutMs, endpoint, onChunk) {
+  const fullText = await streamRaw(prompt, maxTokens, timeoutMs, endpoint, onChunk);
   return fullText.replace(/```/g, "").trim();
+}
+
+// Matches an in-progress `"overview": "..."` field in a partially-streamed
+// JSON blob — captures everything after the opening quote, including a
+// string that hasn't been closed yet, so the overview can be shown as it's
+// written rather than only once the whole response (children included)
+// has finished generating.
+const OVERVIEW_PATTERN = /"overview"\s*:\s*"((?:[^"\\]|\\.)*)/;
+const JSON_ESCAPES = { '"': '"', "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" };
+
+// Best-effort unescape for a JSON string fragment that may end mid-escape
+// (the stream hasn't delivered the rest yet) — not run through JSON.parse
+// since it isn't necessarily valid/complete JSON yet.
+function unescapeJSONStringFragment(s) {
+  return s.replace(/\\(["\\/bfnrt])/g, (_, c) => JSON_ESCAPES[c]);
+}
+
+// Same contract as callClaude (streams instead of waiting for the whole
+// response), plus an optional onOverviewChunk callback fired with the
+// "overview" field's text as it streams in — the one field worth showing
+// live while the rest of the JSON (children, etc.) is still generating.
+export async function streamJSON(prompt, endpoint, onOverviewChunk) {
+  const fullText = await streamRaw(prompt, 1200, 25000, endpoint, (partial) => {
+    if (!onOverviewChunk) return;
+    const match = partial.match(OVERVIEW_PATTERN);
+    if (match) onOverviewChunk(unescapeJSONStringFragment(match[1]));
+  });
+  const cleaned = fullText.replace(/```json|```/g, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1) {
+    console.error("Rabbit Hole: couldn't find JSON in streamed response", fullText);
+    throw new Error("Couldn't parse the API's response.");
+  }
+  try {
+    return JSON.parse(cleaned.slice(start, end + 1));
+  } catch (parseErr) {
+    console.error("Rabbit Hole: JSON parse failed", parseErr, cleaned);
+    throw new Error("Couldn't parse the API's response.");
+  }
 }
