@@ -12,10 +12,8 @@ const READING_CHARS_PER_SEC = 22;
 
 // The opening beat reveals at the base pace so it visibly "types" and
 // signals the app is alive; once the first sentence is on screen that's
-// established, so the rest reveals at double speed rather than making the
-// reader wait through the whole response at reading pace.
-const FAST_MULTIPLIER = 2;
-
+// established, so the rest is dumped on screen immediately rather than
+// making the reader wait through the whole response at reading pace.
 // Index just past the first sentence-ending punctuation in `text` (i.e.
 // how many characters of `text` make up its first sentence), or -1 if no
 // sentence boundary has streamed in yet.
@@ -39,22 +37,29 @@ export function createPacedReveal(onReveal, charsPerSecond = READING_CHARS_PER_S
     lastTs = null;
   }
 
-  function currentRate() {
-    const boundary = firstSentenceEnd(target);
-    return boundary !== -1 && revealed.length >= boundary ? charsPerSecond * FAST_MULTIPLIER : charsPerSecond;
-  }
-
   function tick(ts) {
     if (lastTs == null) lastTs = ts;
     const dt = (ts - lastTs) / 1000;
     lastTs = ts;
-    carry += dt * currentRate();
-    const grow = Math.floor(carry);
-    if (grow > 0 && revealed.length < target.length) {
-      carry -= grow;
-      revealed = target.slice(0, Math.min(target.length, revealed.length + grow));
-      onReveal(revealed);
+
+    const boundary = firstSentenceEnd(target);
+    const pastFirstSentence = boundary !== -1 && revealed.length >= boundary;
+
+    if (pastFirstSentence) {
+      if (revealed.length < target.length) {
+        revealed = target;
+        onReveal(revealed);
+      }
+    } else {
+      carry += dt * charsPerSecond;
+      const grow = Math.floor(carry);
+      if (grow > 0 && revealed.length < target.length) {
+        carry -= grow;
+        revealed = target.slice(0, Math.min(target.length, revealed.length + grow));
+        onReveal(revealed);
+      }
     }
+
     if (revealed.length >= target.length) {
       stopLoop();
       if (done && resolveFinish) {
