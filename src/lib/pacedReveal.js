@@ -10,6 +10,20 @@
 // display whatever's buffered.
 const READING_CHARS_PER_SEC = 22;
 
+// The opening beat reveals at the base pace so it visibly "types" and
+// signals the app is alive; once the first sentence is on screen that's
+// established, so the rest reveals at double speed rather than making the
+// reader wait through the whole response at reading pace.
+const FAST_MULTIPLIER = 2;
+
+// Index just past the first sentence-ending punctuation in `text` (i.e.
+// how many characters of `text` make up its first sentence), or -1 if no
+// sentence boundary has streamed in yet.
+function firstSentenceEnd(text) {
+  const m = text.match(/[.!?](\s|$)/);
+  return m ? m.index + 1 : -1;
+}
+
 export function createPacedReveal(onReveal, charsPerSecond = READING_CHARS_PER_SEC) {
   let target = "";
   let revealed = "";
@@ -25,11 +39,16 @@ export function createPacedReveal(onReveal, charsPerSecond = READING_CHARS_PER_S
     lastTs = null;
   }
 
+  function currentRate() {
+    const boundary = firstSentenceEnd(target);
+    return boundary !== -1 && revealed.length >= boundary ? charsPerSecond * FAST_MULTIPLIER : charsPerSecond;
+  }
+
   function tick(ts) {
     if (lastTs == null) lastTs = ts;
     const dt = (ts - lastTs) / 1000;
     lastTs = ts;
-    carry += dt * charsPerSecond;
+    carry += dt * currentRate();
     const grow = Math.floor(carry);
     if (grow > 0 && revealed.length < target.length) {
       carry -= grow;
