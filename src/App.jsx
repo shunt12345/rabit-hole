@@ -978,31 +978,6 @@ export default function RabbitHole() {
                   <p>{renderLinked(selected.type === "root" ? selected.overview || selected.teaser : selected.teaser, selectedChildren)}</p>
                 ) : null}
 
-                {/* Ad tier 1 (mockup) — hero placement, root topic only */}
-                {selected.type === "root" && (
-                  <div className="mt-5 p-4 rounded-2xl border" style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}>
-                    <span
-                      className="rh-mono rh-text-10 uppercase tracking-wider px-2 py-0.5 rounded-full inline-block mb-2"
-                      style={{ color: "#E3A73C", border: "1px solid #E3A73C55" }}
-                    >
-                      Sponsored · {MOCK_SPONSOR.tier1.brand}
-                    </span>
-                    <div className="text-base font-semibold mb-1" style={{ color: "#F1E6D3" }}>
-                      {MOCK_SPONSOR.tier1.headline}
-                    </div>
-                    <p className="text-sm mb-3" style={{ color: "#B8A886" }}>
-                      {MOCK_SPONSOR.tier1.description}
-                    </p>
-                    <button
-                      type="button"
-                      className="flex items-center gap-1.5 text-sm font-medium transition-colors rh-link-accent"
-                      style={{ color: "#E3A73C" }}
-                    >
-                      {MOCK_SPONSOR.tier1.cta} <ArrowUpRight size={14} />
-                    </button>
-                  </div>
-                )}
-
                 {selected.article ? (
                   <div className="mt-4 pt-4 border-t space-y-4" style={{ borderColor: "#4A3C2C", color: "#F1E6D3" }}>
                     {selected.article
@@ -1019,6 +994,33 @@ export default function RabbitHole() {
                               </span>
                             ) : null}
                           </p>
+                          {/* Ad tier 1 (mockup) — hero placement, root topic
+                              only, sandwiched between the article's first
+                              two paragraphs rather than sitting above the
+                              article entirely */}
+                          {selected.type === "root" && !selected.articleStreaming && i === 0 && arr.length > 1 && (
+                            <div className="p-4 rounded-2xl border" style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}>
+                              <span
+                                className="rh-mono rh-text-10 uppercase tracking-wider px-2 py-0.5 rounded-full inline-block mb-2"
+                                style={{ color: "#E3A73C", border: "1px solid #E3A73C55" }}
+                              >
+                                Sponsored · {MOCK_SPONSOR.tier1.brand}
+                              </span>
+                              <div className="text-base font-semibold mb-1" style={{ color: "#F1E6D3" }}>
+                                {MOCK_SPONSOR.tier1.headline}
+                              </div>
+                              <p className="text-sm mb-3" style={{ color: "#B8A886" }}>
+                                {MOCK_SPONSOR.tier1.description}
+                              </p>
+                              <button
+                                type="button"
+                                className="flex items-center gap-1.5 text-sm font-medium transition-colors rh-link-accent"
+                                style={{ color: "#E3A73C" }}
+                              >
+                                {MOCK_SPONSOR.tier1.cta} <ArrowUpRight size={14} />
+                              </button>
+                            </div>
+                          )}
                           {/* Ad tier 2 (mockup) — inline rest card, one quiet
                               pause partway through, only once the article has
                               fully landed */}
