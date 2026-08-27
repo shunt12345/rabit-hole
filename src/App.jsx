@@ -930,10 +930,10 @@ export default function RabbitHole() {
               </p>
               <button
                 type="button"
-                className="text-sm font-medium rounded-full px-4 py-2 transition-colors"
-                style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
+                className="flex items-center gap-1.5 text-sm font-medium transition-colors rh-link-accent"
+                style={{ color: "#E3A73C" }}
               >
-                {MOCK_SPONSOR.landing.cta}
+                {MOCK_SPONSOR.landing.cta} <ArrowUpRight size={14} />
               </button>
             </div>
           </div>
@@ -987,10 +987,10 @@ export default function RabbitHole() {
                     </p>
                     <button
                       type="button"
-                      className="text-sm font-medium rounded-full px-4 py-2 transition-colors"
-                      style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
+                      className="flex items-center gap-1.5 text-sm font-medium transition-colors rh-link-accent"
+                      style={{ color: "#E3A73C" }}
                     >
-                      {MOCK_SPONSOR.tier1.cta}
+                      {MOCK_SPONSOR.tier1.cta} <ArrowUpRight size={14} />
                     </button>
                   </div>
                 )}
