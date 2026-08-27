@@ -888,29 +888,6 @@ export default function RabbitHole() {
 
       {hasStarted && selected && (
         <>
-          {/* breadcrumb — every earlier stop is tappable, jumps straight
-              back with no need to retrace taps one at a time */}
-          <div className="flex items-center gap-1.5 flex-wrap rh-body text-sm px-5 md:px-7 pb-3 shrink-0">
-            {breadcrumb.map((n, i) => (
-              <span key={n.id} className="flex items-center gap-1.5">
-                {i > 0 && (
-                  <ChevronRight size={12} style={{ color: "#6B5B45" }} aria-hidden="true" />
-                )}
-                {i === breadcrumb.length - 1 ? (
-                  <span style={{ color: "#F1E6D3", fontWeight: 500 }}>{n.label}</span>
-                ) : (
-                  <button
-                    onClick={() => jumpToNode(n.id)}
-                    className="rh-crumb transition-colors"
-                    style={{ color: "#A89478", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: "2px" }}
-                  >
-                    {n.label}
-                  </button>
-                )}
-              </span>
-            ))}
-          </div>
-
           <div ref={contentRef} className="flex-1 overflow-y-auto px-5 md:px-7 pb-10">
             <div className="max-w-2xl mx-auto rh-fade-in" key={selected.id}>
               <span
@@ -1022,6 +999,30 @@ export default function RabbitHole() {
                   them shouldn't be treated as "explore this word" the way
                   selecting actual article text is meant to be */}
               <div>
+                {/* breadcrumb — every earlier stop is tappable, jumps
+                    straight back with no need to retrace taps one at a
+                    time. Sits right above "Explore next" now, inline, as a
+                    "here's how you got here" just before "here's where you
+                    can go" instead of pinned above the article itself. */}
+                <div className="flex items-center gap-1.5 flex-wrap rh-body text-sm mb-4">
+                  {breadcrumb.map((n, i) => (
+                    <span key={n.id} className="flex items-center gap-1.5">
+                      {i > 0 && <ChevronRight size={12} style={{ color: "#6B5B45" }} aria-hidden="true" />}
+                      {i === breadcrumb.length - 1 ? (
+                        <span style={{ color: "#F1E6D3", fontWeight: 500 }}>{n.label}</span>
+                      ) : (
+                        <button
+                          onClick={() => jumpToNode(n.id)}
+                          className="rh-crumb transition-colors"
+                          style={{ color: "#A89478", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: "2px" }}
+                        >
+                          {n.label}
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+
                 {/* explore next — pronounced, tappable chips instead of a
                     plain underlined-text list, colored the same way nodes
                     used to be so the branch type is still legible at a
