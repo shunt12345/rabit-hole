@@ -1004,10 +1004,10 @@ export default function RabbitHole() {
                     time. Sits right above "Explore next" now, inline, as a
                     "here's how you got here" just before "here's where you
                     can go" instead of pinned above the article itself. */}
-                <div className="flex items-center gap-1.5 flex-wrap rh-body text-sm mb-4">
+                <div className="flex items-center gap-1.5 flex-wrap rh-body text-xs mt-10 mb-4">
                   {breadcrumb.map((n, i) => (
                     <span key={n.id} className="flex items-center gap-1.5">
-                      {i > 0 && <ChevronRight size={12} style={{ color: "#6B5B45" }} aria-hidden="true" />}
+                      {i > 0 && <ChevronRight size={10} style={{ color: "#6B5B45" }} aria-hidden="true" />}
                       {i === breadcrumb.length - 1 ? (
                         <span style={{ color: "#F1E6D3", fontWeight: 500 }}>{n.label}</span>
                       ) : (
