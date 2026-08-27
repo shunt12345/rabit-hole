@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, Fragment } from "react";
 import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, ChevronDown } from "lucide-react";
 import { callClaude, streamJSON, streamTextFromPrompt } from "./lib/api.js";
 import { createPacedReveal } from "./lib/pacedReveal.js";
@@ -251,6 +251,29 @@ function nextId() {
 // result in trending_topics_cache; this just reads the latest 4 rows with
 // the anon key. No live search happens on the client or per page load.
 const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,generated_at&order=generated_at.desc,id.desc&limit=4`;
+
+// UI-only mockup of the 3-tier ad placement sketch — hardcoded placeholder
+// content, no real sponsor backend, always on (not gated behind any real
+// "should we show an ad here" logic yet). Swap this for real sponsored
+// data — and add real gating — when this becomes more than a mockup.
+const MOCK_SPONSOR = {
+  tier1: {
+    brand: "Meridian Originals",
+    headline: "Trade Empires: How a Spice Route Rewired the World",
+    description:
+      "A four-part documentary series, following the same roads, ports, and fortunes explored in this thread.",
+    cta: "Watch the first chapter",
+  },
+  tier2: {
+    brand: "Cartographia",
+    text: "Trace this exact route on an interactive historical map.",
+    cta: "Explore the map",
+  },
+  tier3: {
+    brand: "Meridian Originals",
+    label: "Trade Empires",
+  },
+};
 
 export default function RabbitHole() {
   const [topic, setTopic] = useState("");
@@ -916,6 +939,31 @@ export default function RabbitHole() {
                   <p>{renderLinked(selected.type === "root" ? selected.overview || selected.teaser : selected.teaser, selectedChildren)}</p>
                 ) : null}
 
+                {/* Ad tier 1 (mockup) — hero placement, root topic only */}
+                {selected.type === "root" && (
+                  <div className="mt-5 p-4 rounded-2xl border" style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}>
+                    <span
+                      className="rh-mono rh-text-10 uppercase tracking-wider px-2 py-0.5 rounded-full inline-block mb-2"
+                      style={{ color: "#E3A73C", border: "1px solid #E3A73C55" }}
+                    >
+                      Sponsored · {MOCK_SPONSOR.tier1.brand}
+                    </span>
+                    <div className="text-base font-semibold mb-1" style={{ color: "#F1E6D3" }}>
+                      {MOCK_SPONSOR.tier1.headline}
+                    </div>
+                    <p className="text-sm mb-3" style={{ color: "#B8A886" }}>
+                      {MOCK_SPONSOR.tier1.description}
+                    </p>
+                    <button
+                      type="button"
+                      className="text-sm font-medium rounded-full px-4 py-2 transition-colors"
+                      style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
+                    >
+                      {MOCK_SPONSOR.tier1.cta}
+                    </button>
+                  </div>
+                )}
+
                 {selected.article ? (
                   <div className="mt-4 pt-4 border-t space-y-4" style={{ borderColor: "#4A3C2C", color: "#F1E6D3" }}>
                     {selected.article
@@ -923,14 +971,34 @@ export default function RabbitHole() {
                       .map((s) => s.trim())
                       .filter(Boolean)
                       .map((para, i, arr) => (
-                        <p key={i}>
-                          {renderLinked(para, selectedChildren)}
-                          {selected.articleStreaming && i === arr.length - 1 ? (
-                            <span className="rh-cursor-blink" style={{ color: "#E3A73C" }}>
-                              {"▌"}
-                            </span>
-                          ) : null}
-                        </p>
+                        <Fragment key={i}>
+                          <p>
+                            {renderLinked(para, selectedChildren)}
+                            {selected.articleStreaming && i === arr.length - 1 ? (
+                              <span className="rh-cursor-blink" style={{ color: "#E3A73C" }}>
+                                {"▌"}
+                              </span>
+                            ) : null}
+                          </p>
+                          {/* Ad tier 2 (mockup) — inline rest card, one quiet
+                              pause partway through, only once the article has
+                              fully landed */}
+                          {!selected.articleStreaming && i === 1 && arr.length > 2 && (
+                            <div className="p-4 rounded-2xl border" style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}>
+                              <span className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: "#E3A73C" }}>
+                                Sponsored · {MOCK_SPONSOR.tier2.brand}
+                              </span>
+                              <p className="text-sm mt-1 mb-2" style={{ color: "#B8A886" }}>{MOCK_SPONSOR.tier2.text}</p>
+                              <button
+                                type="button"
+                                className="flex items-center gap-1.5 text-sm font-medium transition-colors rh-link-accent"
+                                style={{ color: "#E3A73C" }}
+                              >
+                                {MOCK_SPONSOR.tier2.cta} <ArrowUpRight size={13} />
+                              </button>
+                            </div>
+                          )}
+                        </Fragment>
                       ))}
 
                     {/* light-touch, not a primary action — this app is
@@ -1052,6 +1120,19 @@ export default function RabbitHole() {
                           </button>
                         );
                       })}
+                      {/* Ad tier 3 (mockup) — lightest unit, mixed into the
+                          branch chips with just a label, no teaser copy */}
+                      <button
+                        type="button"
+                        className="rh-chip rh-body text-sm rounded-full px-4 py-2 border transition-colors inline-flex items-center gap-1.5"
+                        style={{ borderColor: "#5A4C38", color: "#A89478", backgroundColor: "transparent" }}
+                      >
+                        <span className="rh-mono uppercase" style={{ fontSize: "8px", color: "#E3A73C" }}>
+                          Sponsored
+                        </span>
+                        · {MOCK_SPONSOR.tier3.label} — {MOCK_SPONSOR.tier3.brand}
+                        <ArrowUpRight size={13} />
+                      </button>
                     </div>
                   </div>
                 )}
