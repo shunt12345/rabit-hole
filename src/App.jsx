@@ -244,20 +244,12 @@ function nextId() {
   return idCounter;
 }
 
-// A manually-refreshed snapshot, not a live feed — no news API is wired up
-// in this app (see the earlier attempt: the backend worked, but a claude.ai
-// artifact can't actually reach it at runtime). These are real, individually
-// verified stories as of the date below, checked by hand rather than pulled
-// automatically — which means they'll go stale exactly as fast as they
-// sound like they would. Worth asking to have this list refreshed
-// periodically rather than assuming it's current.
-//
-// The "refresh" button below does NOT search live — it can't, same wall as
-// above — it just cycles to a different pair already verified in this pool.
-// Genuine engagement without repeating the false-freshness mistake from the
-// SerpApi attempt.
-const TODAYS_TOPICS_DATE = "August 25, 2026";
-const TODAYS_TOPICS_POOL = ["Dolly Parton", "US-Canada tariffs", "The Petermann Glacier ice island", "AI-designed viruses that fight bacteria"];
+// Real live topics now — see supabase/functions/generate-trending-topics.
+// A scheduled job (pg_cron, twice daily) does one Claude web-search call to
+// find a current, verifiable story in each of 4 fields and caches the
+// result in trending_topics_cache; this just reads the latest 4 rows with
+// the anon key. No live search happens on the client or per page load.
+const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,generated_at&order=generated_at.desc,id.desc&limit=4`;
 
 export default function RabbitHole() {
   const [topic, setTopic] = useState("");
@@ -274,7 +266,7 @@ export default function RabbitHole() {
   // clicking "Explore next" gives the same "the app is working" cue as
   // submitting a fresh topic does, instead of a bare loading spinner.
   const [childPreview, setChildPreview] = useState(null);
-  const [shownTopics, setShownTopics] = useState(() => TODAYS_TOPICS_POOL.slice(0, 2));
+  const [trendingTopics, setTrendingTopics] = useState([]);
 
   const nodesRef = useRef([]);
   const selectedIdRef = useRef(null);
@@ -492,6 +484,29 @@ export default function RabbitHole() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Fetches the latest cached batch of "In the news" topics — a plain read
+  // against Supabase's REST API with the anon key (RLS allows public
+  // SELECT on this table). Fails silently: if it's empty or the request
+  // errors, the section just doesn't render rather than showing an error
+  // on the hero page over what's a nice-to-have, not core functionality.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(TRENDING_TOPICS_URL, {
+      headers: {
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+      },
+    })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((rows) => {
+        if (!cancelled) setTrendingTopics(Array.isArray(rows) ? rows : []);
+      })
+      .catch((e) => console.error("Rabbit Hole: failed to load trending topics", e));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const pathToNode = (node) => {
     const path = [];
     let cur = node;
@@ -674,17 +689,6 @@ export default function RabbitHole() {
     idCounter = 0;
   };
 
-  // Doesn't search live — can't, from inside this sandbox — just cycles to
-  // a different pair from the already-verified pool, guaranteed different
-  // from whatever's currently showing as long as the pool has enough spare
-  // topics to make that possible.
-  const refreshTopics = () => {
-    const remaining = TODAYS_TOPICS_POOL.filter((t) => !shownTopics.includes(t));
-    const pool = remaining.length >= 2 ? remaining : TODAYS_TOPICS_POOL;
-    const shuffled = [...pool].sort(() => Math.random() - 0.5);
-    setShownTopics(shuffled.slice(0, 2));
-  };
-
   const jumpToNode = (nodeId) => {
     setSelectedId(nodeId);
   };
@@ -836,46 +840,45 @@ export default function RabbitHole() {
               </div>
             )}
 
-            {/* real, individually-verified stories — not a live feed, see
-                TODAYS_TOPICS_POOL for why. The "as of" date is the honesty
-                check: if this is still showing when it's obviously not that
-                date anymore, it's overdue for a refresh, not something to
-                trust as current. The refresh button doesn't search live
-                either — it cycles the pool, it doesn't fetch anything new. */}
-            <div className="mt-8">
-              <div className="flex items-center justify-center gap-1.5 mb-1">
-                <span className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: "#6B5B45" }}>
-                  In the news
-                </span>
-                <button
-                  type="button"
-                  onClick={refreshTopics}
-                  aria-label="Show a different pair from today's verified topics"
-                  title="Cycles through today's verified topics — doesn't search live"
-                  className="rh-link-accent transition-colors"
-                  style={{ color: "#6B5B45", lineHeight: 0 }}
-                >
-                  <RotateCcw size={11} />
-                </button>
+            {/* real, live-searched stories — see
+                supabase/functions/generate-trending-topics. The "as of"
+                date reflects the actual cache timestamp now, not a
+                hand-maintained string that can silently go stale. */}
+            {trendingTopics.length > 0 && (
+              <div className="mt-8">
+                <div className="flex items-center justify-center gap-1.5 mb-1">
+                  <span className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: "#6B5B45" }}>
+                    In the news
+                  </span>
+                </div>
+                <div className="rh-mono mb-3" style={{ fontSize: "9px", color: "#5A4C38" }}>
+                  as of{" "}
+                  {new Date(trendingTopics[0].generated_at).toLocaleDateString(undefined, {
+                    month: "long",
+                    day: "numeric",
+                  })}
+                </div>
+                <div className="flex flex-wrap justify-center gap-3">
+                  {trendingTopics.map((t, i) => (
+                    <div key={`${t.field}-${i}`} className="flex flex-col items-center gap-1">
+                      <span className="rh-mono uppercase tracking-wider" style={{ fontSize: "8px", color: "#5A4C38" }}>
+                        {t.field}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => startTopic(t.topic)}
+                        disabled={rootLoading}
+                        title={t.teaser}
+                        className="rh-chip rh-body text-xs rounded-full px-3.5 py-1.5 border transition-colors disabled:opacity-40"
+                        style={{ borderColor: "#3A2E20", color: "#A89478", backgroundColor: "transparent" }}
+                      >
+                        {t.topic}
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="rh-mono mb-2" style={{ fontSize: "9px", color: "#5A4C38" }}>
-                as of {TODAYS_TOPICS_DATE}
-              </div>
-              <div className="flex flex-wrap justify-center gap-2">
-                {shownTopics.map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => startTopic(t)}
-                    disabled={rootLoading}
-                    className="rh-chip rh-body text-xs rounded-full px-3.5 py-1.5 border transition-colors disabled:opacity-40"
-                    style={{ borderColor: "#3A2E20", color: "#A89478", backgroundColor: "transparent" }}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-            </div>
+            )}
           </div>
         </div>
       )}

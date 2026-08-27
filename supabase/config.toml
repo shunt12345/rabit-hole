@@ -1,0 +1,8 @@
+project_id = "gflcioanuzrxgxxafnzl"
+
+# Cron-only — authenticated via its own x-cron-secret check (see the
+# function source), never a Supabase JWT. Deploying without this setting
+# would silently re-enable the platform's JWT gate and break the scheduled
+# pg_cron job, which doesn't send an Authorization header.
+[functions.generate-trending-topics]
+verify_jwt = false
