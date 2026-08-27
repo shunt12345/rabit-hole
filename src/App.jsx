@@ -273,6 +273,14 @@ const MOCK_SPONSOR = {
     brand: "Meridian Originals",
     label: "Trade Empires",
   },
+  // The app's own landing screen, below "In the news" — separate slot
+  // from tier1 (which sits on a topic's own page once you've dug in).
+  landing: {
+    brand: "Meridian Originals",
+    headline: "Where History Actually Went",
+    description: "A weekly documentary series chasing the real routes, ruins, and rivalries behind the topics you dig into here.",
+    cta: "Watch the trailer",
+  },
 };
 
 export default function RabbitHole() {
@@ -905,6 +913,29 @@ export default function RabbitHole() {
                 </div>
               </div>
             )}
+
+            {/* Ad (mockup) — bottom of the landing hero, below "In the news" */}
+            <div className="mt-8 p-4 rounded-2xl border text-left" style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}>
+              <span
+                className="rh-mono rh-text-10 uppercase tracking-wider px-2 py-0.5 rounded-full inline-block mb-2"
+                style={{ color: "#E3A73C", border: "1px solid #E3A73C55" }}
+              >
+                Sponsored · {MOCK_SPONSOR.landing.brand}
+              </span>
+              <div className="text-base font-semibold mb-1" style={{ color: "#F1E6D3" }}>
+                {MOCK_SPONSOR.landing.headline}
+              </div>
+              <p className="text-sm mb-3" style={{ color: "#B8A886" }}>
+                {MOCK_SPONSOR.landing.description}
+              </p>
+              <button
+                type="button"
+                className="text-sm font-medium rounded-full px-4 py-2 transition-colors"
+                style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
+              >
+                {MOCK_SPONSOR.landing.cta}
+              </button>
+            </div>
           </div>
         </div>
       )}
