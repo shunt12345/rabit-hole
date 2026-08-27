@@ -994,11 +994,15 @@ export default function RabbitHole() {
                               </span>
                             ) : null}
                           </p>
-                          {/* Ad tier 1 (mockup) — hero placement, root topic
-                              only, sandwiched between the article's first
-                              two paragraphs rather than sitting above the
-                              article entirely */}
-                          {selected.type === "root" && !selected.articleStreaming && i === 0 && arr.length > 1 && (
+                          {/* Ad tier 1 (mockup) — hero placement. Was
+                              root-only; branch nodes are where most of a
+                              session's actual page views happen once
+                              someone starts exploring outward, so this
+                              tier now shows on every node's article, not
+                              just the root's. Sandwiched between the
+                              article's first two paragraphs rather than
+                              sitting above the article entirely. */}
+                          {!selected.articleStreaming && i === 0 && arr.length > 1 && (
                             <div className="p-4 rounded-2xl border" style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}>
                               <span
                                 className="rh-mono rh-text-10 uppercase tracking-wider px-2 py-0.5 rounded-full inline-block mb-2"
