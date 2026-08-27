@@ -48,9 +48,11 @@ function fieldPrompt(field: string): string {
 
 Search for a genuinely current, real, verifiable news story from the last few days in this field: ${field}. Use a specific, well-targeted query rather than a generic phrase like "news today" — generic queries tend to surface evergreen category pages instead of an actual dated story. If your first search doesn't turn up something specific and recent, refine the query and search again.
 
+Current news only — no historical background or context. The topic and teaser must be about a specific thing that happened or was announced in the last few days, not general facts about the subject. For example, if the story involves a well-known company, don't lead with what the company is or its history — lead with the actual current news (a specific earnings report, product launch, lawsuit, executive change, etc. that just happened). A reader should immediately understand what's NEW, not get a primer on the subject.
+
 Once you've found a real story, produce:
-- "topic": a short, punchy 2-5 word label suitable as a one-tap starting point for someone exploring the topic (title case, no trailing punctuation)
-- "teaser": one enticing sentence (max 20 words) that would make someone curious to click it
+- "topic": a short, punchy 2-5 word label suitable as a one-tap starting point for someone exploring the topic (title case, no trailing punctuation) — name the current event/development, not just the subject's name
+- "teaser": one enticing sentence (max 20 words) describing the specific current development, written to make someone curious to click it
 - "source_url": the URL of the real source you found via search, supporting the story
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
