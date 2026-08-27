@@ -94,6 +94,11 @@ serve(async (req) => {
         model: MODEL,
         max_tokens: max_tokens || 1200,
         stream: !!stream,
+        // claude-sonnet-5 runs adaptive thinking by default; left enabled,
+        // thinking tokens can consume the whole max_tokens budget before any
+        // actual output is written (empty response, broken JSON parsing
+        // client-side). This app has no need for reasoning depth.
+        thinking: { type: "disabled" },
         messages,
       }),
     });
