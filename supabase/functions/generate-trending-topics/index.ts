@@ -42,17 +42,20 @@ const RETENTION_DAYS = 14;
 
 const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-function fieldPrompt(field: string): string {
+function fieldPrompt(field: string, excludeTopics: string[]): string {
   const today = new Date().toISOString().slice(0, 10);
+  const excludeBlock = excludeTopics.length
+    ? `\n\nAlready shown recently — pick something genuinely different from all of these, not a rephrasing of any of them: ${excludeTopics.join("; ")}.`
+    : "";
   return `Today's date is ${today}. You have live web search — use it now.
 
-Search for a genuinely current, real, verifiable news story from the last few days in this field: ${field}. Use a specific, well-targeted query rather than a generic phrase like "news today" — generic queries tend to surface evergreen category pages instead of an actual dated story. If your first search doesn't turn up something specific and recent, refine the query and search again.
+Search for a real, verifiable, and recent development in this field: ${field}. It doesn't have to be breaking news — anything genuinely current and fresh from roughly the last couple of weeks is fine — but it does need to be a specific real story, not something evergreen or generic. Use a specific, well-targeted query rather than a generic phrase like "news today" — generic queries tend to surface evergreen category pages instead of an actual dated story. If your first search doesn't turn up something specific, refine the query and search again.${excludeBlock}
 
-Current news only — no historical background or context. The topic and teaser must be about a specific thing that happened or was announced in the last few days, not general facts about the subject. For example, if the story involves a well-known company, don't lead with what the company is or its history — lead with the actual current news (a specific earnings report, product launch, lawsuit, executive change, etc. that just happened). A reader should immediately understand what's NEW, not get a primer on the subject.
+Current, specific, and fresh — no historical background or context. The topic and teaser must be about a specific thing that happened or was announced recently, not general facts about the subject. For example, if the story involves a well-known company, don't lead with what the company is or its history — lead with the actual news (a specific earnings report, product launch, lawsuit, executive change, etc.). A reader should immediately understand what's NEW, not get a primer on the subject.
 
 Once you've found a real story, produce:
 - "topic": a short, punchy 2-5 word label suitable as a one-tap starting point for someone exploring the topic (title case, no trailing punctuation) — name the current event/development, not just the subject's name
-- "teaser": one enticing sentence (max 20 words) describing the specific current development, written to make someone curious to click it
+- "teaser": one enticing sentence (max 20 words) describing the specific development, written to make someone curious to click it
 - "source_url": the URL of the real source you found via search, supporting the story
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
@@ -67,7 +70,7 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 // down with it.
 const PER_FIELD_TIMEOUT_MS = 60_000;
 
-async function generateForField(apiKey: string, field: string) {
+async function generateForField(apiKey: string, field: string, excludeTopics: string[]) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), PER_FIELD_TIMEOUT_MS);
   let anthropicRes: Response;
@@ -90,7 +93,7 @@ async function generateForField(apiKey: string, field: string) {
         // execution budget. The basic variant returns results directly with
         // no code-execution round trip, and one field took ~5s in testing.
         tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
-        messages: [{ role: "user", content: fieldPrompt(field) }],
+        messages: [{ role: "user", content: fieldPrompt(field, excludeTopics) }],
       }),
       signal: controller.signal,
     });
@@ -124,6 +127,27 @@ async function generateForField(apiKey: string, field: string) {
   return { field, topic, teaser, source_url: parsed.source_url || null };
 }
 
+// Recent topics per field, most-recent-first, so each run can be told what
+// NOT to repeat — without this, an independent search per field tends to
+// converge on the same single most-prominent story every time it runs.
+async function fetchRecentTopicsByField(): Promise<Record<string, string[]>> {
+  const { data, error } = await supabase
+    .from("trending_topics_cache")
+    .select("field, topic")
+    .order("generated_at", { ascending: false })
+    .limit(60);
+  if (error || !data) {
+    console.error("generate-trending-topics: failed to fetch recent topics for exclusion", error);
+    return {};
+  }
+  const byField: Record<string, string[]> = {};
+  for (const row of data) {
+    const list = (byField[row.field] ??= []);
+    if (list.length < 8 && !list.includes(row.topic)) list.push(row.topic);
+  }
+  return byField;
+}
+
 serve(async (req) => {
   const cronSecret = Deno.env.get("CRON_SECRET");
   if (!cronSecret || req.headers.get("x-cron-secret") !== cronSecret) {
@@ -141,7 +165,10 @@ serve(async (req) => {
     });
   }
 
-  const results = await Promise.allSettled(FIELDS.map((field) => generateForField(apiKey, field)));
+  const recentByField = await fetchRecentTopicsByField();
+  const results = await Promise.allSettled(
+    FIELDS.map((field) => generateForField(apiKey, field, recentByField[field] || []))
+  );
   const rows: any[] = [];
   const errors: string[] = [];
   const today = new Date().toISOString().slice(0, 10);
