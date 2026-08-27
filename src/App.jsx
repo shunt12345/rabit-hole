@@ -267,12 +267,20 @@ export default function RabbitHole() {
   const [rootLoading, setRootLoading] = useState(false);
   const [rootError, setRootError] = useState(null);
   const [rootPreview, setRootPreview] = useState("");
+  // { nodeId, text } — the currently-typing teaser for a node that was just
+  // selected and is still being expanded (its own branches + article are
+  // still generating). Not real streaming (the teaser text is already
+  // known, from the parent's response) — a deliberate typing animation so
+  // clicking "Explore next" gives the same "the app is working" cue as
+  // submitting a fresh topic does, instead of a bare loading spinner.
+  const [childPreview, setChildPreview] = useState(null);
   const [shownTopics, setShownTopics] = useState(() => TODAYS_TOPICS_POOL.slice(0, 2));
 
   const nodesRef = useRef([]);
   const selectedIdRef = useRef(null);
   const contentRef = useRef(null);
   const articleTextRef = useRef(null);
+  const childPreviewRevealRef = useRef(null);
 
   // Highlight-to-explore: uses the browser's OWN native text selection
   // (long-press then drag the OS's own handles, exactly like copying text)
@@ -637,8 +645,16 @@ export default function RabbitHole() {
         loadArticle(selectedId);
       }
     } else if (!node.loading) {
+      childPreviewRevealRef.current?.cancel();
+      setChildPreview(null);
+      const reveal = createPacedReveal((revealed) => setChildPreview({ nodeId: selectedId, text: revealed }));
+      childPreviewRevealRef.current = reveal;
+      reveal.push(node.teaser || "");
+      reveal.finish(node.teaser || "");
+
       expandNode(selectedId).finally(() => {
         if (selectedIdRef.current !== selectedId) return; // moved on to something else meanwhile
+        setChildPreview(null); // node.generated is now true — the real render path takes over
         const fresh = nodesRef.current.find((n) => n.id === selectedId);
         if (fresh && !fresh.article && !fresh.articleLoading) {
           loadArticle(selectedId);
@@ -906,7 +922,14 @@ export default function RabbitHole() {
               </h2>
 
               <div ref={articleTextRef} className="text-base leading-relaxed" style={{ color: "#F5EDDC" }}>
-                {(selected.type === "root" ? selected.overview || selected.teaser : selected.teaser) ? (
+                {childPreview && childPreview.nodeId === selected.id ? (
+                  <p>
+                    {childPreview.text}
+                    <span className="rh-cursor-blink" style={{ color: "#E3A73C" }}>
+                      {"▌"}
+                    </span>
+                  </p>
+                ) : (selected.type === "root" ? selected.overview || selected.teaser : selected.teaser) ? (
                   <p>{renderLinked(selected.type === "root" ? selected.overview || selected.teaser : selected.teaser, selectedChildren)}</p>
                 ) : null}
 
