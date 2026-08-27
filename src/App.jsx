@@ -258,27 +258,27 @@ const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trendi
 // data — and add real gating — when this becomes more than a mockup.
 const MOCK_SPONSOR = {
   tier1: {
-    brand: "Meridian Originals",
-    headline: "Trade Empires: How a Spice Route Rewired the World",
+    brand: "Farside Media",
+    headline: "The Deep End: A Show About Falling Down Rabbit Holes",
     description:
-      "A four-part documentary series, following the same roads, ports, and fortunes explored in this thread.",
-    cta: "Watch the first chapter",
+      "A weekly documentary series that picks one wildly specific obsession and actually chases it all the way down.",
+    cta: "Watch the first episode",
   },
   tier2: {
-    brand: "Cartographia",
-    text: "Trace this exact route on an interactive historical map.",
-    cta: "Explore the map",
+    brand: "Longshelf",
+    text: "Turn today's curiosity into your next real book — a new nonfiction pick every week.",
+    cta: "See this week's pick",
   },
   tier3: {
-    brand: "Meridian Originals",
-    label: "Trade Empires",
+    brand: "Farside Media",
+    label: "The Deep End",
   },
   // The app's own landing screen, below "In the news" — separate slot
   // from tier1 (which sits on a topic's own page once you've dug in).
   landing: {
-    brand: "Meridian Originals",
-    headline: "Where History Actually Went",
-    description: "A weekly documentary series chasing the real routes, ruins, and rivalries behind the topics you dig into here.",
+    brand: "Farside Media",
+    headline: "The Deep End: A Show About Falling Down Rabbit Holes",
+    description: "A weekly documentary series that picks one wildly specific obsession and actually chases it all the way down.",
     cta: "Watch the trailer",
   },
 };
