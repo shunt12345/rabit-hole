@@ -863,7 +863,7 @@ export default function RabbitHole() {
                 <div className="flex flex-wrap justify-center gap-3">
                   {trendingTopics.map((t, i) => (
                     <div key={`${t.field}-${i}`} className="flex flex-col items-center gap-1">
-                      <span className="rh-mono uppercase tracking-wider" style={{ fontSize: "8px", color: "#A89478" }}>
+                      <span className="rh-mono uppercase tracking-wider font-semibold" style={{ fontSize: "8px", color: "#E3A73C" }}>
                         {t.field}
                       </span>
                       <button
