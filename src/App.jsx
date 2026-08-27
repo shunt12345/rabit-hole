@@ -926,7 +926,7 @@ export default function RabbitHole() {
             <div className="mt-8 p-4 rounded-2xl border text-left" style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}>
               <span
                 className="rh-mono rh-text-10 uppercase tracking-wider px-2 py-0.5 rounded-full inline-block mb-2"
-                style={{ color: "#E3A73C", border: "1px solid #E3A73C55" }}
+                style={{ color: "#14100C", backgroundColor: "#E3A73C" }}
               >
                 Sponsored · {MOCK_SPONSOR.landing.brand}
               </span>
