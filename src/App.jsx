@@ -853,10 +853,12 @@ export default function RabbitHole() {
                 </div>
                 <div className="rh-mono mb-3" style={{ fontSize: "9px", color: "#A89478" }}>
                   as of{" "}
-                  {new Date(trendingTopics[0].generated_at).toLocaleDateString(undefined, {
-                    month: "long",
-                    day: "numeric",
-                  })}
+                  <span className="font-semibold" style={{ color: "#E3A73C" }}>
+                    {new Date(trendingTopics[0].generated_at).toLocaleDateString(undefined, {
+                      month: "long",
+                      day: "numeric",
+                    })}
+                  </span>
                 </div>
                 <div className="flex flex-wrap justify-center gap-3">
                   {trendingTopics.map((t, i) => (
