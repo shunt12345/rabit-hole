@@ -815,7 +815,7 @@ export default function RabbitHole() {
       </div>
 
       {!hasStarted && (
-        <div className="flex-1 flex flex-col items-center justify-center px-6 pb-10 overflow-y-auto">
+        <div className="flex-1 flex flex-col items-center px-6 pt-6 pb-10 overflow-y-auto">
           <div className="max-w-md w-full text-center rh-fade-in">
             <div className="rh-mono rh-text-10 rh-tracking-30 uppercase mb-4" style={{ color: "#A89478" }}>
               an excuse to keep going
