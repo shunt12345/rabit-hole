@@ -75,6 +75,8 @@ Topic: "${topicLabel}"
 
 Write at least two full paragraphs (roughly 130-220 words total) of genuinely interesting, accurate content about "${topicLabel}" specifically. The reader already found this topic captivating enough to click into it — reward that curiosity with real substance: concrete facts, an interesting mechanism, a surprising detail, or the "why this matters" behind it. Structure this as flowing prose paragraphs — not a bulleted list, not a dictionary definition, no headers, no title line.
 
+For the first paragraph only: open with the same kind of tone-appropriate hook sentence described below, then dial the energy back one notch for the rest of that paragraph — straightforward, factual, plainly defining what "${topicLabel}" actually is before the piece opens back up. From the second paragraph on, write fully in the tone below, energy all the way back up.
+
 ${HYPHA_TONE}${branchNote}
 
 Respond with ONLY the article text itself: plain prose paragraphs separated by a blank line. No JSON, no markdown formatting, no preamble like "Here's an article about...".`;
