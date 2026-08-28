@@ -802,7 +802,7 @@ export default function Hypha() {
             always another thread
           </div>
           <h1 className="flex items-center">
-            <img src="/hypha-logo.svg" alt="Hypha" className="h-8 md:h-10" />
+            <img src="/hypha-logo.png" alt="Hypha" className="h-8 md:h-10 w-auto" />
           </h1>
         </div>
         {hasStarted && (
