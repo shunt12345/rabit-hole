@@ -792,6 +792,8 @@ export default function Hypha() {
         .rh-btn-dark:hover { background-color: #2A2018 !important; }
         .rh-btn-accent:hover { background-color: #EDB94F !important; }
         .rh-link-accent:hover { color: #EDB94F !important; }
+        .rh-logo-btn { transition: opacity 0.15s; }
+        .rh-logo-btn:hover { opacity: 0.8; }
         .rh-chip:hover { filter: brightness(1.15); }
         .rh-crumb:hover { color: #EDB94F !important; }
         .rh-text-10 { font-size: 10px; }
@@ -807,7 +809,15 @@ export default function Hypha() {
         <div />
         <div className="flex flex-col items-center text-center">
           <h1 className="flex items-center">
-            <img src="/hypha-logo.png" alt="Hypha" className="h-8 md:h-10 w-auto" />
+            <button
+              type="button"
+              onClick={reset}
+              aria-label="Back to home"
+              className="flex items-center rh-logo-btn"
+              style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}
+            >
+              <img src="/hypha-logo.png" alt="Hypha" className="h-8 md:h-10 w-auto" />
+            </button>
           </h1>
           <div className="rh-mono rh-text-10 rh-tracking-25 uppercase mt-1" style={{ color: "#A89478" }}>
             always another thread
