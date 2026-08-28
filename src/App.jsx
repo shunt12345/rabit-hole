@@ -299,6 +299,9 @@ export default function Hypha() {
   // submitting a fresh topic does, instead of a bare loading spinner.
   const [childPreview, setChildPreview] = useState(null);
   const [trendingTopics, setTrendingTopics] = useState([]);
+  // Which "In the news" card was clicked, so only that one highlights
+  // instead of all four dimming identically once rootLoading flips on.
+  const [selectedNewsIdx, setSelectedNewsIdx] = useState(null);
 
   const nodesRef = useRef([]);
   const selectedIdRef = useRef(null);
@@ -433,6 +436,7 @@ export default function Hypha() {
         setRootError("Type a topic first.");
         return;
       }
+      setSelectedNewsIdx(null);
       startTopic(inputVal);
     } catch (syncErr) {
       console.error("Hypha: synchronous error on click", syncErr);
@@ -487,6 +491,7 @@ export default function Hypha() {
     } catch (e) {
       console.error("Hypha: startTopic failed", e);
       reveal.cancel();
+      setSelectedNewsIdx(null);
       setRootError(e.message || "Something went wrong reaching Claude. Try again.");
     } finally {
       setRootLoading(false);
@@ -818,7 +823,7 @@ export default function Hypha() {
       </div>
 
       {!hasStarted && (
-        <div className="flex-1 flex flex-col items-center px-6 pt-2 pb-10 overflow-y-auto">
+        <div className="flex-1 flex flex-col items-center px-6 pt-10 md:pt-16 pb-10 overflow-y-auto">
           <div className="max-w-md w-full text-center rh-fade-in">
             <h2 className="rh-display rh-hero-headline italic mb-8" style={{ color: "#F1E6D3" }}>
               Follow any thought
@@ -895,26 +900,37 @@ export default function Hypha() {
                   </span>
                 </div>
                 <div className="flex flex-col gap-3 max-w-md mx-auto">
-                  {trendingTopics.map((t, i) => (
-                    <button
-                      key={`${t.field}-${i}`}
-                      type="button"
-                      onClick={() => startTopic(t.topic)}
-                      disabled={rootLoading}
-                      className="rh-chip text-left p-4 rounded-2xl border transition-colors disabled:opacity-40"
-                      style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}
-                    >
-                      <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
-                        {t.field}
-                      </span>
-                      <div className="rh-body text-lg font-semibold mt-1" style={{ color: "#F1E6D3" }}>
-                        {t.topic}
-                      </div>
-                      <p className="rh-body text-sm mt-1" style={{ color: "#B8A886" }}>
-                        {t.teaser}
-                      </p>
-                    </button>
-                  ))}
+                  {trendingTopics.map((t, i) => {
+                    const isSelected = selectedNewsIdx === i;
+                    return (
+                      <button
+                        key={`${t.field}-${i}`}
+                        type="button"
+                        onClick={() => {
+                          setSelectedNewsIdx(i);
+                          startTopic(t.topic);
+                        }}
+                        disabled={rootLoading}
+                        className={`rh-chip text-left p-4 rounded-2xl border transition-colors ${
+                          rootLoading && !isSelected ? "opacity-40" : ""
+                        } ${rootLoading && isSelected ? "cursor-default" : ""}`}
+                        style={{
+                          borderColor: isSelected ? "#E3A73C" : "#3A2E20",
+                          backgroundColor: isSelected ? "#2A2015" : "#1F1811",
+                        }}
+                      >
+                        <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
+                          {t.field}
+                        </span>
+                        <div className="rh-body text-lg font-semibold mt-1" style={{ color: "#F1E6D3" }}>
+                          {t.topic}
+                        </div>
+                        <p className="rh-body text-sm mt-1" style={{ color: "#B8A886" }}>
+                          {t.teaser}
+                        </p>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
