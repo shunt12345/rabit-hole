@@ -16,6 +16,13 @@
 // front of the forward step below, using the same request/response shape —
 // not a parallel path or a second function.
 //
+// Interim safety net (not real Phase 2 accounts, just a cost ceiling before
+// that exists): each anonymous session is capped at DAILY_REQUEST_LIMIT
+// requests per rolling 24h, counted straight off the log table below. Fails
+// OPEN if the count query itself errors — a monitoring hiccup should never
+// block a real person's request — and never blocks on session ids that
+// aren't in active use, since the cap is per-session, not global.
+//
 // DEPLOY STEPS:
 //   1. supabase functions new rabbit-hole-proxy
 //   2. Replace the generated index.ts with this file's contents
@@ -37,6 +44,12 @@ const corsHeaders = {
 // over Haiku 4.5 after a real side-by-side comparison, see the handoff
 // README. Don't let a client-supplied model override this.
 const MODEL = "claude-sonnet-5";
+
+// Per-session-per-day request ceiling — overridable without a redeploy via
+// `supabase secrets set DAILY_REQUEST_LIMIT=...`. 300 is generous headroom
+// for genuinely heavy single-day use while still catching a runaway loop
+// or a link forwarded well past the "friends" scale this key is sized for.
+const DAILY_REQUEST_LIMIT = Number(Deno.env.get("DAILY_REQUEST_LIMIT") ?? "300");
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -78,6 +91,23 @@ serve(async (req) => {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { count, error: countError } = await supabase
+      .from("rabbit_hole_request_logs")
+      .select("*", { count: "exact", head: true })
+      .eq("session_id", sessionId || "unknown")
+      .gte("created_at", since);
+
+    if (countError) {
+      // fail open — a logging/count hiccup shouldn't block a real request
+      console.error("rabbit-hole-proxy: usage count check failed, allowing request", countError);
+    } else if ((count ?? 0) >= DAILY_REQUEST_LIMIT) {
+      return new Response(
+        "Daily limit reached for this browser — try again tomorrow. (This app runs on a shared demo key with a safety cap to prevent runaway costs.)",
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "text/plain" } }
+      );
     }
 
     // fire-and-forget — never block the actual Claude call on this
