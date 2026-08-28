@@ -818,19 +818,13 @@ export default function Hypha() {
       </div>
 
       {!hasStarted && (
-        <div className="flex-1 flex flex-col items-center px-6 pt-6 pb-10 overflow-y-auto">
+        <div className="flex-1 flex flex-col items-center px-6 pt-2 pb-10 overflow-y-auto">
           <div className="max-w-md w-full text-center rh-fade-in">
-            <div className="rh-mono rh-text-10 rh-tracking-30 uppercase mb-4" style={{ color: "#A89478" }}>
-              an excuse to keep going
-            </div>
-            <h2 className="rh-display rh-hero-headline italic mb-4" style={{ color: "#F1E6D3" }}>
+            <h2 className="rh-display rh-hero-headline italic mb-8" style={{ color: "#F1E6D3" }}>
               Follow any thought
               <br />
               as far as it goes.
             </h2>
-            <p className="rh-body text-sm mb-8" style={{ color: "#A89478" }}>
-              Drop in a topic. Claude surfaces what's directly connected, what's adjacent, and one thing you'd never expect.
-            </p>
 
             <div className="flex items-center gap-2">
               <input
