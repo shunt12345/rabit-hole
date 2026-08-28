@@ -68,14 +68,14 @@ async function fetchArticleTextStreaming(topicLabel, path, childLabels, onChunk)
           ", "
         )}. Where it reads naturally, mention two or three of them by their exact name as you go — the way a good explainer casually references related ideas — so a reader can jump straight to them. Don't force in every single one, don't turn it into a list, and never alter the wording of a name you do use — write it out exactly as given above so it can be linked.`
       : "";
-  const prompt = `You're writing the "read more" deep-dive for a node in an educational "rabbit hole" exploration app.
+  const prompt = `You're writing the "read more" deep-dive for a node in an educational curiosity-exploration app.
 
 Path so far: ${path.join(" → ")}
 Topic: "${topicLabel}"
 
 Write at least two full paragraphs (roughly 130-220 words total) of genuinely interesting, accurate content about "${topicLabel}" specifically. The reader already found this topic captivating enough to click into it — reward that curiosity with real substance: concrete facts, an interesting mechanism, a surprising detail, or the "why this matters" behind it. Structure this as flowing prose paragraphs — not a bulleted list, not a dictionary definition, no headers, no title line.
 
-${RABBIT_HOLE_TONE}${branchNote}
+${HYPHA_TONE}${branchNote}
 
 Respond with ONLY the article text itself: plain prose paragraphs separated by a blank line. No JSON, no markdown formatting, no preamble like "Here's an article about...".`;
 
@@ -90,7 +90,7 @@ Respond with ONLY the article text itself: plain prose paragraphs separated by a
 // satisfying next layer for someone who wants a little more, not a
 // dissertation.
 async function fetchArticleContinuationStreaming(topicLabel, path, existingArticle, onChunk) {
-  const prompt = `You're extending the "read more" content for a node in an educational "rabbit hole" exploration app — the reader already read the deep-dive below and tapped "dig deeper" because they want a bit more on this SAME topic before moving on.
+  const prompt = `You're extending the "read more" content for a node in an educational curiosity-exploration app — the reader already read the deep-dive below and tapped "dig deeper" because they want a bit more on this SAME topic before moving on.
 
 Path so far: ${path.join(" → ")}
 Topic: "${topicLabel}"
@@ -102,7 +102,7 @@ ${existingArticle}
 
 Write one or two more paragraphs (roughly 90-160 words total) that continue naturally from where that left off — genuinely new angles, facts, or texture not already covered above, not a rephrasing of it. This app is entertainment, not a research tool, so don't try to be exhaustive or academic — just give a satisfying next layer for someone who's curious enough to want a little more, then let it end there. Structure as flowing prose paragraphs — not a bulleted list, no headers, no title line, and don't repeat the topic name as an opener the way an article intro would.
 
-${RABBIT_HOLE_TONE}
+${HYPHA_TONE}
 
 Respond with ONLY the continuation text itself: plain prose paragraphs separated by a blank line. No JSON, no markdown formatting, no preamble.`;
 
@@ -150,7 +150,7 @@ function branchMix() {
 // The app is entertainment, not a reference tool — the voice it writes in
 // matters as much as what it says. Fixed to "unhinged": unfiltered,
 // barely-contained enthusiasm about how wild the facts themselves are.
-const RABBIT_HOLE_TONE =
+const HYPHA_TONE =
   "Tone: write with unfiltered, barely-contained enthusiasm about how wild the facts themselves are — breathless run-on excitement, dashes and sentence rhythm doing a lot of the work, energy dialed way up. Plain text only — no asterisks, no markdown of any kind, ever; convey emphasis through word choice and pacing, not formatting characters. Never write in first person and never use \"I\", \"me\", or \"mine\" — the excitement lives entirely in the words and pacing describing the topic, not in a narrator's voice talking about itself. Still fully accurate underneath the chaos, just... a lot." +
   " Vary the language — don't lean on the same handful of crutch words across responses (especially \"wild\"/\"wildly,\" \"chaos\"/\"chaotic,\" \"somehow,\" \"genuinely,\" or opening a line with \"Nobody...\"); reach for a specific, weird, concrete detail of THIS topic instead of a generic intensifier that could describe anything. Vary sentence shape too — not every line needs to end in a dash and a short reactive tag (\"— how.\", \"— and it's glorious.\"); let some sentences build to a full punchline, some just state a stunning fact plainly with no flourish at all, some run long and breathless with no dash in sight. Repeating the same trick is what makes energetic writing start to feel tired — the variety is part of the energy.";
 
@@ -193,11 +193,11 @@ function normalizeChildren(rawChildren) {
 
 function rootPrompt(topic) {
   const spec = childrenSpec("the topic");
-  return `You're building an educational "rabbit hole" exploration app for curious learners.
+  return `You're building an educational curiosity-exploration app for curious learners.
 
 Starting topic: "${topic}"
 
-${RABBIT_HOLE_TONE}
+${HYPHA_TONE}
 
 Write:
 1. "rootLabel": a short display title for this topic itself — 1-3 words, title case, trimmed of filler ("How To Build A Fire" → "Build A Fire", "What Causes Rain" → "Rain"). This is what shows at the top of the page, so keep it tight and literal — no jokes here even in a comedic tone, save that for the overview and teasers below.
@@ -216,12 +216,12 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 
 function childPrompt(label, path, existingLabels, depth) {
   const spec = childrenSpec(`"${label}"`);
-  return `You're building an educational "rabbit hole" exploration app for curious learners.
+  return `You're building an educational curiosity-exploration app for curious learners.
 
 Path so far: ${path.join(" → ")}
 Now expanding: "${label}" (${depth} click${depth === 1 ? "" : "s"} away from the original topic)
 
-${RABBIT_HOLE_TONE}
+${HYPHA_TONE}
 
 Generate exactly ${spec.total} branches to explore next from "${label}":
 ${spec.lines}
@@ -283,7 +283,7 @@ const MOCK_SPONSOR = {
   },
 };
 
-export default function RabbitHole() {
+export default function Hypha() {
   const [topic, setTopic] = useState("");
   const [inputVal, setInputVal] = useState("");
   const [nodes, setNodes] = useState([]);
@@ -427,7 +427,7 @@ export default function RabbitHole() {
   // of anything else — proves the click registered even if startTopic itself
   // fails in some unexpected way.
   const handleStartClick = () => {
-    console.log("Rabbit Hole: Dig in tapped, value =", JSON.stringify(inputVal));
+    console.log("Hypha: Dig in tapped, value =", JSON.stringify(inputVal));
     try {
       if (!inputVal.trim()) {
         setRootError("Type a topic first.");
@@ -435,7 +435,7 @@ export default function RabbitHole() {
       }
       startTopic(inputVal);
     } catch (syncErr) {
-      console.error("Rabbit Hole: synchronous error on click", syncErr);
+      console.error("Hypha: synchronous error on click", syncErr);
       setRootError(`Unexpected error: ${syncErr.message || syncErr}`);
       setRootLoading(false);
     }
@@ -485,7 +485,7 @@ export default function RabbitHole() {
       setNodes(newNodes);
       setSelectedId(root.id);
     } catch (e) {
-      console.error("Rabbit Hole: startTopic failed", e);
+      console.error("Hypha: startTopic failed", e);
       reveal.cancel();
       setRootError(e.message || "Something went wrong reaching Claude. Try again.");
     } finally {
@@ -496,7 +496,7 @@ export default function RabbitHole() {
 
   // Reads a starting topic straight from the URL on load, e.g.
   // ?topic=octopus%20cognition — the foundation piece for anything that
-  // wants to hand off INTO Rabbit Hole from somewhere else (a bookmarklet,
+  // wants to hand off INTO Hypha from somewhere else (a bookmarklet,
   // a browser extension, a link shared from another app). This alone
   // doesn't capture text from other webpages — it's the landing side of
   // that handoff, what any of those tools would actually link to. Only
@@ -511,7 +511,7 @@ export default function RabbitHole() {
         startTopic(urlTopic);
       }
     } catch (e) {
-      console.error("Rabbit Hole: failed to read topic from URL", e);
+      console.error("Hypha: failed to read topic from URL", e);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -533,7 +533,7 @@ export default function RabbitHole() {
       .then((rows) => {
         if (!cancelled) setTrendingTopics(Array.isArray(rows) ? rows : []);
       })
-      .catch((e) => console.error("Rabbit Hole: failed to load trending topics", e));
+      .catch((e) => console.error("Hypha: failed to load trending topics", e));
     return () => {
       cancelled = true;
     };
@@ -580,7 +580,7 @@ export default function RabbitHole() {
       nodesRef.current = newNodes;
       setNodes(newNodes);
     } catch (e) {
-      console.error("Rabbit Hole: expandNode failed", e);
+      console.error("Hypha: expandNode failed", e);
       node.loading = false;
       node.error = e.message || "Dig failed — try again.";
       setNodes([...nodesRef.current]);
@@ -622,7 +622,7 @@ export default function RabbitHole() {
       node.articleStreaming = false;
       node.articleLoading = false;
     } catch (e) {
-      console.error("Rabbit Hole: loadArticle failed", e);
+      console.error("Hypha: loadArticle failed", e);
       reveal.cancel();
       node.articleLoading = false;
       node.articleStreaming = false;
@@ -660,7 +660,7 @@ export default function RabbitHole() {
       node.articleStreaming = false;
       node.deepened = true;
     } catch (e) {
-      console.error("Rabbit Hole: deepenArticle failed", e);
+      console.error("Hypha: deepenArticle failed", e);
       reveal.cancel();
       node.article = baseArticle;
       node.articleStreaming = false;
@@ -799,10 +799,10 @@ export default function RabbitHole() {
       <div className="flex items-start justify-between p-5 md:p-7 shrink-0">
         <div>
           <div className="rh-mono rh-text-10 rh-tracking-25 uppercase mb-1" style={{ color: "#A89478" }}>
-            no bottom in sight
+            always another thread
           </div>
-          <h1 className="rh-display text-2xl md:text-3xl italic" style={{ color: "#F1E6D3" }}>
-            Rabbit Hole
+          <h1 className="flex items-center">
+            <img src="/hypha-logo.svg" alt="Hypha" className="h-8 md:h-10" />
           </h1>
         </div>
         {hasStarted && (
@@ -1189,7 +1189,7 @@ export default function RabbitHole() {
                     style={{ color: "#F1E6D3", backgroundColor: "#1F1811", borderColor: "#3A2E20" }}
                   >
                     <RotateCcw size={12} />
-                    New rabbit hole
+                    New thread
                   </button>
                 </div>
               </div>

@@ -1,10 +1,15 @@
-# Rabbit Hole
+# Hypha
 
 A curiosity-driven exploration app: drop in a topic, get branches to explore
 next (a mix of direct facts, adjacent ideas, and deliberately wild
 tangential leaps), read a short AI-generated article per topic, keep
 branching. Entertainment-first, not a research tool — the voice is
 deliberately "unhinged" (breathless, energetic, witty).
+
+Renamed from "Rabbit Hole" — the backend function/table names below
+(`rabbit-hole-proxy`, `rabbit_hole_request_logs`) still use the original
+name since renaming deployed Supabase infra is a separate, riskier change
+that hasn't been done yet. They're the same backend, just pre-rename names.
 
 This is the standalone version of an app that started as a single-file
 React component inside a claude.ai artifact. See

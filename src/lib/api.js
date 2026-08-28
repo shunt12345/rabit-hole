@@ -47,7 +47,7 @@ async function fetchClaudeText(prompt, maxTokens, endpoint) {
     if (networkErr.name === "AbortError") {
       throw new Error("Request timed out after 25s — no response from the API.");
     }
-    console.error("Rabbit Hole: network error calling Claude", networkErr);
+    console.error("Hypha: network error calling Claude", networkErr);
     throw new Error(`Network error: ${networkErr.message || "fetch failed"}`);
   } finally {
     clearTimeout(timeoutId);
@@ -58,7 +58,7 @@ async function fetchClaudeText(prompt, maxTokens, endpoint) {
     try {
       bodySnippet = (await res.text()).slice(0, 200);
     } catch (_) {}
-    console.error("Rabbit Hole: API returned non-OK status", res.status, bodySnippet);
+    console.error("Hypha: API returned non-OK status", res.status, bodySnippet);
     throw new Error(`API returned ${res.status}${bodySnippet ? `: ${bodySnippet}` : ""}`);
   }
 
@@ -68,7 +68,7 @@ async function fetchClaudeText(prompt, maxTokens, endpoint) {
     .map((b) => b.text)
     .join("");
   if (!text) {
-    console.error("Rabbit Hole: no text content in API response", data);
+    console.error("Hypha: no text content in API response", data);
     throw new Error("Empty response from the API.");
   }
   return text;
@@ -80,13 +80,13 @@ export async function callClaude(prompt, endpoint) {
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
   if (start === -1 || end === -1) {
-    console.error("Rabbit Hole: couldn't find JSON in response text", text);
+    console.error("Hypha: couldn't find JSON in response text", text);
     throw new Error("Couldn't parse the API's response.");
   }
   try {
     return JSON.parse(cleaned.slice(start, end + 1));
   } catch (parseErr) {
-    console.error("Rabbit Hole: JSON parse failed", parseErr, cleaned);
+    console.error("Hypha: JSON parse failed", parseErr, cleaned);
     throw new Error("Couldn't parse the API's response.");
   }
 }
@@ -117,7 +117,7 @@ async function streamRaw(prompt, maxTokens, timeoutMs, endpoint, onChunk) {
     if (networkErr.name === "AbortError") {
       throw new Error("Request timed out — no response from the API.");
     }
-    console.error("Rabbit Hole: network error streaming", networkErr);
+    console.error("Hypha: network error streaming", networkErr);
     throw new Error(`Network error: ${networkErr.message || "fetch failed"}`);
   }
 
@@ -127,7 +127,7 @@ async function streamRaw(prompt, maxTokens, timeoutMs, endpoint, onChunk) {
     try {
       bodySnippet = (await res.text()).slice(0, 200);
     } catch (_) {}
-    console.error("Rabbit Hole: stream returned non-OK status", res.status, bodySnippet);
+    console.error("Hypha: stream returned non-OK status", res.status, bodySnippet);
     throw new Error(`API returned ${res.status}${bodySnippet ? `: ${bodySnippet}` : ""}`);
   }
 
@@ -173,7 +173,7 @@ async function streamRaw(prompt, maxTokens, timeoutMs, endpoint, onChunk) {
       }
     }
   } catch (streamErr) {
-    console.error("Rabbit Hole: stream failed", streamErr);
+    console.error("Hypha: stream failed", streamErr);
     if (!gotAnyData) throw streamErr;
     // if we already streamed in some real text before failing, keep it rather
     // than throwing the whole thing away — partial content is still useful
@@ -220,13 +220,13 @@ export async function streamJSON(prompt, endpoint, onOverviewChunk) {
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
   if (start === -1 || end === -1) {
-    console.error("Rabbit Hole: couldn't find JSON in streamed response", fullText);
+    console.error("Hypha: couldn't find JSON in streamed response", fullText);
     throw new Error("Couldn't parse the API's response.");
   }
   try {
     return JSON.parse(cleaned.slice(start, end + 1));
   } catch (parseErr) {
-    console.error("Rabbit Hole: JSON parse failed", parseErr, cleaned);
+    console.error("Hypha: JSON parse failed", parseErr, cleaned);
     throw new Error("Couldn't parse the API's response.");
   }
 }
