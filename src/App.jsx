@@ -61,19 +61,22 @@ function linkifyText(text, children) {
 // parses the API's server-sent-event chunks directly and calls onChunk
 // with the accumulated text so far after every delta, so the screen can
 // render it growing in real time rather than sitting on a spinner.
-async function fetchArticleTextStreaming(topicLabel, path, childLabels, onChunk) {
+async function fetchArticleTextStreaming(topicLabel, path, childLabels, onChunk, newsContext) {
   const branchNote =
     childLabels && childLabels.length
       ? `\n\nThis topic already branches into these related threads: ${childLabels.join(
           ", "
         )}. Where it reads naturally, mention two or three of them by their exact name as you go — the way a good explainer casually references related ideas — so a reader can jump straight to them. Don't force in every single one, don't turn it into a list, and never alter the wording of a name you do use — write it out exactly as given above so it can be linked.`
       : "";
+  const newsNote = newsContext
+    ? `\n\nThis topic was picked from a live "In the news" feed because of a specific current story: "${newsContext}". Somewhere in this article — ideally early — name the actual concrete current event, detail, or figure from that note, so the reader understands why this is in the news right now instead of getting a timeless explainer that never says what just happened.`
+    : "";
   const prompt = `You're writing the "read more" deep-dive for a node in an educational curiosity-exploration app.
 
 Path so far: ${path.join(" → ")}
 Topic: "${topicLabel}"
 
-Write at least two full paragraphs (roughly 130-220 words total) of genuinely interesting, accurate content about "${topicLabel}" specifically. The reader already found this topic captivating enough to click into it — reward that curiosity with real substance: concrete facts, an interesting mechanism, a surprising detail, or the "why this matters" behind it. Structure this as flowing prose paragraphs — not a bulleted list, not a dictionary definition, no headers, no title line.
+Write at least two full paragraphs (roughly 130-220 words total) of genuinely interesting, accurate content about "${topicLabel}" specifically. The reader already found this topic captivating enough to click into it — reward that curiosity with real substance: concrete facts, an interesting mechanism, a surprising detail, or the "why this matters" behind it. Structure this as flowing prose paragraphs — not a bulleted list, not a dictionary definition, no headers, no title line.${newsNote}
 
 For the first paragraph only: open with the same kind of tone-appropriate hook sentence described below, then dial the energy back one notch for the rest of that paragraph — straightforward, factual, plainly defining what "${topicLabel}" actually is before the piece opens back up. From the second paragraph on, write fully in the tone below, energy all the way back up.
 
@@ -193,13 +196,16 @@ function normalizeChildren(rawChildren) {
   return [...buckets.direct.slice(0, mix.direct), ...buckets.indirect.slice(0, mix.indirect), ...buckets.tangent.slice(0, mix.tangent)];
 }
 
-function rootPrompt(topic) {
+function rootPrompt(topic, newsContext) {
   const spec = childrenSpec("the topic");
+  const newsNote = newsContext
+    ? `\n\nThis topic was picked from a live "In the news" feed because of a specific current story: "${newsContext}". The overview MUST make that current relevance explicit — name the actual concrete current event, detail, or figure from that note so the reader immediately knows why this is in the news right now. Don't write a generic, timeless explainer of the general subject that could've been written any year.`
+    : "";
   return `You're building an educational curiosity-exploration app for curious learners.
 
 Starting topic: "${topic}"
 
-${HYPHA_TONE}
+${HYPHA_TONE}${newsNote}
 
 Write:
 1. "rootLabel": a short display title for this topic itself — 1-3 words, title case, trimmed of filler ("How To Build A Fire" → "Build A Fire", "What Causes Rain" → "Rain"). This is what shows at the top of the page, so keep it tight and literal — no jokes here even in a comedic tone, save that for the overview and teasers below.
@@ -447,7 +453,7 @@ export default function Hypha() {
     }
   };
 
-  const startTopic = async (raw) => {
+  const startTopic = async (raw, newsContext) => {
     const t = raw.trim();
     if (!t) return;
     setRootError(null);
@@ -463,7 +469,7 @@ export default function Hypha() {
     const reveal = createPacedReveal((revealed) => setRootPreview(revealed));
 
     try {
-      const data = await streamJSON(rootPrompt(t), "root", (partialOverview) => reveal.push(partialOverview));
+      const data = await streamJSON(rootPrompt(t, newsContext), "root", (partialOverview) => reveal.push(partialOverview));
       await reveal.finish(data.overview || "");
       const root = {
         id: nextId(),
@@ -482,6 +488,7 @@ export default function Hypha() {
         articleError: null,
         deepened: false,
         deepenError: null,
+        newsContext: newsContext || null,
       };
       const children = placeChildren(root, normalizeChildren(data.children));
       const newNodes = [root, ...children];
@@ -615,15 +622,21 @@ export default function Hypha() {
     });
     try {
       let first = true;
-      const finalText = await fetchArticleTextStreaming(node.label, path, childLabels, (partial) => {
-        if (first) {
-          node.articleLoading = false;
-          node.articleStreaming = true;
-          first = false;
-          setNodes([...nodesRef.current]);
-        }
-        reveal.push(partial);
-      });
+      const finalText = await fetchArticleTextStreaming(
+        node.label,
+        path,
+        childLabels,
+        (partial) => {
+          if (first) {
+            node.articleLoading = false;
+            node.articleStreaming = true;
+            first = false;
+            setNodes([...nodesRef.current]);
+          }
+          reveal.push(partial);
+        },
+        node.newsContext
+      );
       await reveal.finish(finalText);
       node.article = stripMarkdown(finalText);
       node.articleStreaming = false;
@@ -920,7 +933,7 @@ export default function Hypha() {
                         type="button"
                         onClick={() => {
                           setSelectedNewsIdx(i);
-                          startTopic(t.topic);
+                          startTopic(t.topic, t.teaser);
                         }}
                         disabled={rootLoading}
                         className={`rh-chip text-left p-4 rounded-2xl border transition-colors ${
