@@ -796,22 +796,25 @@ export default function Hypha() {
       `}</style>
 
       {/* header — always present, right side only once a topic exists */}
-      <div className="flex items-start justify-between p-5 md:p-7 shrink-0">
-        <div>
-          <div className="rh-mono rh-text-10 rh-tracking-25 uppercase mb-1" style={{ color: "#A89478" }}>
-            always another thread
-          </div>
+      <div className="grid grid-cols-3 items-start p-5 md:p-7 shrink-0">
+        <div />
+        <div className="flex flex-col items-center text-center">
           <h1 className="flex items-center">
             <img src="/hypha-logo.png" alt="Hypha" className="h-8 md:h-10 w-auto" />
           </h1>
-        </div>
-        {hasStarted && (
-          <div className="flex items-center gap-3">
-            <div className="rh-mono rh-text-10" style={{ color: "#A89478" }}>
-              {nodes.length} thought{nodes.length === 1 ? "" : "s"} uncovered
-            </div>
+          <div className="rh-mono rh-text-10 rh-tracking-25 uppercase mt-1" style={{ color: "#A89478" }}>
+            always another thread
           </div>
-        )}
+        </div>
+        <div className="flex justify-end">
+          {hasStarted && (
+            <div className="flex items-center gap-3">
+              <div className="rh-mono rh-text-10" style={{ color: "#A89478" }}>
+                {nodes.length} thought{nodes.length === 1 ? "" : "s"} uncovered
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {!hasStarted && (
