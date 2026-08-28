@@ -820,13 +820,7 @@ export default function Hypha() {
       {!hasStarted && (
         <div className="flex-1 flex flex-col items-center px-6 pt-2 pb-10 overflow-y-auto">
           <div className="max-w-md w-full text-center rh-fade-in">
-            <h2 className="rh-display rh-hero-headline italic mb-8" style={{ color: "#F1E6D3" }}>
-              Follow any thought
-              <br />
-              as far as it goes.
-            </h2>
-
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 mt-8">
               <input
                 value={inputVal}
                 onChange={(e) => setInputVal(e.target.value)}
