@@ -80,6 +80,8 @@ Write at least two full paragraphs (roughly 130-220 words total) of genuinely in
 
 For the first paragraph only: open with the same kind of tone-appropriate hook sentence described below, then dial the energy back one notch for the rest of that paragraph — straightforward, factual, plainly defining what "${topicLabel}" actually is before the piece opens back up. From the second paragraph on, write fully in the tone below, energy all the way back up.
 
+The second paragraph's opening sentence specifically needs a genuinely different shape each time this runs — it's the one line that's drifted into a predictable "and now here's the escalation" pattern. Pick whichever of these actually fits this fact best, not the same one out of habit: drop a startling concrete number or fact cold with no windup; name a specific person, place, date, or object first; ask a real question; paint a quick physical image or scene; state something flatly with no transition at all. Whatever you pick, do NOT open it with a stock pivot phrase like "But here's the thing," "Here's where it gets [wild/weirder/etc.]," "Now here's the part that," "And that's just the beginning," or any close variant — those are exactly the crutch this is meant to break.
+
 ${HYPHA_TONE}${branchNote}
 
 Respond with ONLY the article text itself: plain prose paragraphs separated by a blank line. No JSON, no markdown formatting, no preamble like "Here's an article about...".`;
