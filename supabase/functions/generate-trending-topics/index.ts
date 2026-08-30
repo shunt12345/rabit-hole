@@ -9,11 +9,11 @@
 // intentionally does not reuse).
 //
 // One Claude call per field, run concurrently, rather than a single call
-// covering all 4 — a combined call doing 4 searches' worth of work in one
-// request risked the edge runtime's execution limit (seen in testing:
-// WORKER_RESOURCE_LIMIT on a request that ran past ~60s). Per-field calls
-// finish faster individually and fail independently — one field erroring
-// doesn't take the other three down with it.
+// covering all of them — a combined call doing every field's search/lookup
+// in one request risked the edge runtime's execution limit (seen in
+// testing: WORKER_RESOURCE_LIMIT on a request that ran past ~60s).
+// Per-field calls finish faster individually and fail independently — one
+// field erroring doesn't take the others down with it.
 //
 // Protected by a shared secret (checked against the CRON_SECRET function
 // secret), not the public anon key — each run costs real search +
@@ -34,7 +34,12 @@
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const FIELDS = ["World News", "Science", "Technology", "Culture & Arts"];
+const NEWS_FIELDS = ["World News", "Science", "Technology"];
+// Date-anchored, not news-search — same card treatment and cache table as
+// the news fields, but built from a different prompt (see promptForField)
+// since "recent development" doesn't apply to either of these.
+const SPECIAL_FIELDS = ["National Day", "This Day In History"];
+const FIELDS = [...NEWS_FIELDS, ...SPECIAL_FIELDS];
 const MODEL = "claude-sonnet-5";
 // How long a batch stays around before cleanup — just tidiness, not a
 // correctness requirement (the app only ever reads the latest batch_date).
@@ -60,6 +65,50 @@ Once you've found a real story, produce:
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
+}
+
+function nationalDayPrompt(excludeTopics: string[]): string {
+  const today = new Date();
+  const monthDay = today.toLocaleDateString("en-US", { month: "long", day: "numeric" });
+  const excludeBlock = excludeTopics.length
+    ? `\n\nAlready shown recently — pick a different one this time, not a repeat of any of these: ${excludeTopics.join("; ")}.`
+    : "";
+  return `Today's date is ${today.toISOString().slice(0, 10)} (${monthDay}). You have live web search — use it now.
+
+Search for a real, verifiable "National ___ Day" (or similar unofficial U.S. observance) that falls specifically on ${monthDay} — these repeat every year on the same month and day regardless of which year you find it listed under. If more than one observance falls on this date, pick whichever is genuinely more fun or interesting, not the most obscure option just to be different.${excludeBlock}
+
+Once you've confirmed a real one via search, produce:
+- "topic": the exact name of the day, e.g. "National Coffee Day" (title case, no trailing punctuation, no year)
+- "teaser": one enticing sentence (max 20 words) that makes someone curious to click and learn about it
+- "source_url": the URL of a real source confirming this observance falls on this date
+
+Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
+{"topic": "...", "teaser": "...", "source_url": "..."}`;
+}
+
+function thisDayInHistoryPrompt(excludeTopics: string[]): string {
+  const today = new Date();
+  const monthDay = today.toLocaleDateString("en-US", { month: "long", day: "numeric" });
+  const excludeBlock = excludeTopics.length
+    ? `\n\nAlready shown recently — pick a genuinely different event from all of these, not a rephrasing of any of them: ${excludeTopics.join("; ")}.`
+    : "";
+  return `Today's date is ${today.toISOString().slice(0, 10)}. You have live web search — use it now.
+
+Search for a real, verifiable, genuinely interesting event that happened specifically on ${monthDay} in history — any past year. Prefer something surprising or lesser-known over the single most obvious textbook event, but it must be historically accurate and confirmable via search, not misremembered trivia.${excludeBlock}
+
+Once you've confirmed a real event via search, produce:
+- "topic": a short punchy 2-6 word label naming the event (title case, no trailing punctuation, no year)
+- "teaser": one enticing sentence (max 20 words) describing what happened — may include the year — written to make someone curious to click
+- "source_url": the URL of a real source confirming this event and date
+
+Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
+{"topic": "...", "teaser": "...", "source_url": "..."}`;
+}
+
+function promptForField(field: string, excludeTopics: string[]): string {
+  if (field === "National Day") return nationalDayPrompt(excludeTopics);
+  if (field === "This Day In History") return thisDayInHistoryPrompt(excludeTopics);
+  return fieldPrompt(field, excludeTopics);
 }
 
 // Supabase Edge Functions (free tier) have a hard ~150s execution-time
@@ -93,7 +142,7 @@ async function generateForField(apiKey: string, field: string, excludeTopics: st
         // execution budget. The basic variant returns results directly with
         // no code-execution round trip, and one field took ~5s in testing.
         tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
-        messages: [{ role: "user", content: fieldPrompt(field, excludeTopics) }],
+        messages: [{ role: "user", content: promptForField(field, excludeTopics) }],
       }),
       signal: controller.signal,
     });

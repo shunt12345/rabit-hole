@@ -262,11 +262,27 @@ function nextId() {
 }
 
 // Real live topics now — see supabase/functions/generate-trending-topics.
-// A scheduled job (pg_cron, twice daily) does one Claude web-search call to
-// find a current, verifiable story in each of 4 fields and caches the
-// result in trending_topics_cache; this just reads the latest 4 rows with
-// the anon key. No live search happens on the client or per page load.
-const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,generated_at&order=generated_at.desc,id.desc&limit=4`;
+// A scheduled job (pg_cron, twice daily) does one Claude web-search call per
+// field — 3 news fields plus 2 date-anchored ones ("National Day", "This
+// Day In History") — and caches each result in trending_topics_cache; this
+// just reads a batch of recent rows with the anon key. No live search
+// happens on the client or per page load. NEWS_FIELDS / SPECIAL_FIELDS below
+// pick the latest row per named field out of that batch, so a field that's
+// been renamed or retired (like the old "Culture & Arts") just stops
+// rendering on its own instead of lingering until its rows age out.
+const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,generated_at&order=generated_at.desc,id.desc&limit=20`;
+const NEWS_FIELDS = ["World News", "Science", "Technology"];
+const SPECIAL_FIELDS = ["National Day", "This Day In History"];
+
+// Picks the single most recent row for each field in `fields`, in that
+// order — not just the first N rows in the batch, since stale rows from a
+// retired field or a partially-failed cron run could otherwise crowd out a
+// field that's actually still active.
+function latestByField(rows, fields) {
+  return fields
+    .map((field) => rows.find((r) => r.field === field))
+    .filter(Boolean);
+}
 
 // UI-only mockup of the 3-tier ad placement sketch — hardcoded placeholder
 // content, no real sponsor backend, always on (not gated behind any real
@@ -316,8 +332,10 @@ export default function Hypha() {
   const [childPreview, setChildPreview] = useState(null);
   const [trendingTopics, setTrendingTopics] = useState([]);
   // Which "In the news" card was clicked, so only that one highlights
-  // instead of all four dimming identically once rootLoading flips on.
+  // instead of all three dimming identically once rootLoading flips on.
   const [selectedNewsIdx, setSelectedNewsIdx] = useState(null);
+  // Same idea, for the separate "National Day" / "This Day In History" pair.
+  const [selectedTodayIdx, setSelectedTodayIdx] = useState(null);
 
   const nodesRef = useRef([]);
   const selectedIdRef = useRef(null);
@@ -453,6 +471,7 @@ export default function Hypha() {
         return;
       }
       setSelectedNewsIdx(null);
+      setSelectedTodayIdx(null);
       startTopic(inputVal);
     } catch (syncErr) {
       console.error("Hypha: synchronous error on click", syncErr);
@@ -509,6 +528,7 @@ export default function Hypha() {
       console.error("Hypha: startTopic failed", e);
       reveal.cancel();
       setSelectedNewsIdx(null);
+      setSelectedTodayIdx(null);
       setRootError(e.message || "Something went wrong reaching Claude. Try again.");
     } finally {
       setRootLoading(false);
@@ -790,6 +810,8 @@ export default function Hypha() {
     );
 
   const hasStarted = nodes.length > 0;
+  const newsTopics = latestByField(trendingTopics, NEWS_FIELDS);
+  const todayTopics = latestByField(trendingTopics, SPECIAL_FIELDS);
   const selected = nodes.find((n) => n.id === selectedId) || null;
   const selectedChildren = selected ? nodes.filter((n) => n.parentId === selected.id) : [];
   const breadcrumb = selected ? nodePathToRoot(selected) : [];
@@ -916,7 +938,7 @@ export default function Hypha() {
                 supabase/functions/generate-trending-topics. The "as of"
                 date reflects the actual cache timestamp now, not a
                 hand-maintained string that can silently go stale. */}
-            {trendingTopics.length > 0 && (
+            {newsTopics.length > 0 && (
               <div className="mt-10">
                 <div className="flex items-center justify-center gap-1.5 mb-1">
                   <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
@@ -926,14 +948,14 @@ export default function Hypha() {
                 <div className="rh-mono text-sm mb-6" style={{ color: "#A89478" }}>
                   as of{" "}
                   <span className="font-semibold" style={{ color: "#E3A73C" }}>
-                    {new Date(trendingTopics[0].generated_at).toLocaleDateString(undefined, {
+                    {new Date(newsTopics[0].generated_at).toLocaleDateString(undefined, {
                       month: "long",
                       day: "numeric",
                     })}
                   </span>
                 </div>
                 <div className="flex flex-col gap-3 max-w-md mx-auto">
-                  {trendingTopics.map((t, i) => {
+                  {newsTopics.map((t, i) => {
                     const isSelected = selectedNewsIdx === i;
                     return (
                       <button
@@ -941,6 +963,55 @@ export default function Hypha() {
                         type="button"
                         onClick={() => {
                           setSelectedNewsIdx(i);
+                          setSelectedTodayIdx(null);
+                          startTopic(t.topic, t.teaser);
+                        }}
+                        disabled={rootLoading}
+                        className={`rh-chip text-left p-4 rounded-2xl border transition-colors ${
+                          rootLoading && !isSelected ? "opacity-40" : ""
+                        } ${rootLoading && isSelected ? "cursor-default" : ""}`}
+                        style={{
+                          borderColor: isSelected ? "#E3A73C" : "#3A2E20",
+                          backgroundColor: isSelected ? "#2A2015" : "#1F1811",
+                        }}
+                      >
+                        <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
+                          {t.field}
+                        </span>
+                        <div className="rh-body text-lg font-semibold mt-1" style={{ color: "#F1E6D3" }}>
+                          {t.topic}
+                        </div>
+                        <p className="rh-body text-sm mt-1" style={{ color: "#B8A886" }}>
+                          {t.teaser}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* "Today" — National Day + This Day In History, same source
+                table and card treatment as "In the news" but date-anchored
+                rather than searched-for-recency. See promptForField in
+                supabase/functions/generate-trending-topics. */}
+            {todayTopics.length > 0 && (
+              <div className="mt-10">
+                <div className="flex items-center justify-center gap-1.5 mb-6">
+                  <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
+                    Today
+                  </span>
+                </div>
+                <div className="flex flex-col gap-3 max-w-md mx-auto">
+                  {todayTopics.map((t, i) => {
+                    const isSelected = selectedTodayIdx === i;
+                    return (
+                      <button
+                        key={`${t.field}-${i}`}
+                        type="button"
+                        onClick={() => {
+                          setSelectedTodayIdx(i);
+                          setSelectedNewsIdx(null);
                           startTopic(t.topic, t.teaser);
                         }}
                         disabled={rootLoading}
