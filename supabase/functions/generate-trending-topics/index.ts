@@ -1,12 +1,17 @@
 // Supabase Edge Function: generate-trending-topics
 //
-// A scheduled job (see the pg_cron migration), NOT called by the app
-// directly — the hero page's "In the news" chips read the
+// Two scheduled jobs (see the pg_cron migrations), NOT called by the app
+// directly — the hero page's "In the news" + "Today" chips read the
 // trending_topics_cache table this writes to, instead of hitting search
-// live on every visit. Uses Claude's web_search server tool with the same
-// ANTHROPIC_API_KEY already used by rabbit-hole-proxy, so no new vendor is
-// needed (unlike the dormant SerpApi-based trending-topics function this
-// intentionally does not reuse).
+// live on every visit. One cron job runs the news fields (World News /
+// Science / Technology) twice a day with a plain `{}` body; a second runs
+// once nightly with `{"fields": ["National Day", "This Day In History"]}`
+// — those two are date-anchored and only change once a day, so there's no
+// reason to re-search them on the news cadence too. Uses Claude's
+// web_search server tool with the same ANTHROPIC_API_KEY already used by
+// rabbit-hole-proxy, so no new vendor is needed (unlike the dormant
+// SerpApi-based trending-topics function this intentionally does not
+// reuse).
 //
 // One Claude call per field, run concurrently, rather than a single call
 // covering all of them — a combined call doing every field's search/lookup
@@ -29,7 +34,7 @@
 //   4. supabase functions deploy generate-trending-topics --no-verify-jwt
 //      (this function is cron-only, not reachable with a Supabase JWT —
 //      see config.toml)
-//   5. Run the migration that schedules the cron job, if not already applied.
+//   5. Run the migrations that schedule the two cron jobs, if not already applied.
 
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -214,9 +219,23 @@ serve(async (req) => {
     });
   }
 
+  // Which fields this invocation covers — lets one function serve two cron
+  // schedules at different cadences instead of needing a second deploy.
+  // NEWS_FIELDS churns fast enough to run twice a day (see the existing
+  // cron job); SPECIAL_FIELDS is date-anchored and only changes once a
+  // day, so it runs on its own once-nightly schedule that explicitly
+  // requests {"fields": SPECIAL_FIELDS} in the request body. No body (or a
+  // body with no valid "fields" array) falls back to NEWS_FIELDS, so the
+  // existing cron job's plain `{}` body keeps working unchanged.
+  const body = await req.json().catch(() => ({}));
+  const requestedFields = Array.isArray(body?.fields)
+    ? body.fields.filter((f: unknown) => typeof f === "string" && FIELDS.includes(f))
+    : [];
+  const fieldsToRun = requestedFields.length > 0 ? requestedFields : NEWS_FIELDS;
+
   const recentByField = await fetchRecentTopicsByField();
   const results = await Promise.allSettled(
-    FIELDS.map((field) => generateForField(apiKey, field, recentByField[field] || []))
+    fieldsToRun.map((field) => generateForField(apiKey, field, recentByField[field] || []))
   );
   const rows: any[] = [];
   const errors: string[] = [];
@@ -226,8 +245,8 @@ serve(async (req) => {
     if (r.status === "fulfilled") {
       rows.push({ batch_date: today, ...r.value });
     } else {
-      console.error(`generate-trending-topics: field "${FIELDS[i]}" failed`, r.reason);
-      errors.push(`${FIELDS[i]}: ${r.reason}`);
+      console.error(`generate-trending-topics: field "${fieldsToRun[i]}" failed`, r.reason);
+      errors.push(`${fieldsToRun[i]}: ${r.reason}`);
     }
   });
 
