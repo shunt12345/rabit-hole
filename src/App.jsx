@@ -869,7 +869,7 @@ export default function Hypha() {
                 placeholder="octopus cognition, silk road, fermentation…"
                 disabled={rootLoading}
                 className="rh-body flex-1 border outline-none rh-placeholder rh-input text-sm rounded-full px-5 py-3 transition-colors"
-                style={{ backgroundColor: "#1F1811", borderColor: "#3A2E20", color: "#F1E6D3" }}
+                style={{ backgroundColor: "#332617", borderColor: "#5A4630", color: "#F1E6D3" }}
               />
               <button
                 type="button"
