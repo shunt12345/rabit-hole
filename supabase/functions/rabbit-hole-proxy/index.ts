@@ -55,6 +55,14 @@ const MODEL = "claude-sonnet-5";
 // or a link forwarded well past the "friends" scale this key is sized for.
 const DAILY_REQUEST_LIMIT = Number(Deno.env.get("DAILY_REQUEST_LIMIT") ?? "300");
 
+// Same override pattern, for cost_usd computed on every log row. A future
+// Anthropic price change is a `supabase secrets set` away, and doesn't
+// retroactively mis-cost rows already logged under the old rate — cost_usd
+// is computed once at insert time from whatever rate was live then, not
+// derived later from today's rate.
+const INPUT_PRICE_PER_M = Number(Deno.env.get("SONNET_INPUT_PRICE_PER_M") ?? "2.00");
+const OUTPUT_PRICE_PER_M = Number(Deno.env.get("SONNET_OUTPUT_PRICE_PER_M") ?? "10.00");
+
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
@@ -115,11 +123,17 @@ async function logRequestWithUsage(sessionId: string, endpoint: string, body: Re
       const rawText = await new Response(body).text();
       ({ inputTokens, outputTokens } = extractUsage(rawText));
     }
+    const costUsd =
+      inputTokens != null && outputTokens != null
+        ? (inputTokens / 1_000_000) * INPUT_PRICE_PER_M + (outputTokens / 1_000_000) * OUTPUT_PRICE_PER_M
+        : null;
     await supabase.from("rabbit_hole_request_logs").insert({
       session_id: sessionId || "unknown",
       endpoint: endpoint || "unknown",
       input_tokens: inputTokens,
       output_tokens: outputTokens,
+      model: MODEL,
+      cost_usd: costUsd,
     });
   } catch (e) {
     // logging is a nice-to-have for Phase 2 planning, never worth failing

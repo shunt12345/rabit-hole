@@ -46,6 +46,15 @@ const NEWS_FIELDS = ["World News", "Science", "Technology"];
 const SPECIAL_FIELDS = ["National Day", "This Day In History"];
 const FIELDS = [...NEWS_FIELDS, ...SPECIAL_FIELDS];
 const MODEL = "claude-sonnet-5";
+
+// Overridable via `supabase secrets set` without a redeploy, same pattern as
+// DAILY_REQUEST_LIMIT in rabbit-hole-proxy — so a future Anthropic price
+// change is a config update, not a code change, and doesn't silently
+// mis-cost rows logged before the change (each row keeps the rate that was
+// actually in effect when it was computed, since cost_usd is computed once
+// at insert time, not derived later from a rate that could have moved on).
+const INPUT_PRICE_PER_M = Number(Deno.env.get("SONNET_INPUT_PRICE_PER_M") ?? "2.00");
+const OUTPUT_PRICE_PER_M = Number(Deno.env.get("SONNET_OUTPUT_PRICE_PER_M") ?? "10.00");
 // How long a batch stays around before cleanup — just tidiness, not a
 // correctness requirement (the app only ever reads the latest batch_date).
 const RETENTION_DAYS = 14;
@@ -178,7 +187,28 @@ async function generateForField(apiKey: string, field: string, excludeTopics: st
   if (!topic || !teaser) {
     throw new Error(`Missing topic/teaser: ${cleaned.slice(0, 300)}`);
   }
-  return { field, topic, teaser, source_url: parsed.source_url || null };
+
+  // Real usage, not the estimate in the pricing spreadsheet — every field
+  // call is non-streaming, so it's a single JSON response with usage
+  // already attached, no SSE parsing needed (contrast rabbit-hole-proxy,
+  // which has to tee a stream for this).
+  const inputTokens: number | null = data?.usage?.input_tokens ?? null;
+  const outputTokens: number | null = data?.usage?.output_tokens ?? null;
+  const costUsd =
+    inputTokens != null && outputTokens != null
+      ? (inputTokens / 1_000_000) * INPUT_PRICE_PER_M + (outputTokens / 1_000_000) * OUTPUT_PRICE_PER_M
+      : null;
+
+  return {
+    field,
+    topic,
+    teaser,
+    source_url: parsed.source_url || null,
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    model: MODEL,
+    cost_usd: costUsd,
+  };
 }
 
 // Recent topics per field, most-recent-first, so each run can be told what
