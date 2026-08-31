@@ -7,10 +7,14 @@
 // that environment; a standalone deployment has to provide it itself).
 //
 // Every request is logged (best-effort, non-blocking) to the
-// rabbit_hole_request_logs table before being forwarded — timestamp,
-// anonymous session id, and endpoint label — purely so Phase 2's per-person
-// usage caps can be set from real numbers instead of a guess. Logging
-// failures never block or fail the actual Claude request.
+// rabbit_hole_request_logs table — timestamp, anonymous session id,
+// endpoint label, and real input/output token counts parsed from
+// Anthropic's own response — so Phase 2's per-person usage caps (and
+// actual cost-per-endpoint, instead of an estimate) can be set from real
+// numbers. The client's copy of the response is served off a tee()'d
+// branch of the stream so parsing usage never adds latency to the real
+// request; the log row is written once that branch finishes, not before.
+// Logging failures never block or fail the actual Claude request.
 //
 // Phase 2 (accounts + usage limits) plugs in here as a check added in
 // front of the forward step below, using the same request/response shape —
@@ -56,11 +60,66 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
 
-async function logRequest(sessionId: string, endpoint: string) {
+// Pulls real token usage out of Anthropic's response body — works for both
+// shapes this proxy ever forwards: a single non-streaming JSON object
+// (`stream: false`, has a top-level "usage") and an SSE stream (`stream:
+// true`), where input_tokens rides on the `message_start` event and the
+// running output_tokens total rides on each `message_delta` event (the
+// last one before the stream ends is the final count). Returns nulls
+// rather than throwing if the shape doesn't match — this is telemetry, not
+// something worth failing a log row over.
+function extractUsage(rawText: string): { inputTokens: number | null; outputTokens: number | null } {
+  const trimmed = rawText.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return {
+        inputTokens: parsed?.usage?.input_tokens ?? null,
+        outputTokens: parsed?.usage?.output_tokens ?? null,
+      };
+    } catch (_) {
+      return { inputTokens: null, outputTokens: null };
+    }
+  }
+
+  let inputTokens: number | null = null;
+  let outputTokens: number | null = null;
+  for (const line of rawText.split("\n")) {
+    if (!line.startsWith("data:")) continue;
+    const jsonStr = line.slice(5).trim();
+    if (!jsonStr || jsonStr === "[DONE]") continue;
+    let evt: any;
+    try {
+      evt = JSON.parse(jsonStr);
+    } catch (_) {
+      continue;
+    }
+    if (evt.type === "message_start" && evt.message?.usage) {
+      inputTokens = evt.message.usage.input_tokens ?? inputTokens;
+    } else if (evt.type === "message_delta" && evt.usage) {
+      outputTokens = evt.usage.output_tokens ?? outputTokens;
+    }
+  }
+  return { inputTokens, outputTokens };
+}
+
+// Reads the logging branch of the tee'd response body to completion, then
+// writes one row. Runs detached from the client's own read of the other
+// branch — never awaited by the request handler, never able to slow or
+// fail the real response.
+async function logRequestWithUsage(sessionId: string, endpoint: string, body: ReadableStream<Uint8Array> | null) {
   try {
+    let inputTokens: number | null = null;
+    let outputTokens: number | null = null;
+    if (body) {
+      const rawText = await new Response(body).text();
+      ({ inputTokens, outputTokens } = extractUsage(rawText));
+    }
     await supabase.from("rabbit_hole_request_logs").insert({
       session_id: sessionId || "unknown",
       endpoint: endpoint || "unknown",
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
     });
   } catch (e) {
     // logging is a nice-to-have for Phase 2 planning, never worth failing
@@ -110,9 +169,6 @@ serve(async (req) => {
       );
     }
 
-    // fire-and-forget — never block the actual Claude call on this
-    logRequest(sessionId, endpoint);
-
     const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -133,10 +189,16 @@ serve(async (req) => {
       }),
     });
 
-    // stream the response straight through unmodified — the client's own
-    // SSE parsing handles the rest, same as it would talking to Anthropic
-    // directly
-    return new Response(anthropicRes.body, {
+    // Two independent copies of the body: one goes straight to the client
+    // unmodified (same as before — the client's own SSE parsing handles the
+    // rest, same as it would talking to Anthropic directly), the other is
+    // read server-side in the background purely to log real token usage.
+    // logRequestWithUsage is never awaited — it can't add latency or ever
+    // fail the actual response.
+    const [clientBody, loggingBody] = anthropicRes.body ? anthropicRes.body.tee() : [null, null];
+    logRequestWithUsage(sessionId, endpoint, loggingBody);
+
+    return new Response(clientBody, {
       status: anthropicRes.status,
       headers: {
         ...corsHeaders,
