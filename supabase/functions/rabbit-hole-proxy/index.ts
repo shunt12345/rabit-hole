@@ -51,7 +51,22 @@ const corsHeaders = {
   // rather than leaving it wide open indefinitely
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  // Browsers only expose the CORS safelist headers to JS by default — a
+  // custom header is invisible to fetch()'s res.headers.get() client-side
+  // without this, even though it's plainly there on the wire.
+  "Access-Control-Expose-Headers": "X-Session-Actions-Today",
 };
+
+// Phase 1 of the tiered-usage design (see conversation notes — pure
+// instrumentation, nothing gated on this yet): surfaces the same rolling
+// 24h count already computed below for the DAILY_REQUEST_LIMIT check, so
+// the client can show what tier a session would currently be in without a
+// second query. +1 accounts for the request this response is answering,
+// since `count` was queried before it — logRequest() below may or may not
+// have landed yet by the time this header is read.
+function usageHeaders(count: number | null) {
+  return { "X-Session-Actions-Today": String((count ?? 0) + 1) };
+}
 
 // Fixed server-side, deliberately not read from the client request — chosen
 // over Haiku 4.5 after a real side-by-side comparison, see the handoff
@@ -86,14 +101,17 @@ async function logRequest(sessionId: string, endpoint: string) {
 // enough for the client's existing callClaude() parsing to work unchanged
 // (it reads content[].text and JSON.parses it) — the client has no idea
 // whether a given root call was served from cache or freshly generated.
-function newsRootCacheResponse(row: { root_label: string; overview: string; children: unknown }, corsHeaders: Record<string, string>) {
+function newsRootCacheResponse(
+  row: { root_label: string; overview: string; children: unknown },
+  headers: Record<string, string>
+) {
   const text = JSON.stringify({ rootLabel: row.root_label, overview: row.overview, children: row.children });
   return new Response(
     JSON.stringify({
       content: [{ type: "text", text }],
       usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
     }),
-    { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    { status: 200, headers: { ...headers, "Content-Type": "application/json" } }
   );
 }
 
@@ -153,7 +171,7 @@ serve(async (req) => {
     } else if ((count ?? 0) >= DAILY_REQUEST_LIMIT) {
       return new Response(
         "Daily limit reached for this browser — try again tomorrow. (This app runs on a shared demo key with a safety cap to prevent runaway costs.)",
-        { status: 429, headers: { ...corsHeaders, "Content-Type": "text/plain" } }
+        { status: 429, headers: { ...corsHeaders, ...usageHeaders(count), "Content-Type": "text/plain" } }
       );
     }
 
@@ -170,7 +188,7 @@ serve(async (req) => {
         // fail open — fall through to a real generation rather than block
         console.error("rabbit-hole-proxy: news root cache lookup failed", cacheErr);
       } else if (cached) {
-        return newsRootCacheResponse(cached, corsHeaders);
+        return newsRootCacheResponse(cached, { ...corsHeaders, ...usageHeaders(count) });
       }
     }
 
@@ -229,17 +247,19 @@ serve(async (req) => {
       await cacheNewsRoot(newsCacheKey, text);
       return new Response(JSON.stringify(data), {
         status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders, ...usageHeaders(count), "Content-Type": "application/json" },
       });
     }
 
     // stream the response straight through unmodified — the client's own
     // SSE parsing handles the rest, same as it would talking to Anthropic
-    // directly
+    // directly. Headers are separate from the body, so adding one here
+    // doesn't touch the streaming pass-through itself.
     return new Response(anthropicRes.body, {
       status: anthropicRes.status,
       headers: {
         ...corsHeaders,
+        ...usageHeaders(count),
         "Content-Type": anthropicRes.headers.get("Content-Type") || "application/json",
       },
     });

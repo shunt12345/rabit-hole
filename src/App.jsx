@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, Fragment } from "react";
 import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, ChevronDown } from "lucide-react";
-import { callClaude, streamJSON, streamTextFromPrompt } from "./lib/api.js";
+import { callClaude, streamJSON, streamTextFromPrompt, getLastActionsToday } from "./lib/api.js";
 import { HYPHA_SYSTEM, OBSCURITY_LEVELS, FIXED_OBSCURITY } from "./lib/hyphaSystemPrompt.js";
+import { tierForActionCount } from "./lib/tierConfig.js";
 import { createPacedReveal } from "./lib/pacedReveal.js";
 
 const TYPE_COLOR = {
@@ -220,6 +221,16 @@ export default function Hypha() {
   const [selectedNewsIdx, setSelectedNewsIdx] = useState(null);
   // Same idea, for the separate "National Day" / "This Day In History" pair.
   const [selectedTodayIdx, setSelectedTodayIdx] = useState(null);
+  // Phase 1 of the tiered-usage design (tierConfig.js) — pure instrumentation,
+  // nothing reads this to change behavior yet. Synced from the proxy's
+  // X-Session-Actions-Today response header after every call, so real
+  // sessions can be watched demoting through tiers before any zone size is
+  // actually decided on.
+  const [actionsToday, setActionsToday] = useState(0);
+  const syncActionsToday = () => {
+    const n = getLastActionsToday();
+    if (n != null) setActionsToday(n);
+  };
 
   const nodesRef = useRef([]);
   const selectedIdRef = useRef(null);
@@ -430,6 +441,7 @@ export default function Hypha() {
     } finally {
       setRootLoading(false);
       setRootPreview("");
+      syncActionsToday();
     }
   };
 
@@ -523,6 +535,8 @@ export default function Hypha() {
       node.loading = false;
       node.error = e.message || "Dig failed — try again.";
       setNodes([...nodesRef.current]);
+    } finally {
+      syncActionsToday();
     }
   };
 
@@ -574,6 +588,7 @@ export default function Hypha() {
       node.article = null;
       node.articleError = e.message || "Couldn't load more — try again.";
     }
+    syncActionsToday();
     setNodes([...nodesRef.current]);
   };
 
@@ -611,6 +626,7 @@ export default function Hypha() {
       node.articleStreaming = false;
       node.deepenError = e.message || "Couldn't dig deeper — try again.";
     }
+    syncActionsToday();
     setNodes([...nodesRef.current]);
   };
 
@@ -707,6 +723,9 @@ export default function Hypha() {
     );
 
   const hasStarted = nodes.length > 0;
+  // Phase 1 instrumentation only — see tierConfig.js and the actionsToday
+  // state above. Not used to gate anything yet.
+  const debugTier = tierForActionCount(actionsToday);
   const newsTopics = latestByField(trendingTopics, NEWS_FIELDS);
   const todayTopics = latestByField(trendingTopics, SPECIAL_FIELDS);
   const selected = nodes.find((n) => n.id === selectedId) || null;
@@ -764,13 +783,25 @@ export default function Hypha() {
           </div>
         </div>
         <div className="flex justify-end">
-          {hasStarted && (
-            <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3">
+            {hasStarted && (
               <div className="rh-mono rh-text-10" style={{ color: "#A89478" }}>
                 {nodes.length} thought{nodes.length === 1 ? "" : "s"} uncovered
               </div>
+            )}
+            {/* Phase 1 instrumentation — internal testing readout only, not
+                final UI. Shows what tier this session would currently be in
+                so real usage can be watched demoting through tiers before
+                any zone size is locked in or any feature actually gated. */}
+            <div
+              className="rh-mono rh-text-10"
+              title="Debug: tiered-usage instrumentation, not yet enforced"
+              style={{ color: "#6B5B45" }}
+            >
+              [{debugTier.label}
+              {debugTier.actionsToNextTier != null ? ` · ${debugTier.actionsToNextTier} to next` : ""}]
             </div>
-          )}
+          </div>
         </div>
       </div>
 

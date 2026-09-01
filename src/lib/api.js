@@ -31,6 +31,24 @@ function systemBlock(system) {
   return [{ type: "text", text: system, cache_control: { type: "ephemeral", ttl: "1h" } }];
 }
 
+// Phase 1 of the tiered-usage design (see tierConfig.js): the proxy already
+// computes this session's rolling 24h action count for the existing daily
+// safety cap, and now echoes it back as a response header instead of
+// keeping it server-side-only. Stashed here rather than threaded through
+// every call's return value — callClaude/streamJSON/streamTextFromPrompt
+// all have different return shapes already, and this is a supplementary
+// read, not something any of them need to make a decision on themselves.
+let lastActionsToday = null;
+export function getLastActionsToday() {
+  return lastActionsToday;
+}
+function captureActionsToday(res) {
+  const raw = res.headers.get("X-Session-Actions-Today");
+  if (raw == null) return;
+  const n = Number(raw);
+  if (!Number.isNaN(n)) lastActionsToday = n;
+}
+
 // Shared fetch + timeout + error-surfacing logic, returning the raw text
 // content from Claude's response. callClaude (JSON mode) and article
 // fetching (plain prose) both build on this instead of duplicating it.
@@ -66,6 +84,8 @@ async function fetchClaudeText(system, prompt, maxTokens, endpoint, newsCacheKey
   } finally {
     clearTimeout(timeoutId);
   }
+
+  captureActionsToday(res);
 
   if (!res.ok) {
     let bodySnippet = "";
@@ -140,6 +160,8 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
     console.error("Hypha: network error streaming", networkErr);
     throw new Error(`Network error: ${networkErr.message || "fetch failed"}`);
   }
+
+  captureActionsToday(res);
 
   if (!res.ok) {
     clearTimeout(timeoutId);
