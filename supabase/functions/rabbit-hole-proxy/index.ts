@@ -23,6 +23,19 @@
 // block a real person's request — and never blocks on session ids that
 // aren't in active use, since the cap is per-session, not global.
 //
+// News/Today root caching: a topic from the "In the news"/"Today" hero
+// cards is identical for every visitor until the next
+// generate-trending-topics refresh, so the client tags those specific root
+// calls with `newsCacheKey` (the exact topic string) instead of the usual
+// per-user streaming call. The FIRST person to open a given card triggers a
+// real (non-streaming) Claude call and this writes the result to
+// news_root_cache; everyone else who opens the same card reads it back
+// instead of triggering another full generation. Deliberately built as a
+// plain read-then-maybe-write around a non-streaming call — same shape as
+// generate-trending-topics' own Claude call — rather than anything that
+// inspects or re-wraps a streaming response body (see the revert in git
+// history for why that path stays untouched).
+//
 // DEPLOY STEPS:
 //   1. supabase functions new rabbit-hole-proxy
 //   2. Replace the generated index.ts with this file's contents
@@ -69,6 +82,40 @@ async function logRequest(sessionId: string, endpoint: string) {
   }
 }
 
+// Response shape mimics Anthropic's actual non-streaming response just
+// enough for the client's existing callClaude() parsing to work unchanged
+// (it reads content[].text and JSON.parses it) — the client has no idea
+// whether a given root call was served from cache or freshly generated.
+function newsRootCacheResponse(row: { root_label: string; overview: string; children: unknown }, corsHeaders: Record<string, string>) {
+  const text = JSON.stringify({ rootLabel: row.root_label, overview: row.overview, children: row.children });
+  return new Response(
+    JSON.stringify({
+      content: [{ type: "text", text }],
+      usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    }),
+    { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+  );
+}
+
+async function cacheNewsRoot(cacheKey: string, text: string) {
+  try {
+    const cleaned = text.replace(/```json|```/g, "").trim();
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start === -1 || end === -1) return;
+    const parsed = JSON.parse(cleaned.slice(start, end + 1));
+    if (!parsed.rootLabel || !parsed.overview || !Array.isArray(parsed.children)) return;
+    await supabase.from("news_root_cache").upsert(
+      { cache_key: cacheKey, root_label: parsed.rootLabel, overview: parsed.overview, children: parsed.children },
+      { onConflict: "cache_key", ignoreDuplicates: true }
+    );
+  } catch (e) {
+    // best-effort — a caching miss just means the next visitor generates
+    // fresh too, never worth failing the real request over
+    console.error("rabbit-hole-proxy: failed to cache news root", e);
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -84,7 +131,7 @@ serve(async (req) => {
     }
 
     const body = await req.json();
-    const { messages, max_tokens, stream, endpoint, sessionId, system } = body;
+    const { messages, max_tokens, stream, endpoint, sessionId, system, newsCacheKey } = body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return new Response(JSON.stringify({ error: "messages is required" }), {
@@ -113,6 +160,20 @@ serve(async (req) => {
     // fire-and-forget — never block the actual Claude call on this
     logRequest(sessionId, endpoint);
 
+    if (newsCacheKey) {
+      const { data: cached, error: cacheErr } = await supabase
+        .from("news_root_cache")
+        .select("root_label, overview, children")
+        .eq("cache_key", newsCacheKey)
+        .maybeSingle();
+      if (cacheErr) {
+        // fail open — fall through to a real generation rather than block
+        console.error("rabbit-hole-proxy: news root cache lookup failed", cacheErr);
+      } else if (cached) {
+        return newsRootCacheResponse(cached, corsHeaders);
+      }
+    }
+
     const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -123,7 +184,13 @@ serve(async (req) => {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: max_tokens || 1200,
-        stream: !!stream,
+        // Cache misses always resolve as a single JSON response, never a
+        // stream — the cache-write step right below needs the full text in
+        // hand, and re-wrapping/inspecting a streamed body is exactly what
+        // caused the earlier outage (see git history). The client already
+        // calls this path non-streaming; forcing it here too means a future
+        // client bug can't accidentally send stream:true down this branch.
+        stream: newsCacheKey ? false : !!stream,
         // claude-sonnet-5 runs adaptive thinking by default; left enabled,
         // thinking tokens can consume the whole max_tokens budget before any
         // actual output is written (empty response, broken JSON parsing
@@ -138,6 +205,26 @@ serve(async (req) => {
         messages,
       }),
     });
+
+    if (newsCacheKey) {
+      // Not the streaming path — a single JSON body, so reading it here to
+      // cache it is exactly as safe as generate-trending-topics' own
+      // non-streaming Claude call, not a repeat of the tee()'d-stream issue.
+      if (!anthropicRes.ok) {
+        const errText = await anthropicRes.text();
+        return new Response(errText, {
+          status: anthropicRes.status,
+          headers: { ...corsHeaders, "Content-Type": anthropicRes.headers.get("Content-Type") || "application/json" },
+        });
+      }
+      const data = await anthropicRes.json();
+      const text = (data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
+      cacheNewsRoot(newsCacheKey, text); // fire-and-forget
+      return new Response(JSON.stringify(data), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // stream the response straight through unmodified — the client's own
     // SSE parsing handles the rest, same as it would talking to Anthropic

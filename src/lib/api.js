@@ -39,7 +39,7 @@ function systemBlock(system) {
 // "continuation") the proxy logs alongside an anonymous session id per
 // request — see the handoff brief's Phase 1 logging note: this is what lets
 // Phase 2's usage caps be set from real numbers instead of a guess.
-async function fetchClaudeText(system, prompt, maxTokens, endpoint) {
+async function fetchClaudeText(system, prompt, maxTokens, endpoint, newsCacheKey) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 25000);
   let res;
@@ -53,6 +53,7 @@ async function fetchClaudeText(system, prompt, maxTokens, endpoint) {
         messages: [{ role: "user", content: prompt }],
         endpoint,
         sessionId: getSessionId(),
+        ...(newsCacheKey ? { newsCacheKey } : {}),
       }),
       signal: controller.signal,
     });
@@ -87,8 +88,13 @@ async function fetchClaudeText(system, prompt, maxTokens, endpoint) {
   return text;
 }
 
-export async function callClaude(system, prompt, endpoint) {
-  const text = await fetchClaudeText(system, prompt, undefined, endpoint);
+// `newsCacheKey`, when passed, tags this as a request for content that's
+// identical for every visitor until the next trending-topics refresh (an
+// "In the news"/"Today" hero card) — the proxy serves a cached generation
+// instead of a fresh one when one already exists for that exact key. See
+// startTopic in App.jsx for which calls set this.
+export async function callClaude(system, prompt, endpoint, newsCacheKey) {
+  const text = await fetchClaudeText(system, prompt, undefined, endpoint, newsCacheKey);
   const cleaned = text.replace(/```json|```/g, "").trim();
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");

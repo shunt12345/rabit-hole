@@ -380,7 +380,20 @@ export default function Hypha() {
     const reveal = createPacedReveal((revealed) => setRootPreview(revealed));
 
     try {
-      const data = await streamJSON(HYPHA_SYSTEM, rootPrompt(t, newsContext), "root", (partialOverview) => reveal.push(partialOverview));
+      // A topic from the "In the news"/"Today" hero cards (newsContext set)
+      // is identical for every visitor until the next trending-topics
+      // refresh — hundreds of people can open the same card. Tag those
+      // calls with the exact topic string as a cache key so the proxy can
+      // serve back whatever the first visitor generated instead of
+      // re-generating per person; a freely typed topic always gets its own
+      // fresh generation. Non-streaming either way for the cached path —
+      // createPacedReveal's typewriter effect looks the same regardless of
+      // whether the text arrived incrementally or all at once (see
+      // pacedReveal.js: everything past the first sentence reveals
+      // immediately anyway).
+      const data = newsContext
+        ? await callClaude(HYPHA_SYSTEM, rootPrompt(t, newsContext), "root-news", t)
+        : await streamJSON(HYPHA_SYSTEM, rootPrompt(t, newsContext), "root", (partialOverview) => reveal.push(partialOverview));
       await reveal.finish(data.overview || "");
       const root = {
         id: nextId(),
