@@ -219,7 +219,14 @@ serve(async (req) => {
       }
       const data = await anthropicRes.json();
       const text = (data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
-      cacheNewsRoot(newsCacheKey, text); // fire-and-forget
+      // Awaited, not fire-and-forget: with nothing left to run after this on
+      // the request path, an un-awaited call here can get torn down by the
+      // edge runtime the moment the response below is sent, before the
+      // write actually lands (unlike logRequest() above, which fires before
+      // the several-second wait on the Anthropic call and so has real time
+      // to finish in the background). Only adds latency on a cache MISS —
+      // the rare first-visitor case, not the common cached-read path.
+      await cacheNewsRoot(newsCacheKey, text);
       return new Response(JSON.stringify(data), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
