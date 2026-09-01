@@ -19,6 +19,18 @@ function proxyHeaders() {
   };
 }
 
+// Wraps the fixed instruction/tone text (src/lib/hyphaSystemPrompt.js) in
+// the shape the proxy/Anthropic expect, with a prompt-caching breakpoint on
+// it — see the proxy for how this gets forwarded. 1h TTL rather than the
+// 5-minute default: this app's real traffic is spread-out, occasional
+// requests across a browsing session (and across different people sharing
+// the link) rather than a tight burst, so the longer-lived cache entry is
+// far more likely to still be warm by the time the next request comes in.
+function systemBlock(system) {
+  if (!system) return undefined;
+  return [{ type: "text", text: system, cache_control: { type: "ephemeral", ttl: "1h" } }];
+}
+
 // Shared fetch + timeout + error-surfacing logic, returning the raw text
 // content from Claude's response. callClaude (JSON mode) and article
 // fetching (plain prose) both build on this instead of duplicating it.
@@ -27,7 +39,7 @@ function proxyHeaders() {
 // "continuation") the proxy logs alongside an anonymous session id per
 // request — see the handoff brief's Phase 1 logging note: this is what lets
 // Phase 2's usage caps be set from real numbers instead of a guess.
-async function fetchClaudeText(prompt, maxTokens, endpoint) {
+async function fetchClaudeText(system, prompt, maxTokens, endpoint) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 25000);
   let res;
@@ -37,6 +49,7 @@ async function fetchClaudeText(prompt, maxTokens, endpoint) {
       headers: proxyHeaders(),
       body: JSON.stringify({
         max_tokens: maxTokens || 1200,
+        system: systemBlock(system),
         messages: [{ role: "user", content: prompt }],
         endpoint,
         sessionId: getSessionId(),
@@ -74,8 +87,8 @@ async function fetchClaudeText(prompt, maxTokens, endpoint) {
   return text;
 }
 
-export async function callClaude(prompt, endpoint) {
-  const text = await fetchClaudeText(prompt, undefined, endpoint);
+export async function callClaude(system, prompt, endpoint) {
+  const text = await fetchClaudeText(system, prompt, undefined, endpoint);
   const cleaned = text.replace(/```json|```/g, "").trim();
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
@@ -95,7 +108,7 @@ export async function callClaude(prompt, endpoint) {
 // API's server-sent-event chunks, and calls onChunk with the accumulated
 // text so far after every delta. Returns the final raw accumulated text —
 // callers apply their own cleanup/parsing on top (plain prose vs. JSON).
-async function streamRaw(prompt, maxTokens, timeoutMs, endpoint, onChunk) {
+async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   let res;
@@ -106,6 +119,7 @@ async function streamRaw(prompt, maxTokens, timeoutMs, endpoint, onChunk) {
       body: JSON.stringify({
         max_tokens: maxTokens,
         stream: true,
+        system: systemBlock(system),
         messages: [{ role: "user", content: prompt }],
         endpoint,
         sessionId: getSessionId(),
@@ -186,8 +200,8 @@ async function streamRaw(prompt, maxTokens, timeoutMs, endpoint, onChunk) {
 
 // "Read more" content: real prose, not JSON, so no parsing needed beyond
 // trimming stray markdown fences a model might add out of habit.
-export async function streamTextFromPrompt(prompt, maxTokens, timeoutMs, endpoint, onChunk) {
-  const fullText = await streamRaw(prompt, maxTokens, timeoutMs, endpoint, onChunk);
+export async function streamTextFromPrompt(system, prompt, maxTokens, timeoutMs, endpoint, onChunk) {
+  const fullText = await streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk);
   return fullText.replace(/```/g, "").trim();
 }
 
@@ -210,8 +224,8 @@ function unescapeJSONStringFragment(s) {
 // response), plus an optional onOverviewChunk callback fired with the
 // "overview" field's text as it streams in — the one field worth showing
 // live while the rest of the JSON (children, etc.) is still generating.
-export async function streamJSON(prompt, endpoint, onOverviewChunk) {
-  const fullText = await streamRaw(prompt, 1200, 25000, endpoint, (partial) => {
+export async function streamJSON(system, prompt, endpoint, onOverviewChunk) {
+  const fullText = await streamRaw(system, prompt, 1200, 25000, endpoint, (partial) => {
     if (!onOverviewChunk) return;
     const match = partial.match(OVERVIEW_PATTERN);
     if (match) onOverviewChunk(unescapeJSONStringFragment(match[1]));

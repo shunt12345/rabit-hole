@@ -84,7 +84,7 @@ serve(async (req) => {
     }
 
     const body = await req.json();
-    const { messages, max_tokens, stream, endpoint, sessionId } = body;
+    const { messages, max_tokens, stream, endpoint, sessionId, system } = body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return new Response(JSON.stringify({ error: "messages is required" }), {
@@ -129,6 +129,12 @@ serve(async (req) => {
         // actual output is written (empty response, broken JSON parsing
         // client-side). This app has no need for reasoning depth.
         thinking: { type: "disabled" },
+        // Optional prompt-caching support: the client builds the full
+        // Anthropic `system` array itself (text + cache_control), this just
+        // forwards it through untouched — no logic here needs to know
+        // anything about caching. Omitted entirely when the client doesn't
+        // send one, so this stays a no-op for any older/other caller.
+        ...(system ? { system } : {}),
         messages,
       }),
     });
