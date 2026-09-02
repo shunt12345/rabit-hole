@@ -1,8 +1,15 @@
 import { useState, useRef, useEffect, Fragment } from "react";
 import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, ChevronDown } from "lucide-react";
-import { callClaude, streamJSON, streamTextFromPrompt, getLastActionsToday, writeNewsRootCache } from "./lib/api.js";
+import {
+  callClaude,
+  streamJSON,
+  streamTextFromPrompt,
+  getLastActionsToday,
+  getLastTrialStatus,
+  writeNewsRootCache,
+  TrialExhaustedError,
+} from "./lib/api.js";
 import { HYPHA_SYSTEM, OBSCURITY_LEVELS, FIXED_OBSCURITY } from "./lib/hyphaSystemPrompt.js";
-import { tierForActionCount } from "./lib/tierConfig.js";
 import { createPacedReveal } from "./lib/pacedReveal.js";
 import { getCurrentUser, onAuthStateChange } from "./lib/auth.js";
 import AccountMenu from "./AccountMenu.jsx";
@@ -223,16 +230,24 @@ export default function Hypha() {
   const [selectedNewsIdx, setSelectedNewsIdx] = useState(null);
   // Same idea, for the separate "National Day" / "This Day In History" pair.
   const [selectedTodayIdx, setSelectedTodayIdx] = useState(null);
-  // Phase 1 of the tiered-usage design (tierConfig.js) — pure instrumentation,
-  // nothing reads this to change behavior yet. Synced from the proxy's
-  // X-Session-Actions-Today response header after every call, so real
-  // sessions can be watched demoting through tiers before any zone size is
-  // actually decided on.
+  // Raw action count from the proxy's X-Session-Actions-Today header —
+  // kept for the existing 300/day safety-net visibility; the real
+  // free-trial gate (below) is search-count-based, not this.
   const [actionsToday, setActionsToday] = useState(0);
+  // Section B of the production punch list (free-tier enforcement) — real
+  // trial status from the proxy: how many free searches used, the limit,
+  // and whether this identity is funded (and so not gated at all). Drives
+  // hiding/disabling News/Today/Dig Deeper once the trial's used up.
+  // Starts optimistic (assume within trial) since the real status isn't
+  // known until after the first proxy call of the session.
+  const [trialStatus, setTrialStatus] = useState({ searchesUsed: 0, searchLimit: 6, funded: false });
   const syncActionsToday = () => {
     const n = getLastActionsToday();
     if (n != null) setActionsToday(n);
+    const t = getLastTrialStatus();
+    if (t != null) setTrialStatus(t);
   };
+  const trialExhausted = !trialStatus.funded && trialStatus.searchesUsed >= trialStatus.searchLimit;
 
   // Accounts (production punch list, Section A) — first pass: just knowing
   // who's signed in. Nothing reads `user` to change behavior yet (no
@@ -745,9 +760,6 @@ export default function Hypha() {
     );
 
   const hasStarted = nodes.length > 0;
-  // Phase 1 instrumentation only — see tierConfig.js and the actionsToday
-  // state above. Not used to gate anything yet.
-  const debugTier = tierForActionCount(actionsToday);
   const newsTopics = latestByField(trendingTopics, NEWS_FIELDS);
   const todayTopics = latestByField(trendingTopics, SPECIAL_FIELDS);
   const selected = nodes.find((n) => n.id === selectedId) || null;
@@ -811,18 +823,15 @@ export default function Hypha() {
                 {nodes.length} thought{nodes.length === 1 ? "" : "s"} uncovered
               </div>
             )}
-            {/* Phase 1 instrumentation — internal testing readout only, not
-                final UI. Shows what tier this session would currently be in
-                so real usage can be watched demoting through tiers before
-                any zone size is locked in or any feature actually gated. */}
-            <div
-              className="rh-mono rh-text-10"
-              title="Debug: tiered-usage instrumentation, not yet enforced"
-              style={{ color: "#6B5B45" }}
-            >
-              [{debugTier.label}
-              {debugTier.actionsToNextTier != null ? ` · ${debugTier.actionsToNextTier} to next` : ""}]
-            </div>
+            {/* Real free-trial status (production punch list, Section B) —
+                replaces the earlier placeholder tier-zone debug readout
+                now that real enforcement exists. Funded accounts aren't
+                limited by this at all, so nothing to show them here. */}
+            {!trialStatus.funded && (
+              <div className="rh-mono rh-text-10" style={{ color: "#6B5B45" }}>
+                {trialStatus.searchesUsed}/{trialStatus.searchLimit} free searches today
+              </div>
+            )}
             <AccountMenu user={user} />
           </div>
         </div>
@@ -888,8 +897,11 @@ export default function Hypha() {
             {/* real, live-searched stories — see
                 supabase/functions/generate-trending-topics. The "as of"
                 date reflects the actual cache timestamp now, not a
-                hand-maintained string that can silently go stale. */}
-            {newsTopics.length > 0 && (
+                hand-maintained string that can silently go stale.
+                Hidden once the free trial's used up (production punch
+                list, Section B) — News is a funded-only feature per the
+                monetization outline's Section 14.1 feature matrix. */}
+            {newsTopics.length > 0 && !trialExhausted && (
               <div className="mt-10">
                 <div className="flex items-center justify-center gap-1.5 mb-1">
                   <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
@@ -945,8 +957,9 @@ export default function Hypha() {
             {/* "Today" — National Day + This Day In History, same source
                 table and card treatment as "In the news" but date-anchored
                 rather than searched-for-recency. See promptForField in
-                supabase/functions/generate-trending-topics. */}
-            {todayTopics.length > 0 && (
+                supabase/functions/generate-trending-topics. Same
+                funded-only gate as "In the news" above. */}
+            {todayTopics.length > 0 && !trialExhausted && (
               <div className="mt-10">
                 <div className="flex items-center justify-center gap-1.5 mb-6">
                   <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
@@ -987,6 +1000,24 @@ export default function Hypha() {
                     );
                   })}
                 </div>
+              </div>
+            )}
+
+            {/* Free trial used up (production punch list, Section B) — the
+                "hero placement promoting the paid balance" the
+                monetization outline's Section 14.1 calls for once the
+                floor is hit. Plain text for now, not a real CTA: there's
+                nowhere to send someone to fund a balance yet (Section D,
+                billing, isn't built) — a button that goes nowhere would be
+                worse than no button. */}
+            {trialExhausted && (
+              <div className="mt-10 p-4 rounded-2xl border text-center" style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}>
+                <div className="text-base font-semibold mb-1" style={{ color: "#F1E6D3" }}>
+                  Free searches used up for today
+                </div>
+                <p className="rh-body text-sm" style={{ color: "#B8A886" }}>
+                  Dig In still works — explore new topics any time. Branches, articles, and news reset in 24h.
+                </p>
               </div>
             )}
 
@@ -1120,7 +1151,7 @@ export default function Hypha() {
                         round (selected.deepened) rather than open-ended
                         pagination for the minority who want a bit more
                         before moving on */}
-                    {!selected.articleStreaming && !selected.articleLoading && !selected.deepened && (
+                    {!selected.articleStreaming && !selected.articleLoading && !selected.deepened && !trialExhausted && (
                       <button
                         onClick={() => deepenArticle(selected.id)}
                         className="flex items-center gap-1.5 text-sm font-medium transition-colors rh-link-accent"

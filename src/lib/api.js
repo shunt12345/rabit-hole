@@ -6,6 +6,7 @@
 // client-side code. See supabase/functions/rabbit-hole-proxy for the server
 // side of this and the handoff README for the Phase 1/2 plan this sets up.
 import { getSessionId } from "./session.js";
+import { getAccessToken } from "./auth.js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -31,13 +32,12 @@ function systemBlock(system) {
   return [{ type: "text", text: system, cache_control: { type: "ephemeral", ttl: "1h" } }];
 }
 
-// Phase 1 of the tiered-usage design (see tierConfig.js): the proxy already
-// computes this session's rolling 24h action count for the existing daily
-// safety cap, and now echoes it back as a response header instead of
-// keeping it server-side-only. Stashed here rather than threaded through
-// every call's return value — callClaude/streamJSON/streamTextFromPrompt
-// all have different return shapes already, and this is a supplementary
-// read, not something any of them need to make a decision on themselves.
+// The proxy computes this session's rolling 24h action count for the
+// existing daily safety cap, and echoes it back as a response header
+// instead of keeping it server-side-only. Stashed here rather than
+// threaded through every call's return value — callClaude/streamJSON/
+// streamTextFromPrompt all have different return shapes already, and this
+// is a supplementary read, not something any of them need to decide on.
 let lastActionsToday = null;
 export function getLastActionsToday() {
   return lastActionsToday;
@@ -47,6 +47,48 @@ function captureActionsToday(res) {
   if (raw == null) return;
   const n = Number(raw);
   if (!Number.isNaN(n)) lastActionsToday = n;
+}
+
+// Section B of the production punch list (free-tier enforcement): the
+// proxy computes real trial status server-side (searches used, the limit,
+// whether this caller is funded) and echoes it back the same way as
+// getLastActionsToday above, so the UI can proactively hide/disable
+// News/Today/Dig Deeper once the trial's used up instead of only finding
+// out from a failed request.
+let lastTrialStatus = null;
+export function getLastTrialStatus() {
+  return lastTrialStatus;
+}
+function captureTrialStatus(res) {
+  const used = res.headers.get("X-Trial-Searches-Used");
+  const limit = res.headers.get("X-Trial-Search-Limit");
+  const funded = res.headers.get("X-Trial-Funded");
+  if (used == null || limit == null) return;
+  const searchesUsed = Number(used);
+  const searchLimit = Number(limit);
+  if (Number.isNaN(searchesUsed) || Number.isNaN(searchLimit)) return;
+  lastTrialStatus = { searchesUsed, searchLimit, funded: funded === "1" };
+}
+
+// Thrown when the proxy rejects a call because the free trial's search
+// allowance is used up and this identity isn't funded — App.jsx catches
+// this specifically to show an upgrade message instead of a generic error.
+export class TrialExhaustedError extends Error {
+  constructor(message) {
+    super(message || "Free trial searches used up for today.");
+    this.name = "TrialExhaustedError";
+  }
+}
+
+// Auth token for the CURRENT signed-in user, if any — sent alongside the
+// existing anonymous session id so the proxy can verify who's really
+// calling (never trust a client-supplied user id) and count a signed-in
+// user's trial searches against their real account instead of their
+// browser's resettable session_id. Anonymous visitors just don't have one;
+// every existing call keeps working unchanged.
+async function authField() {
+  const token = await getAccessToken();
+  return token ? { userAccessToken: token } : {};
 }
 
 // Shared fetch + timeout + error-surfacing logic, returning the raw text
@@ -71,6 +113,7 @@ async function fetchClaudeText(system, prompt, maxTokens, endpoint) {
         messages: [{ role: "user", content: prompt }],
         endpoint,
         sessionId: getSessionId(),
+        ...(await authField()),
       }),
       signal: controller.signal,
     });
@@ -85,6 +128,15 @@ async function fetchClaudeText(system, prompt, maxTokens, endpoint) {
   }
 
   captureActionsToday(res);
+  captureTrialStatus(res);
+
+  if (res.status === 402) {
+    let message;
+    try {
+      message = (await res.json()).message;
+    } catch (_) {}
+    throw new TrialExhaustedError(message);
+  }
 
   if (!res.ok) {
     let bodySnippet = "";
@@ -144,6 +196,7 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
         endpoint,
         sessionId: getSessionId(),
         ...(newsCacheKey ? { newsCacheKey } : {}),
+        ...(await authField()),
       }),
       signal: controller.signal,
     });
@@ -157,6 +210,16 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
   }
 
   captureActionsToday(res);
+  captureTrialStatus(res);
+
+  if (res.status === 402) {
+    clearTimeout(timeoutId);
+    let message;
+    try {
+      message = (await res.json()).message;
+    } catch (_) {}
+    throw new TrialExhaustedError(message);
+  }
 
   if (!res.ok) {
     clearTimeout(timeoutId);

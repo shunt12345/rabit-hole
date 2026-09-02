@@ -43,11 +43,25 @@
 // or miss — see the revert in git history for why that path stays
 // especially conservative.
 //
+// Free-trial enforcement (production punch list, Section B; see the
+// monetization outline doc, Section 14.1/14.2): "root" calls (typing a
+// topic, or clicking a News/Today card — the "Dig In" action) are never
+// blocked, and aren't what's being metered. What's gated is the three
+// "rich" functions — expand ("explore next"), article ("read more"), and
+// continuation ("dig deeper") — once a non-funded identity has made
+// FREE_SEARCH_LIMIT root calls in the last 24h. A signed-in user counts
+// against their real account (verified via their access token, never a
+// client-supplied id); an anonymous visitor still counts against their
+// browser's session_id, per Section 14.2's deliberate choice to keep the
+// free tier loosely gated rather than hard-walled. A funded account
+// (profiles.balance_usd > 0) skips this gate entirely — real balance
+// drawdown per action is a separate, later build (Section C/D).
+//
 // DEPLOY STEPS:
 //   1. supabase functions new rabbit-hole-proxy
 //   2. Replace the generated index.ts with this file's contents
 //   3. supabase secrets set ANTHROPIC_API_KEY=your_actual_key_here
-//   4. Run the migration in supabase/migrations to create the log table
+//   4. Run the migrations in supabase/migrations
 //   5. supabase functions deploy rabbit-hole-proxy
 
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
@@ -61,7 +75,8 @@ const corsHeaders = {
   // Browsers only expose the CORS safelist headers to JS by default — a
   // custom header is invisible to fetch()'s res.headers.get() client-side
   // without this, even though it's plainly there on the wire.
-  "Access-Control-Expose-Headers": "X-Session-Actions-Today",
+  "Access-Control-Expose-Headers":
+    "X-Session-Actions-Today, X-Trial-Searches-Used, X-Trial-Search-Limit, X-Trial-Funded",
 };
 
 // Phase 1 of the tiered-usage design (see conversation notes — pure
@@ -73,6 +88,24 @@ const corsHeaders = {
 // have landed yet by the time this header is read.
 function usageHeaders(count: number | null) {
   return { "X-Session-Actions-Today": String((count ?? 0) + 1) };
+}
+
+// Endpoints gated by the free-trial search limit — "root" (Dig In) is
+// deliberately not in this set; see the top-of-file note.
+const GATED_ENDPOINTS = new Set(["expand", "article", "continuation"]);
+
+// Overridable without a redeploy, same pattern as DAILY_REQUEST_LIMIT —
+// matches the monetization outline doc's Section 14.1 ("6 searches",
+// explicitly flagged there as a placeholder to tune once real behavior
+// data exists).
+const FREE_SEARCH_LIMIT = Number(Deno.env.get("FREE_SEARCH_LIMIT") ?? "6");
+
+function trialHeaders(searchesUsed: number, funded: boolean) {
+  return {
+    "X-Trial-Searches-Used": String(searchesUsed),
+    "X-Trial-Search-Limit": String(FREE_SEARCH_LIMIT),
+    "X-Trial-Funded": funded ? "1" : "0",
+  };
 }
 
 // Fixed server-side, deliberately not read from the client request — chosen
@@ -91,17 +124,62 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
 
-async function logRequest(sessionId: string, endpoint: string) {
+async function logRequest(sessionId: string, endpoint: string, userId: string | null) {
   try {
     await supabase.from("rabbit_hole_request_logs").insert({
       session_id: sessionId || "unknown",
       endpoint: endpoint || "unknown",
+      user_id: userId,
     });
   } catch (e) {
     // logging is a nice-to-have for Phase 2 planning, never worth failing
     // or even delaying a real user's request over
     console.error("rabbit-hole-proxy: failed to log request", e);
   }
+}
+
+// Verifies a client-supplied access token (never trust a client-supplied
+// user id directly) and looks up whether that account is funded. Returns
+// { userId: null, funded: false } for an anonymous caller or an invalid/
+// expired token — fails open into "anonymous," not into "funded," so a
+// broken token can never accidentally grant unlimited access.
+async function resolveIdentity(userAccessToken: string | undefined) {
+  if (!userAccessToken) return { userId: null as string | null, funded: false };
+  try {
+    const { data, error } = await supabase.auth.getUser(userAccessToken);
+    if (error || !data?.user) return { userId: null, funded: false };
+    const userId = data.user.id;
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("balance_usd")
+      .eq("id", userId)
+      .maybeSingle();
+    const funded = !!profile && Number(profile.balance_usd) > 0;
+    return { userId, funded };
+  } catch (e) {
+    console.error("rabbit-hole-proxy: failed to resolve identity, treating as anonymous", e);
+    return { userId: null, funded: false };
+  }
+}
+
+// How many "root" (Dig In) calls this identity has made in the last 24h —
+// the free-trial search count from Section 14.1. Signed-in callers count
+// against their real account; anonymous callers still count against their
+// session_id (see the top-of-file note on why that stays loose on purpose).
+async function countSearches(userId: string | null, sessionId: string) {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  let query = supabase
+    .from("rabbit_hole_request_logs")
+    .select("*", { count: "exact", head: true })
+    .eq("endpoint", "root")
+    .gte("created_at", since);
+  query = userId ? query.eq("user_id", userId) : query.eq("session_id", sessionId || "unknown");
+  const { count, error } = await query;
+  if (error) {
+    console.error("rabbit-hole-proxy: search count check failed, allowing request", error);
+    return null; // fail open, same posture as the daily-limit check below
+  }
+  return count ?? 0;
 }
 
 // Response shape mimics Anthropic's actual non-streaming response just
@@ -196,7 +274,7 @@ serve(async (req) => {
       });
     }
 
-    const { messages, max_tokens, stream, endpoint, sessionId, system, newsCacheKey } = body;
+    const { messages, max_tokens, stream, endpoint, sessionId, system, newsCacheKey, userAccessToken } = body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return new Response(JSON.stringify({ error: "messages is required" }), {
@@ -204,6 +282,8 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    const { userId, funded } = await resolveIdentity(userAccessToken);
 
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { count, error: countError } = await supabase
@@ -222,8 +302,26 @@ serve(async (req) => {
       );
     }
 
+    // Free-trial search count — see the top-of-file note. Computed for
+    // every request (not just gated ones) so every response can carry real
+    // trial-status headers, letting the client proactively hide/disable
+    // News/Today/Dig Deeper once the trial's used up instead of only
+    // finding out from a failed request.
+    const searchCount = await countSearches(userId, sessionId);
+    const responseHeaders = { ...corsHeaders, ...usageHeaders(count), ...trialHeaders(searchCount ?? 0, funded) };
+
+    if (!funded && searchCount !== null && searchCount >= FREE_SEARCH_LIMIT && GATED_ENDPOINTS.has(endpoint)) {
+      return new Response(
+        JSON.stringify({
+          error: "trial_exhausted",
+          message: `Free trial searches used up for today (${FREE_SEARCH_LIMIT}/24h) — Dig In still works, upgrade for full access.`,
+        }),
+        { status: 402, headers: { ...responseHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // fire-and-forget — never block the actual Claude call on this
-    logRequest(sessionId, endpoint);
+    logRequest(sessionId, endpoint, userId);
 
     if (newsCacheKey) {
       const { data: cached, error: cacheErr } = await supabase
@@ -235,7 +333,7 @@ serve(async (req) => {
         // fail open — fall through to a real generation rather than block
         console.error("rabbit-hole-proxy: news root cache lookup failed", cacheErr);
       } else if (cached) {
-        return newsRootCacheResponse(cached, { ...corsHeaders, ...usageHeaders(count) });
+        return newsRootCacheResponse(cached, responseHeaders);
       }
     }
 
@@ -272,8 +370,7 @@ serve(async (req) => {
     return new Response(anthropicRes.body, {
       status: anthropicRes.status,
       headers: {
-        ...corsHeaders,
-        ...usageHeaders(count),
+        ...responseHeaders,
         "Content-Type": anthropicRes.headers.get("Content-Type") || "application/json",
       },
     });

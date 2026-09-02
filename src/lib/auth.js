@@ -27,6 +27,19 @@ export async function getCurrentUser() {
   return session?.user ?? null;
 }
 
+// The proxy needs to verify who's actually calling (never trust a
+// client-supplied user id directly) to count a signed-in user's free
+// searches against their real account instead of their browser's
+// resettable session_id — see api.js's use of this. getSession() reads
+// from local storage and only hits the network if the token needs
+// refreshing, so this is cheap to call on every request.
+export async function getAccessToken() {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  return session?.access_token ?? null;
+}
+
 // Fires on sign-in, sign-out, and token refresh — callback receives the
 // current user (or null once signed out).
 export function onAuthStateChange(callback) {
