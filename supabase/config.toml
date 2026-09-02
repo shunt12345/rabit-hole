@@ -6,3 +6,11 @@ project_id = "gflcioanuzrxgxxafnzl"
 # pg_cron job, which doesn't send an Authorization header.
 [functions.generate-trending-topics]
 verify_jwt = false
+
+# Stripe calls this directly — there's no Supabase user JWT on the request
+# at all, only Stripe's own signature (verified in the function itself via
+# STRIPE_WEBHOOK_SECRET). If deploying by hand through the Dashboard rather
+# than the CLI, this file isn't read — also flip "Enforce JWT Verification"
+# off for this function there directly.
+[functions.stripe-webhook]
+verify_jwt = false

@@ -54,8 +54,16 @@
 // client-supplied id); an anonymous visitor still counts against their
 // browser's session_id, per Section 14.2's deliberate choice to keep the
 // free tier loosely gated rather than hard-walled. A funded account
-// (profiles.balance_usd > 0) skips this gate entirely — real balance
-// drawdown per action is a separate, later build (Section C/D).
+// (profiles.balance_usd > 0) skips this gate entirely.
+//
+// Billing (production punch list, Section D): real balance drawdown per
+// action, added alongside the Stripe top-up flow (create-checkout-session/
+// stripe-webhook). A funded caller's balance is deducted after each call,
+// from the real measured Anthropic cost marked up to the decided 50%
+// margin target — see extractUsageAndBill/computeCostUsd below. This never
+// touches the streaming pass-through response itself (see that section's
+// comment for why that path stays especially conservative) — it reads a
+// clone() of the response in the background instead.
 //
 // DEPLOY STEPS:
 //   1. supabase functions new rabbit-hole-proxy
@@ -113,6 +121,152 @@ function trialHeaders(searchesUsed: number, funded: boolean) {
 // README. Don't let a client-supplied model override this.
 const MODEL = "claude-sonnet-5";
 
+// Same env var names generate-trending-topics uses for its own cost
+// calculation — Supabase secrets are project-wide, so one value covers
+// both functions. A future Anthropic price change only needs setting once.
+const INPUT_PRICE_PER_M = Number(Deno.env.get("SONNET_INPUT_PRICE_PER_M") ?? "2.00");
+const OUTPUT_PRICE_PER_M = Number(Deno.env.get("SONNET_OUTPUT_PRICE_PER_M") ?? "10.00");
+// Anthropic's published multipliers for a 1h cache TTL (this app's
+// systemBlock() in src/lib/api.js always requests ttl: "1h") — a cache
+// write costs 2x the base input rate, a cache read costs 10% of it.
+const CACHE_WRITE_MULTIPLIER = 2.0;
+const CACHE_READ_MULTIPLIER = 0.1;
+
+// Billing (production punch list, Section D): the margin target decided
+// for the $10 minimum balance (monetization outline doc, Section 14.1) is
+// 50%, so a funded user's balance is deducted at 1 / (1 - 0.5) = 2x the
+// real measured Anthropic cost of each call — a $10 balance buys ~$5 of
+// real usage, matching 14.1's table. The credited amount itself (in
+// stripe-webhook) is never marked up — only the spend rate is.
+const MARGIN_TARGET = Number(Deno.env.get("BILLING_MARGIN_TARGET") ?? "0.5");
+const BILLING_MARKUP_MULTIPLIER = 1 / (1 - MARGIN_TARGET);
+
+// Real per-call cost from Anthropic's own `usage` object, in the same
+// shape whether it came from a non-streamed response or was reconstructed
+// from an SSE stream's message_start/message_delta events (see
+// extractUsageAndBill below).
+function computeCostUsd(usage: {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+}) {
+  const input = usage.input_tokens ?? 0;
+  const output = usage.output_tokens ?? 0;
+  const cacheWrite = usage.cache_creation_input_tokens ?? 0;
+  const cacheRead = usage.cache_read_input_tokens ?? 0;
+  return (
+    (input / 1_000_000) * INPUT_PRICE_PER_M +
+    (output / 1_000_000) * OUTPUT_PRICE_PER_M +
+    (cacheWrite / 1_000_000) * INPUT_PRICE_PER_M * CACHE_WRITE_MULTIPLIER +
+    (cacheRead / 1_000_000) * INPUT_PRICE_PER_M * CACHE_READ_MULTIPLIER
+  );
+}
+
+// Anthropic's streaming response never carries one single `usage` object —
+// input/cache-token counts arrive on message_start, and the true final
+// output-token count arrives on the *last* message_delta before the
+// stream ends (each message_delta's usage.output_tokens is the running
+// total so far, not an incremental delta — last one wins). Best-effort:
+// any line that doesn't parse as JSON, or isn't one of these two event
+// types, is just skipped.
+function parseSSEUsage(sseText: string) {
+  let inputTokens = 0;
+  let cacheCreation = 0;
+  let cacheRead = 0;
+  let outputTokens = 0;
+  let sawUsage = false;
+  for (const line of sseText.split("\n")) {
+    if (!line.startsWith("data:")) continue;
+    const jsonStr = line.slice(5).trim();
+    if (!jsonStr || jsonStr === "[DONE]") continue;
+    let evt: any;
+    try {
+      evt = JSON.parse(jsonStr);
+    } catch {
+      continue;
+    }
+    if (evt.type === "message_start" && evt.message?.usage) {
+      inputTokens = evt.message.usage.input_tokens ?? 0;
+      cacheCreation = evt.message.usage.cache_creation_input_tokens ?? 0;
+      cacheRead = evt.message.usage.cache_read_input_tokens ?? 0;
+      sawUsage = true;
+    } else if (evt.type === "message_delta" && evt.usage) {
+      outputTokens = evt.usage.output_tokens ?? outputTokens;
+      sawUsage = true;
+    }
+  }
+  if (!sawUsage) return null;
+  return {
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    cache_creation_input_tokens: cacheCreation,
+    cache_read_input_tokens: cacheRead,
+  };
+}
+
+// Supabase Edge Functions keep running background work queued via
+// EdgeRuntime.waitUntil even after the response has already been sent to
+// the client — without it, the isolate can be frozen/recycled the moment
+// the response is returned, and a fire-and-forget promise might never
+// finish. Falls back to a plain unattached promise (best effort, same as
+// logRequest's existing posture) if that global isn't present, e.g. when
+// running under a different Deno host locally.
+function background(promise: Promise<unknown>) {
+  const rt = (globalThis as any).EdgeRuntime;
+  if (rt && typeof rt.waitUntil === "function") {
+    rt.waitUntil(promise);
+  } else {
+    promise.catch((e) => console.error("rabbit-hole-proxy: background task failed", e));
+  }
+}
+
+// Reads a *clone* of the real Anthropic response to work out what it
+// actually cost, entirely independent of the clone that gets streamed
+// back to the client — clone() tees the underlying body, so this never
+// touches, delays, or risks the client-facing pass-through response. Logs
+// the real cost onto this request's log row (Section K's "measure it for
+// real" numbers) and, for a signed-in caller, deducts the marked-up
+// amount from their balance via the atomic deduct_balance function.
+async function extractUsageAndBill(
+  meterRes: Response,
+  logRowIdPromise: Promise<number | null>,
+  userId: string | null
+) {
+  try {
+    const contentType = meterRes.headers.get("Content-Type") || "";
+    let usage: ReturnType<typeof parseSSEUsage> = null;
+    if (contentType.includes("application/json")) {
+      const data = await meterRes.json();
+      usage = data?.usage ?? null;
+    } else {
+      usage = parseSSEUsage(await meterRes.text());
+    }
+    if (!usage) return;
+
+    const costUsd = computeCostUsd(usage);
+
+    const rowId = await logRowIdPromise;
+    if (rowId != null) {
+      const { error } = await supabase
+        .from("rabbit_hole_request_logs")
+        .update({ model: MODEL, input_tokens: usage.input_tokens, output_tokens: usage.output_tokens, cost_usd: costUsd })
+        .eq("id", rowId);
+      if (error) console.error("rabbit-hole-proxy: failed to log real cost", error);
+    }
+
+    if (userId) {
+      const { error } = await supabase.rpc("deduct_balance", {
+        p_user_id: userId,
+        p_amount: costUsd * BILLING_MARKUP_MULTIPLIER,
+      });
+      if (error) console.error("rabbit-hole-proxy: failed to deduct balance", error);
+    }
+  } catch (e) {
+    console.error("rabbit-hole-proxy: usage/billing extraction failed", e);
+  }
+}
+
 // Per-session-per-day request ceiling — overridable without a redeploy via
 // `supabase secrets set DAILY_REQUEST_LIMIT=...`. 300 is generous headroom
 // for genuinely heavy single-day use while still catching a runaway loop
@@ -124,17 +278,29 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
 
-async function logRequest(sessionId: string, endpoint: string, userId: string | null) {
+// Returns the inserted row's id (or null on failure) so the billing step
+// below can attach the real cost to this same row once the call finishes —
+// callers still fire this off unawaited at request start (before the
+// Anthropic call), never blocking on the id; only the later background
+// billing task actually awaits the returned promise.
+async function logRequest(sessionId: string, endpoint: string, userId: string | null): Promise<number | null> {
   try {
-    await supabase.from("rabbit_hole_request_logs").insert({
-      session_id: sessionId || "unknown",
-      endpoint: endpoint || "unknown",
-      user_id: userId,
-    });
+    const { data, error } = await supabase
+      .from("rabbit_hole_request_logs")
+      .insert({
+        session_id: sessionId || "unknown",
+        endpoint: endpoint || "unknown",
+        user_id: userId,
+      })
+      .select("id")
+      .single();
+    if (error) throw error;
+    return data?.id ?? null;
   } catch (e) {
     // logging is a nice-to-have for Phase 2 planning, never worth failing
     // or even delaying a real user's request over
     console.error("rabbit-hole-proxy: failed to log request", e);
+    return null;
   }
 }
 
@@ -320,8 +486,10 @@ serve(async (req) => {
       );
     }
 
-    // fire-and-forget — never block the actual Claude call on this
-    logRequest(sessionId, endpoint, userId);
+    // fire-and-forget — never block the actual Claude call on this. The
+    // returned promise is only awaited later, inside the background
+    // billing task below, once the real cost is known.
+    const logRowIdPromise = logRequest(sessionId, endpoint, userId);
 
     if (newsCacheKey) {
       const { data: cached, error: cacheErr } = await supabase
@@ -362,6 +530,17 @@ serve(async (req) => {
         messages,
       }),
     });
+
+    // Billing (Section D): clone() tees the underlying body into two
+    // independent readers *before* anything below touches either one —
+    // the clone read in the background for cost/billing purposes can
+    // never delay, truncate, or otherwise affect the original response
+    // streamed back to the client immediately after. This is the only
+    // change billing makes to this path; the client-facing pass-through
+    // itself (anthropicRes.body below) is untouched, same as before.
+    if (anthropicRes.ok) {
+      background(extractUsageAndBill(anthropicRes.clone(), logRowIdPromise, userId));
+    }
 
     // stream the response straight through unmodified — the client's own
     // SSE parsing handles the rest, same as it would talking to Anthropic
