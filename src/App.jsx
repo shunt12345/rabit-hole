@@ -4,6 +4,8 @@ import { callClaude, streamJSON, streamTextFromPrompt, getLastActionsToday, writ
 import { HYPHA_SYSTEM, OBSCURITY_LEVELS, FIXED_OBSCURITY } from "./lib/hyphaSystemPrompt.js";
 import { tierForActionCount } from "./lib/tierConfig.js";
 import { createPacedReveal } from "./lib/pacedReveal.js";
+import { getCurrentUser, onAuthStateChange } from "./lib/auth.js";
+import AccountMenu from "./AccountMenu.jsx";
 
 const TYPE_COLOR = {
   root: "#C1552E",
@@ -231,6 +233,16 @@ export default function Hypha() {
     const n = getLastActionsToday();
     if (n != null) setActionsToday(n);
   };
+
+  // Accounts (production punch list, Section A) — first pass: just knowing
+  // who's signed in. Nothing reads `user` to change behavior yet (no
+  // balance, no feature toggles, no re-pointed rate limiting) — those are
+  // separate, later builds. null = signed out, an object = signed in.
+  const [user, setUser] = useState(null);
+  useEffect(() => {
+    getCurrentUser().then(setUser);
+    return onAuthStateChange(setUser);
+  }, []);
 
   const nodesRef = useRef([]);
   const selectedIdRef = useRef(null);
@@ -811,6 +823,7 @@ export default function Hypha() {
               [{debugTier.label}
               {debugTier.actionsToNextTier != null ? ` · ${debugTier.actionsToNextTier} to next` : ""}]
             </div>
+            <AccountMenu user={user} />
           </div>
         </div>
       </div>
