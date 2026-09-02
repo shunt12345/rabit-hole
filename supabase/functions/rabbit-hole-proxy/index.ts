@@ -305,26 +305,28 @@ async function logRequest(sessionId: string, endpoint: string, userId: string | 
 }
 
 // Verifies a client-supplied access token (never trust a client-supplied
-// user id directly) and looks up whether that account is funded. Returns
-// { userId: null, funded: false } for an anonymous caller or an invalid/
-// expired token — fails open into "anonymous," not into "funded," so a
-// broken token can never accidentally grant unlimited access.
+// user id directly) and looks up whether that account is funded, plus its
+// feature-toggle preferences (production punch list, Section C). Returns
+// { userId: null, funded: false, featureDigDeeper: false } for an
+// anonymous caller or an invalid/expired token — fails open into
+// "anonymous," not into "funded," so a broken token can never accidentally
+// grant unlimited access.
 async function resolveIdentity(userAccessToken: string | undefined) {
-  if (!userAccessToken) return { userId: null as string | null, funded: false };
+  if (!userAccessToken) return { userId: null as string | null, funded: false, featureDigDeeper: false };
   try {
     const { data, error } = await supabase.auth.getUser(userAccessToken);
-    if (error || !data?.user) return { userId: null, funded: false };
+    if (error || !data?.user) return { userId: null, funded: false, featureDigDeeper: false };
     const userId = data.user.id;
     const { data: profile } = await supabase
       .from("profiles")
-      .select("balance_usd")
+      .select("balance_usd, feature_dig_deeper")
       .eq("id", userId)
       .maybeSingle();
     const funded = !!profile && Number(profile.balance_usd) > 0;
-    return { userId, funded };
+    return { userId, funded, featureDigDeeper: !!profile?.feature_dig_deeper };
   } catch (e) {
     console.error("rabbit-hole-proxy: failed to resolve identity, treating as anonymous", e);
-    return { userId: null, funded: false };
+    return { userId: null, funded: false, featureDigDeeper: false };
   }
 }
 
@@ -449,7 +451,7 @@ serve(async (req) => {
       });
     }
 
-    const { userId, funded } = await resolveIdentity(userAccessToken);
+    const { userId, funded, featureDigDeeper } = await resolveIdentity(userAccessToken);
 
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { count, error: countError } = await supabase
@@ -483,6 +485,24 @@ serve(async (req) => {
           message: `Free trial searches used up for today (${FREE_SEARCH_LIMIT}/24h) — Dig In still works, upgrade for full access.`,
         }),
         { status: 402, headers: { ...responseHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Section C's feature toggles (à la carte, funded accounts only): the
+    // client already hides the "Dig deeper" button when this is off, so a
+    // normal client never reaches this — this is defense-in-depth against
+    // a hand-crafted request, not the primary enforcement mechanism (which
+    // is UI-level, since a funded caller only ever spends their own
+    // balance either way). News/Today have no server-side equivalent —
+    // both are just regular "root" calls indistinguishable from a
+    // manually-typed Dig In search, and root is never gated by design.
+    if (funded && endpoint === "continuation" && !featureDigDeeper) {
+      return new Response(
+        JSON.stringify({
+          error: "feature_disabled",
+          message: "Dig Deeper is turned off in your account settings.",
+        }),
+        { status: 403, headers: { ...responseHeaders, "Content-Type": "application/json" } }
       );
     }
 

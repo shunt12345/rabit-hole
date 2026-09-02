@@ -12,6 +12,7 @@ import {
 import { HYPHA_SYSTEM, OBSCURITY_LEVELS, FIXED_OBSCURITY } from "./lib/hyphaSystemPrompt.js";
 import { createPacedReveal } from "./lib/pacedReveal.js";
 import { getCurrentUser, onAuthStateChange } from "./lib/auth.js";
+import { getProfile } from "./lib/profile.js";
 import AccountMenu from "./AccountMenu.jsx";
 
 const TYPE_COLOR = {
@@ -258,6 +259,32 @@ export default function Hypha() {
     getCurrentUser().then(setUser);
     return onAuthStateChange(setUser);
   }, []);
+
+  // Production punch list, Section C (funded experience): the signed-in
+  // user's own feature-toggle preferences (News/Today/Dig Deeper — Explore
+  // node count is deliberately excluded, see AccountMenu.jsx). null while
+  // signed out or still loading; refreshed whenever `user` changes
+  // (including after AccountMenu writes a toggle, since that flips through
+  // the same auth state) and passed down so AccountMenu doesn't need a
+  // second, out-of-sync copy of the same row.
+  const [profile, setProfile] = useState(null);
+  const refreshProfile = () => {
+    if (!user) {
+      setProfile(null);
+      return;
+    }
+    getProfile().then(setProfile);
+  };
+  useEffect(refreshProfile, [user]);
+
+  // Toggle gating only ever applies to a FUNDED account — the free-trial
+  // window (not yet exhausted, per Section B) keeps its existing
+  // unconditional full access regardless of any toggle's stored default,
+  // matching the monetization outline doc's Section 14.1 ("full access to
+  // every function" during the trial, à-la-carte toggles only once funded).
+  const newsVisible = !trialStatus.funded || !!profile?.featureNews;
+  const todayVisible = !trialStatus.funded || !!profile?.featureToday;
+  const digDeeperVisible = !trialStatus.funded || !!profile?.featureDigDeeper;
 
   const nodesRef = useRef([]);
   const selectedIdRef = useRef(null);
@@ -832,7 +859,7 @@ export default function Hypha() {
                 {trialStatus.searchesUsed}/{trialStatus.searchLimit} free searches today
               </div>
             )}
-            <AccountMenu user={user} />
+            <AccountMenu user={user} profile={profile} onProfileChange={setProfile} onProfileRefresh={refreshProfile} />
           </div>
         </div>
       </div>
@@ -901,7 +928,7 @@ export default function Hypha() {
                 Hidden once the free trial's used up (production punch
                 list, Section B) — News is a funded-only feature per the
                 monetization outline's Section 14.1 feature matrix. */}
-            {newsTopics.length > 0 && !trialExhausted && (
+            {newsTopics.length > 0 && !trialExhausted && newsVisible && (
               <div className="mt-10">
                 <div className="flex items-center justify-center gap-1.5 mb-1">
                   <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
@@ -959,7 +986,7 @@ export default function Hypha() {
                 rather than searched-for-recency. See promptForField in
                 supabase/functions/generate-trending-topics. Same
                 funded-only gate as "In the news" above. */}
-            {todayTopics.length > 0 && !trialExhausted && (
+            {todayTopics.length > 0 && !trialExhausted && todayVisible && (
               <div className="mt-10">
                 <div className="flex items-center justify-center gap-1.5 mb-6">
                   <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
@@ -1006,17 +1033,17 @@ export default function Hypha() {
             {/* Free trial used up (production punch list, Section B) — the
                 "hero placement promoting the paid balance" the
                 monetization outline's Section 14.1 calls for once the
-                floor is hit. Plain text for now, not a real CTA: there's
-                nowhere to send someone to fund a balance yet (Section D,
-                billing, isn't built) — a button that goes nowhere would be
-                worse than no button. */}
+                floor is hit. Billing (Section D) is live now, so this
+                points at the real "Manage" > "Add funds" control in
+                AccountMenu above instead of a dead-end CTA. */}
             {trialExhausted && (
               <div className="mt-10 p-4 rounded-2xl border text-center" style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}>
                 <div className="text-base font-semibold mb-1" style={{ color: "#F1E6D3" }}>
                   Free searches used up for today
                 </div>
                 <p className="rh-body text-sm" style={{ color: "#B8A886" }}>
-                  Dig In still works — explore new topics any time. Branches, articles, and news reset in 24h.
+                  Dig In still works — explore new topics any time. Branches, articles, and news reset in 24h, or{" "}
+                  {user ? "add funds above for full access now." : "sign in above to add funds for full access now."}
                 </p>
               </div>
             )}
@@ -1151,7 +1178,7 @@ export default function Hypha() {
                         round (selected.deepened) rather than open-ended
                         pagination for the minority who want a bit more
                         before moving on */}
-                    {!selected.articleStreaming && !selected.articleLoading && !selected.deepened && !trialExhausted && (
+                    {!selected.articleStreaming && !selected.articleLoading && !selected.deepened && !trialExhausted && digDeeperVisible && (
                       <button
                         onClick={() => deepenArticle(selected.id)}
                         className="flex items-center gap-1.5 text-sm font-medium transition-colors rh-link-accent"
