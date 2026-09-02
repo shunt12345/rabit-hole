@@ -25,16 +25,23 @@
 //
 // News/Today root caching: a topic from the "In the news"/"Today" hero
 // cards is identical for every visitor until the next
-// generate-trending-topics refresh, so the client tags those specific root
-// calls with `newsCacheKey` (the exact topic string) instead of the usual
-// per-user streaming call. The FIRST person to open a given card triggers a
-// real (non-streaming) Claude call and this writes the result to
-// news_root_cache; everyone else who opens the same card reads it back
-// instead of triggering another full generation. Deliberately built as a
-// plain read-then-maybe-write around a non-streaming call — same shape as
-// generate-trending-topics' own Claude call — rather than anything that
-// inspects or re-wraps a streaming response body (see the revert in git
-// history for why that path stays untouched).
+// generate-trending-topics refresh, so the client tags those root calls
+// with `newsCacheKey` (the exact topic string) so this can skip straight to
+// a cached response instead of generating again on a hit.
+//
+// Writing the cache is a SEPARATE, later request (`newsCacheWrite`, below),
+// sent by the client only after it has finished streaming and parsed the
+// result. An earlier version forced the generation itself to be
+// non-streaming so THIS request could await-and-cache the result inline —
+// that added a real 1-2s of visible latency on every cache miss, since the
+// client then had to wait for the entire generation to finish before
+// seeing anything, instead of watching it stream in like any other topic.
+// Splitting the write into its own request keeps the cheap read-then-
+// maybe-serve-cached check here, while the generation itself — hit or miss
+// — always streams normally. This also means the response-streaming
+// pass-through below is never touched by the caching feature at all, hit
+// or miss — see the revert in git history for why that path stays
+// especially conservative.
 //
 // DEPLOY STEPS:
 //   1. supabase functions new rabbit-hole-proxy
@@ -115,23 +122,55 @@ function newsRootCacheResponse(
   );
 }
 
-async function cacheNewsRoot(cacheKey: string, text: string) {
-  try {
-    const cleaned = text.replace(/```json|```/g, "").trim();
-    const start = cleaned.indexOf("{");
-    const end = cleaned.lastIndexOf("}");
-    if (start === -1 || end === -1) return;
-    const parsed = JSON.parse(cleaned.slice(start, end + 1));
-    if (!parsed.rootLabel || !parsed.overview || !Array.isArray(parsed.children)) return;
-    await supabase.from("news_root_cache").upsert(
-      { cache_key: cacheKey, root_label: parsed.rootLabel, overview: parsed.overview, children: parsed.children },
-      { onConflict: "cache_key", ignoreDuplicates: true }
-    );
-  } catch (e) {
-    // best-effort — a caching miss just means the next visitor generates
-    // fresh too, never worth failing the real request over
-    console.error("rabbit-hole-proxy: failed to cache news root", e);
+// Handles `newsCacheWrite` requests — sent by the client after it has
+// already streamed and parsed a root response for a news/today topic. This
+// is a client-writable path (unlike the rest of this table, which the
+// client can only read), so it's deliberately narrow: the cacheKey must
+// match a topic generate-trending-topics actually produced, and the
+// underlying upsert (ignoreDuplicates: true) means only the very first
+// write for a given key ever takes — nobody can overwrite an
+// already-cached topic's content, only race to be first on a brand-new
+// one. Accepted trade-off for this app's scale/stakes rather than building
+// real request signing for a shared, non-sensitive content cache.
+async function handleNewsCacheWrite(write: any, corsHeaders: Record<string, string>) {
+  const cacheKey = typeof write?.cacheKey === "string" ? write.cacheKey.trim() : "";
+  const rootLabel = typeof write?.rootLabel === "string" ? write.rootLabel : "";
+  const overview = typeof write?.overview === "string" ? write.overview : "";
+  const children = Array.isArray(write?.children) ? write.children : null;
+
+  if (!cacheKey || !rootLabel || !overview || !children) {
+    return new Response(JSON.stringify({ error: "invalid newsCacheWrite payload" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
+
+  try {
+    const { data: realTopic } = await supabase
+      .from("trending_topics_cache")
+      .select("topic")
+      .eq("topic", cacheKey)
+      .limit(1)
+      .maybeSingle();
+    if (realTopic) {
+      await supabase.from("news_root_cache").upsert(
+        { cache_key: cacheKey, root_label: rootLabel, overview, children },
+        { onConflict: "cache_key", ignoreDuplicates: true }
+      );
+    }
+  } catch (e) {
+    // best-effort — a failed write just means the next visitor generates
+    // fresh too, never worth surfacing as an error to the client over
+    console.error("rabbit-hole-proxy: failed to write news root cache", e);
+  }
+
+  // Always 200 regardless of outcome — this is a fire-and-forget cache
+  // hint from the client's perspective, never something worth retrying or
+  // erroring the UI over.
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 
 serve(async (req) => {
@@ -140,6 +179,15 @@ serve(async (req) => {
   }
 
   try {
+    const body = await req.json();
+
+    // Handled before anything else — no Anthropic call happens on this
+    // path at all, so it needs neither the API key nor the messages/limit
+    // checks below.
+    if (body.newsCacheWrite) {
+      return handleNewsCacheWrite(body.newsCacheWrite, corsHeaders);
+    }
+
     const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
     if (!apiKey) {
       return new Response(JSON.stringify({ error: "ANTHROPIC_API_KEY secret is not set on this function" }), {
@@ -148,7 +196,6 @@ serve(async (req) => {
       });
     }
 
-    const body = await req.json();
     const { messages, max_tokens, stream, endpoint, sessionId, system, newsCacheKey } = body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
@@ -202,13 +249,7 @@ serve(async (req) => {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: max_tokens || 1200,
-        // Cache misses always resolve as a single JSON response, never a
-        // stream — the cache-write step right below needs the full text in
-        // hand, and re-wrapping/inspecting a streamed body is exactly what
-        // caused the earlier outage (see git history). The client already
-        // calls this path non-streaming; forcing it here too means a future
-        // client bug can't accidentally send stream:true down this branch.
-        stream: newsCacheKey ? false : !!stream,
+        stream: !!stream,
         // claude-sonnet-5 runs adaptive thinking by default; left enabled,
         // thinking tokens can consume the whole max_tokens budget before any
         // actual output is written (empty response, broken JSON parsing
@@ -223,33 +264,6 @@ serve(async (req) => {
         messages,
       }),
     });
-
-    if (newsCacheKey) {
-      // Not the streaming path — a single JSON body, so reading it here to
-      // cache it is exactly as safe as generate-trending-topics' own
-      // non-streaming Claude call, not a repeat of the tee()'d-stream issue.
-      if (!anthropicRes.ok) {
-        const errText = await anthropicRes.text();
-        return new Response(errText, {
-          status: anthropicRes.status,
-          headers: { ...corsHeaders, "Content-Type": anthropicRes.headers.get("Content-Type") || "application/json" },
-        });
-      }
-      const data = await anthropicRes.json();
-      const text = (data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
-      // Awaited, not fire-and-forget: with nothing left to run after this on
-      // the request path, an un-awaited call here can get torn down by the
-      // edge runtime the moment the response below is sent, before the
-      // write actually lands (unlike logRequest() above, which fires before
-      // the several-second wait on the Anthropic call and so has real time
-      // to finish in the background). Only adds latency on a cache MISS —
-      // the rare first-visitor case, not the common cached-read path.
-      await cacheNewsRoot(newsCacheKey, text);
-      return new Response(JSON.stringify(data), {
-        status: 200,
-        headers: { ...corsHeaders, ...usageHeaders(count), "Content-Type": "application/json" },
-      });
-    }
 
     // stream the response straight through unmodified — the client's own
     // SSE parsing handles the rest, same as it would talking to Anthropic

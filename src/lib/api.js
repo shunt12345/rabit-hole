@@ -57,7 +57,7 @@ function captureActionsToday(res) {
 // "continuation") the proxy logs alongside an anonymous session id per
 // request — see the handoff brief's Phase 1 logging note: this is what lets
 // Phase 2's usage caps be set from real numbers instead of a guess.
-async function fetchClaudeText(system, prompt, maxTokens, endpoint, newsCacheKey) {
+async function fetchClaudeText(system, prompt, maxTokens, endpoint) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 25000);
   let res;
@@ -71,7 +71,6 @@ async function fetchClaudeText(system, prompt, maxTokens, endpoint, newsCacheKey
         messages: [{ role: "user", content: prompt }],
         endpoint,
         sessionId: getSessionId(),
-        ...(newsCacheKey ? { newsCacheKey } : {}),
       }),
       signal: controller.signal,
     });
@@ -108,13 +107,8 @@ async function fetchClaudeText(system, prompt, maxTokens, endpoint, newsCacheKey
   return text;
 }
 
-// `newsCacheKey`, when passed, tags this as a request for content that's
-// identical for every visitor until the next trending-topics refresh (an
-// "In the news"/"Today" hero card) — the proxy serves a cached generation
-// instead of a fresh one when one already exists for that exact key. See
-// startTopic in App.jsx for which calls set this.
-export async function callClaude(system, prompt, endpoint, newsCacheKey) {
-  const text = await fetchClaudeText(system, prompt, undefined, endpoint, newsCacheKey);
+export async function callClaude(system, prompt, endpoint) {
+  const text = await fetchClaudeText(system, prompt, undefined, endpoint);
   const cleaned = text.replace(/```json|```/g, "").trim();
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
@@ -134,7 +128,7 @@ export async function callClaude(system, prompt, endpoint, newsCacheKey) {
 // API's server-sent-event chunks, and calls onChunk with the accumulated
 // text so far after every delta. Returns the final raw accumulated text —
 // callers apply their own cleanup/parsing on top (plain prose vs. JSON).
-async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk) {
+async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   let res;
@@ -149,6 +143,7 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
         messages: [{ role: "user", content: prompt }],
         endpoint,
         sessionId: getSessionId(),
+        ...(newsCacheKey ? { newsCacheKey } : {}),
       }),
       signal: controller.signal,
     });
@@ -173,8 +168,15 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
     throw new Error(`API returned ${res.status}${bodySnippet ? `: ${bodySnippet}` : ""}`);
   }
 
-  if (!res.body || !res.body.getReader) {
-    // environment doesn't support streaming bodies — fall back to a plain read
+  // A `newsCacheKey` cache HIT comes back as one complete JSON object
+  // (Content-Type: application/json), not an SSE stream — this always
+  // requests stream:true, so that's the one case where the server's
+  // response shape doesn't match what was asked for. Handle it the same
+  // way as the "environment doesn't support streaming" fallback: read it
+  // as a whole and hand it to onChunk once, rather than feeding it through
+  // the SSE line-parser below where it would never match a "data:" line.
+  const contentType = res.headers.get("Content-Type") || "";
+  if (!res.body || !res.body.getReader || contentType.includes("application/json")) {
     clearTimeout(timeoutId);
     const data = await res.json();
     const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
@@ -252,12 +254,20 @@ function unescapeJSONStringFragment(s) {
 // response), plus an optional onOverviewChunk callback fired with the
 // "overview" field's text as it streams in — the one field worth showing
 // live while the rest of the JSON (children, etc.) is still generating.
-export async function streamJSON(system, prompt, endpoint, onOverviewChunk) {
-  const fullText = await streamRaw(system, prompt, 1200, 25000, endpoint, (partial) => {
-    if (!onOverviewChunk) return;
-    const match = partial.match(OVERVIEW_PATTERN);
-    if (match) onOverviewChunk(unescapeJSONStringFragment(match[1]));
-  });
+export async function streamJSON(system, prompt, endpoint, onOverviewChunk, newsCacheKey) {
+  const fullText = await streamRaw(
+    system,
+    prompt,
+    1200,
+    25000,
+    endpoint,
+    (partial) => {
+      if (!onOverviewChunk) return;
+      const match = partial.match(OVERVIEW_PATTERN);
+      if (match) onOverviewChunk(unescapeJSONStringFragment(match[1]));
+    },
+    newsCacheKey
+  );
   const cleaned = fullText.replace(/```json|```/g, "").trim();
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
@@ -271,4 +281,22 @@ export async function streamJSON(system, prompt, endpoint, onOverviewChunk) {
     console.error("Hypha: JSON parse failed", parseErr, cleaned);
     throw new Error("Couldn't parse the API's response.");
   }
+}
+
+// Fire-and-forget: tells the proxy to cache a root response for a
+// news/today topic so the next visitor to open the same card is served
+// this instead of triggering another generation. Called from App.jsx only
+// after a news-context root call has already finished streaming — kept as
+// its own request rather than something the generation call itself does,
+// so the generation always streams normally (see rabbit-hole-proxy for why
+// combining the two added visible latency on every cache miss). Errors are
+// swallowed: a failed cache write just means the next visitor generates
+// fresh too, never worth surfacing to the person who already got their
+// answer.
+export function writeNewsRootCache(cacheKey, rootLabel, overview, children) {
+  fetch(PROXY_URL, {
+    method: "POST",
+    headers: proxyHeaders(),
+    body: JSON.stringify({ newsCacheWrite: { cacheKey, rootLabel, overview, children } }),
+  }).catch((e) => console.error("Hypha: failed to write news root cache", e));
 }

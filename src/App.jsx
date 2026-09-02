@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, Fragment } from "react";
 import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, ChevronDown } from "lucide-react";
-import { callClaude, streamJSON, streamTextFromPrompt, getLastActionsToday } from "./lib/api.js";
+import { callClaude, streamJSON, streamTextFromPrompt, getLastActionsToday, writeNewsRootCache } from "./lib/api.js";
 import { HYPHA_SYSTEM, OBSCURITY_LEVELS, FIXED_OBSCURITY } from "./lib/hyphaSystemPrompt.js";
 import { tierForActionCount } from "./lib/tierConfig.js";
 import { createPacedReveal } from "./lib/pacedReveal.js";
@@ -395,16 +395,26 @@ export default function Hypha() {
       // is identical for every visitor until the next trending-topics
       // refresh — hundreds of people can open the same card. Tag those
       // calls with the exact topic string as a cache key so the proxy can
-      // serve back whatever the first visitor generated instead of
+      // skip straight to whatever the first visitor generated instead of
       // re-generating per person; a freely typed topic always gets its own
-      // fresh generation. Non-streaming either way for the cached path —
-      // createPacedReveal's typewriter effect looks the same regardless of
-      // whether the text arrived incrementally or all at once (see
-      // pacedReveal.js: everything past the first sentence reveals
-      // immediately anyway).
-      const data = newsContext
-        ? await callClaude(HYPHA_SYSTEM, rootPrompt(t, newsContext), "root-news", t)
-        : await streamJSON(HYPHA_SYSTEM, rootPrompt(t, newsContext), "root", (partialOverview) => reveal.push(partialOverview));
+      // fresh generation, no cache key. Always streams either way — an
+      // earlier version forced non-streaming for the cached path so the
+      // proxy could cache the result inline, which added a real 1-2s of
+      // visible latency on every cache miss (waiting for the whole
+      // generation before showing anything, instead of watching it type
+      // in). The write-through below replaces that: it happens as its own
+      // request, after this one has already finished streaming.
+      const newsCacheKey = newsContext ? t : undefined;
+      const data = await streamJSON(
+        HYPHA_SYSTEM,
+        rootPrompt(t, newsContext),
+        "root",
+        (partialOverview) => reveal.push(partialOverview),
+        newsCacheKey
+      );
+      if (newsCacheKey) {
+        writeNewsRootCache(newsCacheKey, data.rootLabel, data.overview, data.children);
+      }
       await reveal.finish(data.overview || "");
       const root = {
         id: nextId(),
