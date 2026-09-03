@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, Fragment } from "react";
-import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, ChevronDown } from "lucide-react";
+import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, ChevronDown, Share2, Check } from "lucide-react";
 import {
   callClaude,
   streamJSON,
@@ -15,6 +15,7 @@ import { getCurrentUser, onAuthStateChange } from "./lib/auth.js";
 import { getProfile } from "./lib/profile.js";
 import AccountMenu from "./AccountMenu.jsx";
 import LegalModal from "./LegalModal.jsx";
+import { shareArticle } from "./lib/share.js";
 
 const TYPE_COLOR = {
   root: "#C1552E",
@@ -320,6 +321,7 @@ export default function Hypha() {
   // handle movement.
   const [selectionInfo, setSelectionInfo] = useState(null); // { text, top, left } | null
   const [legalDoc, setLegalDoc] = useState(null); // "terms" | "privacy" | null
+  const [shareStatus, setShareStatus] = useState("idle"); // idle | sharing | copied | error
   const selectionDebounceRef = useRef(null);
   useEffect(() => {
     const handleSelectionChange = () => {
@@ -764,6 +766,41 @@ export default function Hypha() {
     setSelectedId(nodeId);
   };
 
+  // Word-of-mouth growth tool — snapshots the currently-open article to a
+  // public, no-signin-required link (see lib/share.js) and either hands it
+  // to the OS share sheet on mobile or copies it to the clipboard on
+  // desktop, whichever the platform actually supports.
+  const handleShare = async (node) => {
+    if (!node || shareStatus === "sharing") return;
+    setShareStatus("sharing");
+    try {
+      const url = await shareArticle({
+        topicLabel: node.label,
+        nodeType: node.type,
+        overview: node.type === "root" ? node.overview || node.teaser : node.teaser,
+        article: node.article || "",
+      });
+      if (navigator.share) {
+        await navigator.share({ title: node.label, text: "Follow this thread on Hypha", url });
+        setShareStatus("idle");
+      } else {
+        await navigator.clipboard.writeText(url);
+        setShareStatus("copied");
+        setTimeout(() => setShareStatus("idle"), 2000);
+      }
+    } catch (e) {
+      // navigator.share throws when the user just cancels the OS share
+      // sheet — that's not a failure worth surfacing as an error.
+      if (e?.name === "AbortError") {
+        setShareStatus("idle");
+        return;
+      }
+      console.error("Hypha: share failed", e);
+      setShareStatus("error");
+      setTimeout(() => setShareStatus("idle"), 2000);
+    }
+  };
+
   // Turns a highlighted word or phrase from the article into a new node —
   // same underlying mechanism the typed "explore your own thread" input
   // used to use, just triggered by a native text selection instead of
@@ -1114,15 +1151,41 @@ export default function Hypha() {
         <>
           <div ref={contentRef} className="flex-1 overflow-y-auto px-5 md:px-7 pb-10">
             <div className="max-w-2xl mx-auto rh-fade-in" key={selected.id}>
-              <span
-                className="rh-mono rh-text-10 uppercase tracking-wider px-2 py-0.5 rounded-full inline-block mb-3"
-                style={{
-                  color: TYPE_COLOR[selected.type] || "#E3A73C",
-                  border: `1px solid ${TYPE_COLOR[selected.type] || "#E3A73C"}55`,
-                }}
-              >
-                {selected.type === "root" ? "Origin" : TYPE_LABEL[selected.type]}
-              </span>
+              <div className="flex items-center justify-between mb-3">
+                <span
+                  className="rh-mono rh-text-10 uppercase tracking-wider px-2 py-0.5 rounded-full inline-block"
+                  style={{
+                    color: TYPE_COLOR[selected.type] || "#E3A73C",
+                    border: `1px solid ${TYPE_COLOR[selected.type] || "#E3A73C"}55`,
+                  }}
+                >
+                  {selected.type === "root" ? "Origin" : TYPE_LABEL[selected.type]}
+                </span>
+
+                {selected.article && !selected.articleStreaming && (
+                  <button
+                    type="button"
+                    onClick={() => handleShare(selected)}
+                    disabled={shareStatus === "sharing"}
+                    className="flex items-center gap-1.5 rh-mono rh-text-10 uppercase tracking-wider transition-colors disabled:opacity-50"
+                    style={{ background: "none", border: "none", cursor: "pointer", color: shareStatus === "error" ? "#D98A6E" : "#A89478" }}
+                  >
+                    {shareStatus === "copied" ? (
+                      <>
+                        <Check size={12} /> Link copied
+                      </>
+                    ) : shareStatus === "error" ? (
+                      <>
+                        <AlertCircle size={12} /> Couldn't share
+                      </>
+                    ) : (
+                      <>
+                        <Share2 size={12} /> Share
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
 
               <h2 className="rh-display text-3xl italic mb-4" style={{ color: "#F1E6D3" }}>
                 {selected.label}
