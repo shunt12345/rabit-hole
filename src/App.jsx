@@ -501,7 +501,7 @@ export default function Hypha() {
       reveal.cancel();
       setSelectedNewsIdx(null);
       setSelectedTodayIdx(null);
-      setRootError(e.message || "Something went wrong reaching Claude. Try again.");
+      setRootError(e.message || "Something went wrong. Try again.");
     } finally {
       setRootLoading(false);
       setRootPreview("");
@@ -897,7 +897,7 @@ export default function Hypha() {
               >
                 {rootLoading ? (
                   <>
-                    <Loader2 size={15} className="animate-spin" /> Reaching Claude…
+                    <Loader2 size={15} className="animate-spin" /> Digging in…
                   </>
                 ) : (
                   <>
