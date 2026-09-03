@@ -245,10 +245,21 @@ function background(promise: Promise<unknown>) {
 // the real cost onto this request's log row (Section K's "measure it for
 // real" numbers) and, for a signed-in caller, deducts the marked-up
 // amount from their balance via the atomic deduct_balance function.
+//
+// Latency: `anthropicCallStartedAt` is captured right before the fetch to
+// Anthropic; this function's clone-read (meterRes.json()/.text()) doesn't
+// resolve until the *entire* body has arrived, at the same pace as the
+// real client-facing stream (both clones are fed from the same underlying
+// source). So Date.now() at that point, minus the start time, is a real
+// measurement of generation+streaming duration — not just
+// time-to-first-byte, and not just an output-token-count proxy. It omits
+// only the last small hop from this function to the actual browser, which
+// isn't the variable cost driver anyway (generation time is).
 async function extractUsageAndBill(
   meterRes: Response,
   logRowIdPromise: Promise<number | null>,
-  userId: string | null
+  userId: string | null,
+  anthropicCallStartedAt: number
 ) {
   try {
     const contentType = meterRes.headers.get("Content-Type") || "";
@@ -262,12 +273,19 @@ async function extractUsageAndBill(
     if (!usage) return;
 
     const costUsd = computeCostUsd(usage);
+    const latencyMs = Date.now() - anthropicCallStartedAt;
 
     const rowId = await logRowIdPromise;
     if (rowId != null) {
       const { error } = await supabase
         .from("rabbit_hole_request_logs")
-        .update({ model: MODEL, input_tokens: usage.input_tokens, output_tokens: usage.output_tokens, cost_usd: costUsd })
+        .update({
+          model: MODEL,
+          input_tokens: usage.input_tokens,
+          output_tokens: usage.output_tokens,
+          cost_usd: costUsd,
+          latency_ms: latencyMs,
+        })
         .eq("id", rowId);
       if (error) console.error("rabbit-hole-proxy: failed to log real cost", error);
     }
@@ -543,6 +561,7 @@ serve(async (req) => {
       }
     }
 
+    const anthropicCallStartedAt = Date.now();
     const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -577,7 +596,7 @@ serve(async (req) => {
     // change billing makes to this path; the client-facing pass-through
     // itself (anthropicRes.body below) is untouched, same as before.
     if (anthropicRes.ok) {
-      background(extractUsageAndBill(anthropicRes.clone(), logRowIdPromise, userId));
+      background(extractUsageAndBill(anthropicRes.clone(), logRowIdPromise, userId, anthropicCallStartedAt));
     }
 
     // stream the response straight through unmodified — the client's own
