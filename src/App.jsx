@@ -248,7 +248,6 @@ export default function Hypha() {
     const t = getLastTrialStatus();
     if (t != null) setTrialStatus(t);
   };
-  const trialExhausted = !trialStatus.funded && trialStatus.searchesUsed >= trialStatus.searchLimit;
 
   // Accounts (production punch list, Section A) — first pass: just knowing
   // who's signed in. Nothing reads `user` to change behavior yet (no
@@ -277,14 +276,27 @@ export default function Hypha() {
   };
   useEffect(refreshProfile, [user]);
 
+  // Real-time "is this account funded" check, computed directly from the
+  // profile row (fetched independently, on sign-in and after checkout)
+  // rather than trialStatus.funded. That field only updates after a full
+  // round-trip through rabbit-hole-proxy, so relying on it here meant a
+  // signed-in funded user could sit on a stale "not funded" read (from the
+  // optimistic initial state, or simply not having made a proxy call yet
+  // this session) — which made toggling News/Today off look broken, since
+  // the gating below always falls back to "show everything" whenever it
+  // doesn't yet believe the account is funded. profile.balanceUsd is a
+  // straight read of the real row, so this can't lag behind reality.
+  const funded = !!profile && profile.balanceUsd > 0;
+
   // Toggle gating only ever applies to a FUNDED account — the free-trial
   // window (not yet exhausted, per Section B) keeps its existing
   // unconditional full access regardless of any toggle's stored default,
   // matching the monetization outline doc's Section 14.1 ("full access to
   // every function" during the trial, à-la-carte toggles only once funded).
-  const newsVisible = !trialStatus.funded || !!profile?.featureNews;
-  const todayVisible = !trialStatus.funded || !!profile?.featureToday;
-  const digDeeperVisible = !trialStatus.funded || !!profile?.featureDigDeeper;
+  const trialExhausted = !funded && trialStatus.searchesUsed >= trialStatus.searchLimit;
+  const newsVisible = !funded || !!profile?.featureNews;
+  const todayVisible = !funded || !!profile?.featureToday;
+  const digDeeperVisible = !funded || !!profile?.featureDigDeeper;
 
   const nodesRef = useRef([]);
   const selectedIdRef = useRef(null);
@@ -854,7 +866,7 @@ export default function Hypha() {
                 replaces the earlier placeholder tier-zone debug readout
                 now that real enforcement exists. Funded accounts aren't
                 limited by this at all, so nothing to show them here. */}
-            {!trialStatus.funded && (
+            {!funded && (
               <div className="rh-mono rh-text-10" style={{ color: "#6B5B45" }}>
                 {trialStatus.searchesUsed}/{trialStatus.searchLimit} free searches today
               </div>
