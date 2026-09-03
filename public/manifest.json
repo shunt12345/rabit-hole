@@ -1,0 +1,14 @@
+{
+  "name": "Hypha",
+  "short_name": "Hypha",
+  "description": "Follow any thought as far as it goes.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#14100C",
+  "theme_color": "#14100C",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
