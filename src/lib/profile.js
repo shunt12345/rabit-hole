@@ -30,17 +30,29 @@ export async function getProfile() {
     : null;
 }
 
-// `toggles` is a partial { featureNews?, featureToday?, featureDigDeeper? }
-// — no explicit .eq("id", ...) filter needed since RLS's "Users can update
-// own profile" policy already scopes any update through this client to
-// exactly the caller's own row; adding one would just mean a second round
-// trip to look up the id first.
+// `toggles` is a partial { featureNews?, featureToday?, featureDigDeeper? }.
+// RLS's "Users can update own profile" policy already restricts this to
+// exactly the caller's own row regardless of what filter is sent — but
+// Supabase's PostgREST layer separately refuses to run an UPDATE with NO
+// filter at all in the request itself (a distinct safety check from RLS,
+// there to catch accidental "update every row" calls), returning a 21000
+// "UPDATE requires a WHERE clause" error. So the explicit .eq("id", ...)
+// below isn't for security — RLS was already enough for that — it's
+// required just to get PostgREST to accept the request at all.
+// getSession() reads from local storage, no network round trip.
 export async function updateFeatureToggles(toggles) {
   const patch = {};
   if ("featureNews" in toggles) patch.feature_news = !!toggles.featureNews;
   if ("featureToday" in toggles) patch.feature_today = !!toggles.featureToday;
   if ("featureDigDeeper" in toggles) patch.feature_dig_deeper = !!toggles.featureDigDeeper;
-  const { error } = await supabase.from("profiles").update(patch);
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const userId = session?.user?.id;
+  if (!userId) throw new Error("Not signed in.");
+
+  const { error } = await supabase.from("profiles").update(patch).eq("id", userId);
   if (error) {
     console.error("Hypha: failed to update feature toggles", error);
     throw error;
