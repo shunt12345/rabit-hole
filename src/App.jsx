@@ -14,6 +14,7 @@ import { createPacedReveal } from "./lib/pacedReveal.js";
 import { getCurrentUser, onAuthStateChange } from "./lib/auth.js";
 import { getProfile } from "./lib/profile.js";
 import AccountMenu from "./AccountMenu.jsx";
+import LegalModal from "./LegalModal.jsx";
 
 const TYPE_COLOR = {
   root: "#C1552E",
@@ -318,6 +319,7 @@ export default function Hypha() {
   // floating button's position and to avoid re-rendering on every tiny
   // handle movement.
   const [selectionInfo, setSelectionInfo] = useState(null); // { text, top, left } | null
+  const [legalDoc, setLegalDoc] = useState(null); // "terms" | "privacy" | null
   const selectionDebounceRef = useRef(null);
   useEffect(() => {
     const handleSelectionChange = () => {
@@ -1082,9 +1084,31 @@ export default function Hypha() {
                 {MOCK_SPONSOR.landing.cta} <ArrowUpRight size={14} />
               </button>
             </div>
+
+            <div className="mt-10 flex items-center justify-center gap-4 rh-mono rh-text-10" style={{ color: "#5A4A38" }}>
+              <button
+                type="button"
+                onClick={() => setLegalDoc("terms")}
+                className="rh-link-accent transition-colors"
+                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "inherit" }}
+              >
+                Terms
+              </button>
+              <span>·</span>
+              <button
+                type="button"
+                onClick={() => setLegalDoc("privacy")}
+                className="rh-link-accent transition-colors"
+                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "inherit" }}
+              >
+                Privacy
+              </button>
+            </div>
           </div>
         </div>
       )}
+
+      {legalDoc && <LegalModal doc={legalDoc} onClose={() => setLegalDoc(null)} />}
 
       {hasStarted && selected && (
         <>
