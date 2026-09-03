@@ -1,0 +1,11 @@
+-- Tracks which branch type (direct/indirect/tangent/custom/root) a
+-- request's node was, so "article"/"continuation" rows can be grouped by
+-- type to see which kind of branch people actually choose to read —
+-- real resonance data instead of guessing whether the fixed obscurity mix
+-- (direct:1, indirect:2, tangent:2 — see hyphaSystemPrompt.js) is right.
+--
+-- Only "article" and "continuation" calls populate this — a "root"/
+-- "expand" call generates children FOR a node, so tagging it with a type
+-- would describe the parent, not the interesting variable. Null for any
+-- other endpoint.
+alter table rabbit_hole_request_logs add column if not exists node_type text;

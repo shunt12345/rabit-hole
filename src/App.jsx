@@ -75,7 +75,7 @@ function linkifyText(text, children) {
 // parses the API's server-sent-event chunks directly and calls onChunk
 // with the accumulated text so far after every delta, so the screen can
 // render it growing in real time rather than sitting on a spinner.
-async function fetchArticleTextStreaming(topicLabel, path, childLabels, onChunk, newsContext) {
+async function fetchArticleTextStreaming(topicLabel, path, childLabels, onChunk, newsContext, nodeType) {
   const branchNote =
     childLabels && childLabels.length
       ? `\n\nThis topic already branches into these related threads: ${childLabels.join(", ")}.`
@@ -88,7 +88,7 @@ async function fetchArticleTextStreaming(topicLabel, path, childLabels, onChunk,
 Path so far: ${path.join(" → ")}
 Topic: "${topicLabel}"${newsNote}${branchNote}`;
 
-  return streamTextFromPrompt(HYPHA_SYSTEM, userContent, 700, 30000, "article", onChunk);
+  return streamTextFromPrompt(HYPHA_SYSTEM, userContent, 700, 30000, "article", onChunk, nodeType);
 }
 
 // "Dig deeper" — this app is entertainment, not a research tool, so this is
@@ -98,7 +98,7 @@ Topic: "${topicLabel}"${newsNote}${branchNote}`;
 // itself, and is explicitly told not to try to be exhaustive — a
 // satisfying next layer for someone who wants a little more, not a
 // dissertation.
-async function fetchArticleContinuationStreaming(topicLabel, path, existingArticle, onChunk) {
+async function fetchArticleContinuationStreaming(topicLabel, path, existingArticle, onChunk, nodeType) {
   const userContent = `TASK: continue article
 
 Path so far: ${path.join(" → ")}
@@ -109,7 +109,7 @@ What they already read:
 ${existingArticle}
 """`;
 
-  return streamTextFromPrompt(HYPHA_SYSTEM, userContent, 500, 30000, "continuation", onChunk);
+  return streamTextFromPrompt(HYPHA_SYSTEM, userContent, 500, 30000, "continuation", onChunk, nodeType);
 }
 
 function branchMix() {
@@ -654,7 +654,8 @@ export default function Hypha() {
           }
           reveal.push(partial);
         },
-        node.newsContext
+        node.newsContext,
+        node.type
       );
       await reveal.finish(finalText);
       node.article = stripMarkdown(finalText);
@@ -692,9 +693,15 @@ export default function Hypha() {
       setNodes([...nodesRef.current]);
     });
     try {
-      const finalText = await fetchArticleContinuationStreaming(node.label, path, baseArticle, (partial) => {
-        reveal.push(partial);
-      });
+      const finalText = await fetchArticleContinuationStreaming(
+        node.label,
+        path,
+        baseArticle,
+        (partial) => {
+          reveal.push(partial);
+        },
+        node.type
+      );
       await reveal.finish(finalText);
       node.article = `${baseArticle}\n\n${stripMarkdown(finalText)}`;
       node.articleStreaming = false;

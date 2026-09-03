@@ -318,7 +318,20 @@ const supabase = createClient(
 // callers still fire this off unawaited at request start (before the
 // Anthropic call), never blocking on the id; only the later background
 // billing task actually awaits the returned promise.
-async function logRequest(sessionId: string, endpoint: string, userId: string | null): Promise<number | null> {
+// nodeType (direct/indirect/tangent/custom/root) is only meaningful for
+// "article"/"continuation" calls — it's which branch type the reader
+// actually chose to open, the real signal for which types resonate. Kept
+// as a client-supplied value validated against a fixed set rather than
+// trusted verbatim, same caution as any other client input, even though
+// this is just an analytics column and nothing is gated on it.
+const VALID_NODE_TYPES = new Set(["root", "direct", "indirect", "tangent", "custom"]);
+
+async function logRequest(
+  sessionId: string,
+  endpoint: string,
+  userId: string | null,
+  nodeType?: string
+): Promise<number | null> {
   try {
     const { data, error } = await supabase
       .from("rabbit_hole_request_logs")
@@ -326,6 +339,7 @@ async function logRequest(sessionId: string, endpoint: string, userId: string | 
         session_id: sessionId || "unknown",
         endpoint: endpoint || "unknown",
         user_id: userId,
+        node_type: nodeType && VALID_NODE_TYPES.has(nodeType) ? nodeType : null,
       })
       .select("id")
       .single();
@@ -478,7 +492,7 @@ serve(async (req) => {
       });
     }
 
-    const { messages, max_tokens, stream, endpoint, sessionId, system, newsCacheKey, userAccessToken } = body;
+    const { messages, max_tokens, stream, endpoint, sessionId, system, newsCacheKey, userAccessToken, nodeType } = body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return new Response(JSON.stringify({ error: "messages is required" }), {
@@ -545,7 +559,7 @@ serve(async (req) => {
     // fire-and-forget — never block the actual Claude call on this. The
     // returned promise is only awaited later, inside the background
     // billing task below, once the real cost is known.
-    const logRowIdPromise = logRequest(sessionId, endpoint, userId);
+    const logRowIdPromise = logRequest(sessionId, endpoint, userId, nodeType);
 
     if (newsCacheKey) {
       const { data: cached, error: cacheErr } = await supabase

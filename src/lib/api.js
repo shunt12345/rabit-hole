@@ -180,7 +180,7 @@ export async function callClaude(system, prompt, endpoint) {
 // API's server-sent-event chunks, and calls onChunk with the accumulated
 // text so far after every delta. Returns the final raw accumulated text —
 // callers apply their own cleanup/parsing on top (plain prose vs. JSON).
-async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey) {
+async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey, nodeType) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   let res;
@@ -196,6 +196,7 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
         endpoint,
         sessionId: getSessionId(),
         ...(newsCacheKey ? { newsCacheKey } : {}),
+        ...(nodeType ? { nodeType } : {}),
         ...(await authField()),
       }),
       signal: controller.signal,
@@ -293,8 +294,13 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
 
 // "Read more" content: real prose, not JSON, so no parsing needed beyond
 // trimming stray markdown fences a model might add out of habit.
-export async function streamTextFromPrompt(system, prompt, maxTokens, timeoutMs, endpoint, onChunk) {
-  const fullText = await streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk);
+//
+// `nodeType` (direct/indirect/tangent/custom/root) is logged alongside this
+// request purely for analysis — which branch types people actually choose
+// to read, so the obscurity mix (hyphaSystemPrompt.js's OBSCURITY_LEVELS)
+// can eventually be tuned toward what resonates instead of a guess.
+export async function streamTextFromPrompt(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, nodeType) {
+  const fullText = await streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, undefined, nodeType);
   return fullText.replace(/```/g, "").trim();
 }
 
