@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
+import { X, User as UserIcon } from "lucide-react";
 import { sendMagicLink, signOut } from "./lib/auth.js";
 import { updateFeatureToggles, getLifetimeFundedUsd } from "./lib/profile.js";
 import { startCheckout, MIN_TOPUP_USD } from "./lib/billing.js";
 
-// Production punch list, Section C (funded experience): balance, the
-// "Usage" gas-gauge, and the per-feature toggle panel, layered on top of
-// Section D's bare sign-in/balance/add-funds bar. Node count ("Explore —
-// 3/4/5 nodes") is deliberately NOT a toggle here — its exact mechanics
-// are still an open decision (punch list Section G), so it isn't built
-// until that's actually decided. The always-visible bar stays compact
-// (email, balance, sign out); everything else lives behind "Manage".
+// Production punch list, Section C (funded experience) UI pass: a single
+// avatar/account button in the header corner, opening a modal with
+// balance, the "Usage" gas-gauge, add-funds, and the per-feature toggle
+// panel — replaces the earlier always-expanded inline bar. Node count
+// ("Explore — 3/4/5 nodes") is deliberately NOT a toggle here — its exact
+// mechanics are still an open decision (punch list Section G).
 //
 // `profile`/`onProfileChange`/`onProfileRefresh` are owned by App.jsx, not
 // this component — App.jsx is what actually gates News/Today/Dig Deeper on
@@ -21,11 +21,89 @@ const TOGGLES = [
   { key: "featureDigDeeper", label: "Dig Deeper" },
 ];
 
+function Avatar({ email }) {
+  const initial = (email || "?").trim().charAt(0).toUpperCase() || "?";
+  return (
+    <div
+      className="rh-mono flex items-center justify-center rounded-full font-semibold shrink-0"
+      style={{ width: "32px", height: "32px", backgroundColor: "#E3A73C", color: "#14100C", fontSize: "13px" }}
+    >
+      {initial}
+    </div>
+  );
+}
+
+// iOS-style switch built on a real <button role="switch">, not a styled
+// checkbox — flex + justifyContent handles the knob position so there's no
+// transform math to get wrong at different sizes.
+function Toggle({ checked, disabled, onChange }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className="inline-flex items-center shrink-0 transition-colors disabled:opacity-50"
+      style={{
+        width: "36px",
+        height: "20px",
+        borderRadius: "999px",
+        padding: "2px",
+        backgroundColor: checked ? "#E3A73C" : "#3A2E20",
+        border: `1px solid ${checked ? "#E3A73C" : "#5A4630"}`,
+        justifyContent: checked ? "flex-end" : "flex-start",
+        cursor: disabled ? "default" : "pointer",
+      }}
+    >
+      <span
+        style={{
+          width: "14px",
+          height: "14px",
+          borderRadius: "50%",
+          backgroundColor: checked ? "#14100C" : "#A89478",
+        }}
+      />
+    </button>
+  );
+}
+
+// Click-outside-to-close backdrop + Escape-to-close, centered panel. Fixed
+// positioning rather than a portal — simplest thing that works given
+// nothing in this app's CSS puts a transform/filter on an ancestor (which
+// would otherwise break position:fixed's usual full-viewport behavior).
+function Modal({ onClose, children }) {
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start md:items-center justify-center p-4 overflow-y-auto"
+      style={{ backgroundColor: "rgba(10, 8, 5, 0.7)" }}
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+        className="w-full rounded-2xl border my-8"
+        style={{ maxWidth: "360px", borderColor: "#3A2E20", backgroundColor: "#1F1811" }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export default function AccountMenu({ user, profile, onProfileChange, onProfileRefresh }) {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState("idle"); // idle | sending | sent | error
-  const [open, setOpen] = useState(false);
-  const [manageOpen, setManageOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
   const [lifetimeFunded, setLifetimeFunded] = useState(null);
   const [topUpAmount, setTopUpAmount] = useState(String(MIN_TOPUP_USD));
   const [checkoutStatus, setCheckoutStatus] = useState("idle"); // idle | starting | error | success
@@ -45,7 +123,8 @@ export default function AccountMenu({ user, profile, onProfileChange, onProfileR
   // Stripe's side, so this waits a moment before re-reading it rather than
   // assuming it's already landed the instant the browser redirects back.
   // Only runs once on mount; the query param is stripped either way so a
-  // page refresh doesn't keep re-showing the message.
+  // page refresh doesn't keep re-showing the message. Opens the modal
+  // automatically so the updated balance is the first thing seen.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const checkout = params.get("checkout");
@@ -53,7 +132,7 @@ export default function AccountMenu({ user, profile, onProfileChange, onProfileR
     window.history.replaceState({}, "", window.location.pathname);
     if (checkout === "success") {
       setCheckoutStatus("success");
-      setManageOpen(true);
+      setModalOpen(true);
       const timeoutId = setTimeout(() => {
         onProfileRefresh();
         getLifetimeFundedUsd().then(setLifetimeFunded);
@@ -115,138 +194,201 @@ export default function AccountMenu({ user, profile, onProfileChange, onProfileR
         : null;
 
     return (
-      <div className="rh-mono rh-text-10" style={{ color: "#A89478" }}>
-        <div className="flex items-center gap-2">
-          <span>{user.email}</span>
-          <span style={{ color: "#E3A73C" }}>
-            {profile == null ? "…" : `$${profile.balanceUsd.toFixed(2)}`}
-          </span>
-          <button
-            type="button"
-            onClick={() => setManageOpen((v) => !v)}
-            className="underline"
-            style={{ color: "#A89478" }}
-          >
-            {manageOpen ? "Hide" : "Manage"}
-          </button>
-          <button type="button" onClick={() => signOut()} className="underline" style={{ color: "#A89478" }}>
-            Sign out
-          </button>
-        </div>
+      <>
+        <button
+          type="button"
+          onClick={() => setModalOpen(true)}
+          aria-label="Account settings"
+          style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}
+        >
+          <Avatar email={user.email} />
+        </button>
 
-        {manageOpen && (
-          <div
-            className="mt-2 p-3 rounded-xl border flex flex-col gap-3"
-            style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811", width: "220px" }}
-          >
-            {usageFraction != null && (
-              <div>
-                <div className="flex justify-between mb-1">
-                  <span>Usage</span>
-                  <span>{Math.round(usageFraction * 100)}%</span>
+        {modalOpen && (
+          <Modal onClose={() => setModalOpen(false)}>
+            <div className="p-5 flex flex-col gap-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Avatar email={user.email} />
+                  <div className="min-w-0">
+                    <div className="rh-body text-sm font-medium truncate" style={{ color: "#F1E6D3" }}>
+                      {user.email}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => signOut()}
+                      className="rh-mono rh-text-10 underline"
+                      style={{ color: "#A89478" }}
+                    >
+                      Sign out
+                    </button>
+                  </div>
                 </div>
-                <div className="rounded-full overflow-hidden" style={{ height: "4px", backgroundColor: "#3A2E20" }}>
-                  <div
-                    className="h-full rounded-full"
-                    style={{ width: `${usageFraction * 100}%`, backgroundColor: "#E3A73C" }}
-                  />
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setModalOpen(false)}
+                  aria-label="Close"
+                  style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "#A89478" }}
+                >
+                  <X size={18} />
+                </button>
               </div>
-            )}
 
-            <form onSubmit={handleAddFunds} className="flex items-center gap-1">
-              <span>$</span>
-              <input
-                type="number"
-                min={MIN_TOPUP_USD}
-                step="1"
-                value={topUpAmount}
-                onChange={(e) => setTopUpAmount(e.target.value)}
-                className="rh-body text-xs rounded-full px-2 py-0.5 border outline-none"
-                style={{ backgroundColor: "#332617", borderColor: "#5A4630", color: "#F1E6D3", width: "56px" }}
-              />
-              <button
-                type="submit"
-                disabled={checkoutStatus === "starting"}
-                className="underline disabled:opacity-50"
-                style={{ color: "#E3A73C" }}
+              <div
+                className="rounded-xl p-4 flex flex-col"
+                style={{ backgroundColor: "#14100C", border: "1px solid #3A2E20" }}
               >
-                {checkoutStatus === "starting" ? "Redirecting…" : "Add funds"}
-              </button>
-            </form>
-            {checkoutStatus === "error" && (
-              <span style={{ color: "#D98A6E" }}>Couldn't start checkout — try again.</span>
-            )}
-            {checkoutStatus === "success" && <span style={{ color: "#7FA87A" }}>Funds added!</span>}
+                <span className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: "#A89478" }}>
+                  Balance
+                </span>
+                <span className="rh-display text-2xl font-semibold mt-0.5" style={{ color: "#E3A73C" }}>
+                  {profile == null ? "…" : `$${profile.balanceUsd.toFixed(2)}`}
+                </span>
+                {usageFraction != null && (
+                  <div className="mt-3">
+                    <div className="flex justify-between rh-mono rh-text-10 mb-1" style={{ color: "#A89478" }}>
+                      <span>Usage</span>
+                      <span>{Math.round(usageFraction * 100)}%</span>
+                    </div>
+                    <div className="rounded-full overflow-hidden" style={{ height: "5px", backgroundColor: "#3A2E20" }}>
+                      <div
+                        className="h-full rounded-full"
+                        style={{ width: `${usageFraction * 100}%`, backgroundColor: "#E3A73C" }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
 
-            <div className="flex flex-col gap-1">
-              <span style={{ color: "#C9B896" }}>Features (à la carte)</span>
-              {TOGGLES.map(({ key, label }) => (
-                <label key={key} className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={!!profile?.[key]}
-                    disabled={!profile || toggleSaving === key}
-                    onChange={(e) => handleToggle(key, e.target.checked)}
-                  />
-                  <span>{label}</span>
-                </label>
-              ))}
-              <span className="mt-0.5" style={{ color: "#6B5B45" }}>
-                Dig In is always on. Off features stop drawing on your balance.
-              </span>
+              <form onSubmit={handleAddFunds} className="flex items-center gap-2">
+                <span className="rh-body text-sm" style={{ color: "#A89478" }}>
+                  $
+                </span>
+                <input
+                  type="number"
+                  min={MIN_TOPUP_USD}
+                  step="1"
+                  value={topUpAmount}
+                  onChange={(e) => setTopUpAmount(e.target.value)}
+                  className="rh-body text-sm rounded-full px-3 py-1.5 border outline-none flex-1 min-w-0"
+                  style={{ backgroundColor: "#332617", borderColor: "#5A4630", color: "#F1E6D3" }}
+                />
+                <button
+                  type="submit"
+                  disabled={checkoutStatus === "starting"}
+                  className="rh-body text-sm font-medium rounded-full px-4 py-1.5 disabled:opacity-50 shrink-0"
+                  style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
+                >
+                  {checkoutStatus === "starting" ? "Redirecting…" : "Add funds"}
+                </button>
+              </form>
+              {checkoutStatus === "error" && (
+                <span className="rh-mono rh-text-10" style={{ color: "#D98A6E" }}>
+                  Couldn't start checkout — try again.
+                </span>
+              )}
+              {checkoutStatus === "success" && (
+                <span className="rh-mono rh-text-10" style={{ color: "#7FA87A" }}>
+                  Funds added!
+                </span>
+              )}
+
+              <div className="flex flex-col gap-3 pt-3" style={{ borderTop: "1px solid #3A2E20" }}>
+                <span className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: "#A89478" }}>
+                  Features (à la carte)
+                </span>
+                {TOGGLES.map(({ key, label }) => (
+                  <div key={key} className="flex items-center justify-between">
+                    <span className="rh-body text-sm" style={{ color: "#F1E6D3" }}>
+                      {label}
+                    </span>
+                    <Toggle
+                      checked={!!profile?.[key]}
+                      disabled={!profile || toggleSaving === key}
+                      onChange={(v) => handleToggle(key, v)}
+                    />
+                  </div>
+                ))}
+                <span className="rh-mono rh-text-10" style={{ color: "#6B5B45" }}>
+                  Dig In is always on. Off features stop drawing on your balance.
+                </span>
+              </div>
             </div>
-          </div>
+          </Modal>
         )}
-      </div>
-    );
-  }
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="rh-mono rh-text-10 underline"
-        style={{ color: "#A89478" }}
-      >
-        Sign in
-      </button>
-    );
-  }
-
-  if (status === "sent") {
-    return (
-      <span className="rh-mono rh-text-10" style={{ color: "#A89478" }}>
-        Check your email for a sign-in link.
-      </span>
+      </>
     );
   }
 
   return (
-    <form onSubmit={handleSend} className="flex items-center gap-1.5">
-      <input
-        type="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        placeholder="you@email.com"
-        required
-        className="rh-body text-xs rounded-full px-3 py-1 border outline-none"
-        style={{ backgroundColor: "#332617", borderColor: "#5A4630", color: "#F1E6D3", width: "140px" }}
-      />
+    <>
       <button
-        type="submit"
-        disabled={status === "sending"}
-        className="rh-mono rh-text-10 underline disabled:opacity-50"
-        style={{ color: "#E3A73C" }}
+        type="button"
+        onClick={() => setModalOpen(true)}
+        aria-label="Sign in"
+        className="flex items-center justify-center rounded-full"
+        style={{
+          width: "32px",
+          height: "32px",
+          border: "1px solid #5A4630",
+          background: "none",
+          cursor: "pointer",
+          color: "#A89478",
+        }}
       >
-        {status === "sending" ? "Sending…" : "Send link"}
+        <UserIcon size={16} />
       </button>
-      {status === "error" && (
-        <span className="rh-mono" style={{ color: "#D98A6E", fontSize: 10 }}>
-          Failed — try again.
-        </span>
+
+      {modalOpen && (
+        <Modal onClose={() => setModalOpen(false)}>
+          <div className="p-5 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <span className="rh-body text-sm font-medium" style={{ color: "#F1E6D3" }}>
+                Sign in
+              </span>
+              <button
+                type="button"
+                onClick={() => setModalOpen(false)}
+                aria-label="Close"
+                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "#A89478" }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {status === "sent" ? (
+              <span className="rh-body text-sm" style={{ color: "#A89478" }}>
+                Check your email for a sign-in link.
+              </span>
+            ) : (
+              <form onSubmit={handleSend} className="flex flex-col gap-2">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@email.com"
+                  required
+                  className="rh-body text-sm rounded-full px-3 py-2 border outline-none"
+                  style={{ backgroundColor: "#332617", borderColor: "#5A4630", color: "#F1E6D3" }}
+                />
+                <button
+                  type="submit"
+                  disabled={status === "sending"}
+                  className="rh-body text-sm font-medium rounded-full px-4 py-2 disabled:opacity-50"
+                  style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
+                >
+                  {status === "sending" ? "Sending…" : "Send link"}
+                </button>
+                {status === "error" && (
+                  <span className="rh-mono rh-text-10" style={{ color: "#D98A6E" }}>
+                    Failed — try again.
+                  </span>
+                )}
+              </form>
+            )}
+          </div>
+        </Modal>
       )}
-    </form>
+    </>
   );
 }
