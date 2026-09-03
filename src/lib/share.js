@@ -27,17 +27,3 @@ export async function shareArticle({ topicLabel, nodeType, overview, article }) 
   }
   return data.url;
 }
-
-// Public read of a shared article by id — straight PostgREST, same as the
-// rest of the app's non-billing reads (see supabaseClient.js's own note on
-// why most calls skip the SDK). RLS on shared_articles allows anyone to
-// select by id, so this needs no auth beyond the anon key.
-export async function getSharedArticle(id) {
-  const url = `${SUPABASE_URL}/rest/v1/shared_articles?id=eq.${encodeURIComponent(id)}&select=topic_label,node_type,overview,article`;
-  const res = await fetch(url, {
-    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
-  });
-  if (!res.ok) throw new Error("Couldn't load this article.");
-  const rows = await res.json();
-  return rows?.[0] ?? null;
-}
