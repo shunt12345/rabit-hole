@@ -24,16 +24,29 @@ import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@17.5.0?target=deno";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
 // Hardcoded to the known deployed domain rather than trusting a
 // client-supplied return URL — Stripe redirects the browser here after
 // checkout, and accepting an arbitrary client-supplied origin would turn
 // this into an open redirect. Override via secret if the domain changes.
 const APP_ORIGIN = Deno.env.get("APP_ORIGIN") ?? "https://hyfa-x.vercel.app";
+
+// Production punch list, Section J: same CORS-lockdown pattern as
+// rabbit-hole-proxy — echoes the request's Origin back only when it's in
+// this allowlist, instead of the wide-open "*" this shipped with.
+const ALLOWED_ORIGINS = (
+  Deno.env.get("ALLOWED_ORIGINS") ?? "https://hyfa-x.vercel.app,http://localhost:5173,http://localhost:5183"
+)
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+function corsHeadersFor(req: Request) {
+  const origin = req.headers.get("Origin") ?? "";
+  return {
+    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  };
+}
 
 // Matches the monetization outline doc's Section 14.1 ("minimum $10 to
 // start, open-ended top-ups above that").
@@ -45,6 +58,7 @@ const supabase = createClient(
 );
 
 serve(async (req) => {
+  const corsHeaders = corsHeadersFor(req);
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }

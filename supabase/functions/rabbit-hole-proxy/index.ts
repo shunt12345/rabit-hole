@@ -75,17 +75,34 @@
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const corsHeaders = {
-  // tighten this to your actual deployed app's domain once you know it,
-  // rather than leaving it wide open indefinitely
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  // Browsers only expose the CORS safelist headers to JS by default — a
-  // custom header is invisible to fetch()'s res.headers.get() client-side
-  // without this, even though it's plainly there on the wire.
-  "Access-Control-Expose-Headers":
-    "X-Session-Actions-Today, X-Trial-Searches-Used, X-Trial-Search-Limit, X-Trial-Funded",
-};
+// Production punch list, Section J: this shipped as a wide-open "*" for a
+// long time (fine while nothing but this app's own domain ever called it,
+// but never actually locked down). Now echoes the request's Origin back
+// only when it's in the allowlist below, so a browser on some other site
+// can't read this function's responses at all — Access-Control-Allow-Origin
+// has to exactly match the calling origin (not "*") for that to work.
+// Includes local dev ports since testing against the live deployed
+// function from `npm run dev` is routine for this project; override/extend
+// via the ALLOWED_ORIGINS secret (comma-separated) without a code change.
+const ALLOWED_ORIGINS = (
+  Deno.env.get("ALLOWED_ORIGINS") ?? "https://hyfa-x.vercel.app,http://localhost:5173,http://localhost:5183"
+)
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+function corsHeadersFor(req: Request) {
+  const origin = req.headers.get("Origin") ?? "";
+  return {
+    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    // Browsers only expose the CORS safelist headers to JS by default — a
+    // custom header is invisible to fetch()'s res.headers.get() client-side
+    // without this, even though it's plainly there on the wire.
+    "Access-Control-Expose-Headers":
+      "X-Session-Actions-Today, X-Trial-Searches-Used, X-Trial-Search-Limit, X-Trial-Funded",
+  };
+}
 
 // Phase 1 of the tiered-usage design (see conversation notes — pure
 // instrumentation, nothing gated on this yet): surfaces the same rolling
@@ -420,6 +437,7 @@ async function handleNewsCacheWrite(write: any, corsHeaders: Record<string, stri
 }
 
 serve(async (req) => {
+  const corsHeaders = corsHeadersFor(req);
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }

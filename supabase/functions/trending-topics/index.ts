@@ -54,18 +54,30 @@
 
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 
-const corsHeaders = {
-  // tighten this to your actual published-artifact domain once you know it,
-  // rather than leaving it wide open indefinitely
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+// Production punch list, Section J: same CORS-lockdown pattern as
+// rabbit-hole-proxy — echoes the request's Origin back only when it's in
+// this allowlist, instead of the wide-open "*" this shipped with.
+const ALLOWED_ORIGINS = (
+  Deno.env.get("ALLOWED_ORIGINS") ?? "https://hyfa-x.vercel.app,http://localhost:5173,http://localhost:5183"
+)
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+function corsHeadersFor(req: Request) {
+  const origin = req.headers.get("Origin") ?? "";
+  return {
+    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  };
+}
 
 // Broad on purpose, to approximate "general news" rather than one narrow
 // topic — see the comment block above for why this exists at all.
 const QUERY = "world news";
 
 serve(async (req) => {
+  const corsHeaders = corsHeadersFor(req);
   // browsers send a CORS preflight OPTIONS request before the real one —
   // this has to be answered directly, not passed through to SerpApi
   if (req.method === "OPTIONS") {
