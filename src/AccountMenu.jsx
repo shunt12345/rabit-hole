@@ -36,7 +36,7 @@ const TOGGLES = [
 // always-on baseline segment, and each optional toggle that's on adds one
 // more segment, out of the total optional-toggle count.
 const OPTIONAL_TOGGLE_KEYS = TOGGLES.map((t) => t.key);
-const POWER_LABELS = ["Idle", "Light", "Moderate", "Cruising", "Full send"];
+const THROTTLE_LABELS = ["Idle", "Light", "Moderate", "Cruising", "Full send"];
 
 function lerpColor(hexA, hexB, t) {
   const a = parseInt(hexA.slice(1), 16);
@@ -53,26 +53,28 @@ function lerpColor(hexA, hexB, t) {
   return `rgb(${r}, ${g}, ${bl})`;
 }
 
-function PowerGauge({ profile }) {
+function ThrottleGauge({ profile }) {
   const onCount = OPTIONAL_TOGGLE_KEYS.filter((k) => !!profile?.[k]).length;
   const segments = 1 + OPTIONAL_TOGGLE_KEYS.length; // Dig In baseline + each optional toggle
   const filled = 1 + onCount;
   const fraction = filled / segments;
   const color = lerpColor("#E3A73C", "#D9483C", fraction);
-  const label = POWER_LABELS[Math.min(filled - 1, POWER_LABELS.length - 1)];
+  const label = THROTTLE_LABELS[Math.min(filled - 1, THROTTLE_LABELS.length - 1)];
 
+  // Deliberately slim and low-contrast — a quiet ambient indicator, not
+  // another headline stat competing with Balance/Usage above it.
   return (
-    <div className="rounded-xl p-4" style={{ backgroundColor: "#14100C", border: "1px solid #3A2E20" }}>
-      <div className="flex justify-between rh-mono rh-text-10 mb-2" style={{ color: "#A89478" }}>
-        <span>Power</span>
+    <div>
+      <div className="flex justify-between rh-mono mb-1" style={{ color: "#6B5B45", fontSize: "9px" }}>
+        <span>Throttle</span>
         <span style={{ color }}>{label}</span>
       </div>
-      <div className="flex gap-1">
+      <div className="flex gap-0.5">
         {Array.from({ length: segments }).map((_, i) => (
           <div
             key={i}
             className="flex-1 rounded-full transition-colors"
-            style={{ height: "8px", backgroundColor: i < filled ? color : "#3A2E20" }}
+            style={{ height: "3px", backgroundColor: i < filled ? color : "#3A2E20" }}
           />
         ))}
       </div>
@@ -352,7 +354,7 @@ export default function AccountMenu({ user, profile, onProfileChange, onProfileR
                 </span>
               )}
 
-              <PowerGauge profile={profile} />
+              <ThrottleGauge profile={profile} />
 
               <div className="flex flex-col gap-3 pt-3" style={{ borderTop: "1px solid #3A2E20" }}>
                 <span className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: "#A89478" }}>
