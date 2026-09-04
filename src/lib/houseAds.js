@@ -4,11 +4,12 @@
 // separate, constant slot and stays out of this rotation (see App.jsx).
 //
 // Written by hand, not generated — this is the one file to edit to
-// add/change an ad. Body is plain text with two lightweight inline
+// add/change an ad. Body is plain text with three lightweight inline
 // markers, similar to markdown, so an ad's whole look lives in one
 // string without touching any component code:
 //   **text**  -> accent-gold color (the opening hook)
 //   __text__  -> underlined
+//   *text*    -> italic
 // Anything else renders as normal body text. CTA is a separate field —
 // it always renders as the gold link at the end of the card. See
 // AdCard.jsx for the parser/renderer.
@@ -25,6 +26,37 @@ export const HOUSE_ADS = [
     id: "death-scrolling",
     body: "**Death scrolling again?!** Come on. I get it, you got some __you-time__ finally, but replacing the social with Hyfa will give you that fresh feeling of knowledge rather than … well you know.",
     cta: "Let's go",
+    stage: "early",
+  },
+  {
+    id: "im-exhausted",
+    body: "**I'm exhausted!!** I just went from learning about macadamia nuts to woodpecker toy physics to Black Monday in '87. What a long, strange trip it is.",
+    cta: "Let's go",
+    stage: "early",
+  },
+  {
+    id: "do-you-want-to-join",
+    body: "**So….do you want to join?** Sorry, my boss is making asking. You know there is no commitment, time frame, or obligation. You control your knowledge destiny like the boss you are.",
+    cta: "Let's go",
+    stage: "mid",
+  },
+  {
+    id: "just-saying",
+    body: "**Just saying….** Give me ten fast ones, and you will not regret it, I promise. Each one of those hard-earned dollar bills will wait silently for you to use them to… a month, a week…. Doesn't matter.",
+    cta: "Let's go",
+    stage: "mid",
+  },
+  {
+    id: "do-or-die",
+    body: "**It's do or die**. Okay, that was a little extreme, but your time is running thin. I don't want to start pulling functions, but a deal is a deal.",
+    cta: "Let's go",
+    stage: "late",
+  },
+  {
+    id: "tiktok",
+    body: "**TikTok.** If I had a foot, I would be tapping it right now. Did you know there is a whole thing called 'fidgeting physiology' *(type that 5 times fast)*",
+    cta: "Let's go",
+    stage: "late",
   },
 
   // Add the rest here, same shape as above — each needs a unique `id`
