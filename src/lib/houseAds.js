@@ -12,6 +12,14 @@
 // Anything else renders as normal body text. CTA is a separate field —
 // it always renders as the gold link at the end of the card. See
 // AdCard.jsx for the parser/renderer.
+//
+// Optional `stage` field: "early" | "mid" | "late" — lets an unsubscribed
+// session see a different slice of the 24 the longer it's stuck around
+// (see engagementStage below), e.g. a soft/curious hook early on vs. a
+// more direct subscribe pitch once someone's clearly engaged. An ad with
+// no `stage` is eligible at every stage — leave it off for anything that
+// isn't meant to escalate. Example:
+//   { id: "example", body: "...", cta: "...", stage: "late" }
 export const HOUSE_ADS = [
   {
     id: "death-scrolling",
@@ -20,7 +28,8 @@ export const HOUSE_ADS = [
   },
 
   // Add the rest here, same shape as above — each needs a unique `id`
-  // (used for the rotation, not shown anywhere), a `body`, and a `cta`.
+  // (used for the rotation, not shown anywhere), a `body`, and a `cta`,
+  // plus an optional `stage` per the note above.
 ];
 
 // Deterministic pick — the same seed always returns the same ad (so a
@@ -30,10 +39,30 @@ export const HOUSE_ADS = [
 // actually rotates as people move between sessions and topics, worth
 // revisiting once there's real click data to weight by (same pattern as
 // the cost/latency work elsewhere in this app).
-export function pickHouseAd(seed) {
+//
+// `stage`, if passed, narrows the pool to ads tagged for that stage (plus
+// any untagged ad, which is eligible everywhere) before picking — pass
+// undefined/omit for a funded account, which isn't mid-conversion-funnel
+// and just gets plain rotation across the whole list.
+export function pickHouseAd(seed, stage) {
   if (!HOUSE_ADS.length) return null;
+  const pool = stage ? HOUSE_ADS.filter((ad) => !ad.stage || ad.stage === stage) : HOUSE_ADS;
+  const candidates = pool.length ? pool : HOUSE_ADS; // fail open if a stage has nothing tagged yet
   let h = 0;
   const s = String(seed || "");
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return HOUSE_ADS[h % HOUSE_ADS.length];
+  return candidates[h % candidates.length];
+}
+
+// "How engaged is this unsubscribed session" bucket, derived from the
+// same free-trial numbers already shown in the header (X of Y searches
+// used today) rather than a new tracked metric. Deliberately a fraction
+// of the limit, not a hardcoded search count, so it keeps working if
+// FREE_SEARCH_LIMIT (rabbit-hole-proxy) ever changes.
+export function engagementStage({ searchesUsed, searchLimit }) {
+  if (!searchLimit) return "early";
+  const frac = searchesUsed / searchLimit;
+  if (frac < 1 / 3) return "early";
+  if (frac < 2 / 3) return "mid";
+  return "late";
 }

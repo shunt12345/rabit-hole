@@ -17,7 +17,7 @@ import AccountMenu from "./AccountMenu.jsx";
 import LegalModal from "./LegalModal.jsx";
 import UsageGauge from "./UsageGauge.jsx";
 import AdCard from "./AdCard.jsx";
-import { pickHouseAd } from "./lib/houseAds.js";
+import { pickHouseAd, engagementStage } from "./lib/houseAds.js";
 import { getSessionId } from "./lib/session.js";
 import { shareArticle } from "./lib/share.js";
 
@@ -295,6 +295,12 @@ export default function Hypha() {
   // matching the monetization outline doc's Section 14.1 ("full access to
   // every function" during the trial, à-la-carte toggles only once funded).
   const trialExhausted = !funded && trialStatus.searchesUsed >= trialStatus.searchLimit;
+
+  // House-ad staging (Section H): only an unsubscribed session is
+  // mid-conversion-funnel, so a funded account gets plain rotation
+  // (undefined stage) instead of being bucketed by trial usage that
+  // doesn't apply to it.
+  const adStage = funded ? undefined : engagementStage(trialStatus);
   const newsVisible = !funded || !!profile?.featureNews;
   const todayVisible = !funded || !!profile?.featureToday;
   const digDeeperVisible = !funded || !!profile?.featureDigDeeper;
@@ -1129,7 +1135,7 @@ export default function Hypha() {
                 stable for one visitor across a visit but varies visitor to
                 visitor. */}
             <div className="mt-8">
-              <AdCard ad={pickHouseAd(getSessionId())} onClick={openAccountModal} />
+              <AdCard ad={pickHouseAd(getSessionId(), adStage)} onClick={openAccountModal} />
             </div>
 
             <div className="mt-10 flex items-center justify-center gap-4 rh-mono rh-text-10" style={{ color: "#5A4A38" }}>
@@ -1238,7 +1244,7 @@ export default function Hypha() {
                               second one shows after "dig deeper" instead of
                               repeating this same slot twice. */}
                           {!selected.articleStreaming && i === 0 && arr.length > 1 && (
-                            <AdCard ad={pickHouseAd(selected.id)} onClick={openAccountModal} />
+                            <AdCard ad={pickHouseAd(selected.id, adStage)} onClick={openAccountModal} />
                           )}
                         </Fragment>
                       ))}
@@ -1269,7 +1275,7 @@ export default function Hypha() {
                         asked for more. Different seed than the first ad on
                         this same node so the two don't just repeat. */}
                     {selected.deepened && !selected.articleStreaming && (
-                      <AdCard ad={pickHouseAd(`${selected.id}:deep`)} onClick={openAccountModal} />
+                      <AdCard ad={pickHouseAd(`${selected.id}:deep`, adStage)} onClick={openAccountModal} />
                     )}
                   </div>
                 ) : selected.articleLoading ? (
