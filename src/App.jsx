@@ -939,6 +939,7 @@ export default function Hypha() {
               onProfileChange={setProfile}
               onProfileRefresh={refreshProfile}
               onLifetimeFundedRefresh={refreshLifetimeFunded}
+              onOpenLegal={setLegalDoc}
             />
           </div>
         </div>

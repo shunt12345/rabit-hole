@@ -83,6 +83,30 @@ function ThrottleGauge({ profile }) {
   );
 }
 
+function LegalLinks({ onOpenLegal }) {
+  return (
+    <div className="flex items-center justify-center gap-3 rh-mono rh-text-10" style={{ color: "#5A4A38" }}>
+      <button
+        type="button"
+        onClick={() => onOpenLegal("terms")}
+        className="rh-link-accent transition-colors"
+        style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "inherit" }}
+      >
+        Terms
+      </button>
+      <span>·</span>
+      <button
+        type="button"
+        onClick={() => onOpenLegal("privacy")}
+        className="rh-link-accent transition-colors"
+        style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "inherit" }}
+      >
+        Privacy
+      </button>
+    </div>
+  );
+}
+
 function Avatar({ email }) {
   const initial = (email || "?").trim().charAt(0).toUpperCase() || "?";
   return (
@@ -162,13 +186,22 @@ function Modal({ onClose, children }) {
   );
 }
 
-export default function AccountMenu({ user, profile, onProfileChange, onProfileRefresh, onLifetimeFundedRefresh }) {
+export default function AccountMenu({ user, profile, onProfileChange, onProfileRefresh, onLifetimeFundedRefresh, onOpenLegal }) {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState("idle"); // idle | sending | sent | error
   const [modalOpen, setModalOpen] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState(String(MIN_TOPUP_USD));
   const [checkoutStatus, setCheckoutStatus] = useState("idle"); // idle | starting | error | success
   const [toggleSaving, setToggleSaving] = useState(null); // which toggle key is mid-save, if any
+
+  // Closes this modal before opening the Terms/Privacy one — App.jsx owns
+  // that modal separately (see LegalModal.jsx), and stacking two full-
+  // screen backdrops on top of each other looks broken rather than
+  // layered.
+  const openLegal = (doc) => {
+    setModalOpen(false);
+    onOpenLegal(doc);
+  };
 
   // Stripe redirects back to `/?checkout=success` (or `?checkout=cancel`)
   // after a top-up — see create-checkout-session's success_url/cancel_url.
@@ -361,6 +394,10 @@ export default function AccountMenu({ user, profile, onProfileChange, onProfileR
                   toggling it now just saves your preference for launch.
                 </span>
               </div>
+
+              <div className="pt-3" style={{ borderTop: "1px solid #3A2E20" }}>
+                <LegalLinks onOpenLegal={openLegal} />
+              </div>
             </div>
           </Modal>
         )}
@@ -434,6 +471,10 @@ export default function AccountMenu({ user, profile, onProfileChange, onProfileR
                 )}
               </form>
             )}
+
+            <div className="pt-2 mt-1" style={{ borderTop: "1px solid #3A2E20" }}>
+              <LegalLinks onOpenLegal={openLegal} />
+            </div>
           </div>
         </Modal>
       )}
