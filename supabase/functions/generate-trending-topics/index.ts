@@ -5,9 +5,10 @@
 // trending_topics_cache table this writes to, instead of hitting search
 // live on every visit. One cron job runs the news fields (World News /
 // Science / Technology) twice a day with a plain `{}` body; a second runs
-// once nightly with `{"fields": ["National Day", "This Day In History"]}`
-// — those two are date-anchored and only change once a day, so there's no
-// reason to re-search them on the news cadence too. Uses Claude's
+// once nightly with `{"fields": ["National Day", "This Day In History",
+// "Word Of The Day"]}` — those three only change once a day (or, for Word
+// Of The Day, aren't tied to the date at all), so there's no reason to
+// re-run them on the news cadence too. Uses Claude's
 // web_search server tool with the same ANTHROPIC_API_KEY already used by
 // rabbit-hole-proxy, so no new vendor is needed (unlike the dormant
 // SerpApi-based trending-topics function this intentionally does not
@@ -42,8 +43,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const NEWS_FIELDS = ["World News", "Science", "Technology"];
 // Date-anchored, not news-search — same card treatment and cache table as
 // the news fields, but built from a different prompt (see promptForField)
-// since "recent development" doesn't apply to either of these.
-const SPECIAL_FIELDS = ["National Day", "This Day In History"];
+// since "recent development" doesn't apply to any of these. "Word Of The
+// Day" isn't actually tied to today's specific date the way the other two
+// are (a word doesn't have a calendar date) — it's here because it shares
+// their real mechanic: one nightly pick, no live-search "recent story"
+// framing, excludeTopics keeps it from repeating.
+const SPECIAL_FIELDS = ["National Day", "This Day In History", "Word Of The Day"];
 const FIELDS = [...NEWS_FIELDS, ...SPECIAL_FIELDS];
 const MODEL = "claude-sonnet-5";
 
@@ -119,9 +124,27 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
 }
 
+function wordOfTheDayPrompt(excludeTopics: string[]): string {
+  const excludeBlock = excludeTopics.length
+    ? `\n\nAlready featured recently — pick a different word this time, not a repeat of any of these: ${excludeTopics.join("; ")}.`
+    : "";
+  return `You have live web search — use it now.
+
+Pick a single real English word — common enough that most readers will already recognize it — with a genuinely surprising, verifiable etymology or origin story, the kind of thing that makes someone say "wait, really?" Avoid a word whose origin story is already common knowledge. Search to confirm the etymology is real and accurate, not a popular folk etymology that turns out to be false.${excludeBlock}
+
+Once you've confirmed a real one via search, produce:
+- "topic": the word itself, title case, no definition or extra text
+- "teaser": one enticing sentence (max 20 words) that reveals the surprising part of its origin, written to make someone curious to click and learn more
+- "source_url": the URL of a real source confirming this etymology
+
+Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
+{"topic": "...", "teaser": "...", "source_url": "..."}`;
+}
+
 function promptForField(field: string, excludeTopics: string[]): string {
   if (field === "National Day") return nationalDayPrompt(excludeTopics);
   if (field === "This Day In History") return thisDayInHistoryPrompt(excludeTopics);
+  if (field === "Word Of The Day") return wordOfTheDayPrompt(excludeTopics);
   return fieldPrompt(field, excludeTopics);
 }
 

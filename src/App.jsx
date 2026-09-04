@@ -164,16 +164,17 @@ function nextId() {
 
 // Real live topics now — see supabase/functions/generate-trending-topics.
 // A scheduled job (pg_cron, twice daily) does one Claude web-search call per
-// field — 3 news fields plus 2 date-anchored ones ("National Day", "This
-// Day In History") — and caches each result in trending_topics_cache; this
-// just reads a batch of recent rows with the anon key. No live search
-// happens on the client or per page load. NEWS_FIELDS / SPECIAL_FIELDS below
-// pick the latest row per named field out of that batch, so a field that's
-// been renamed or retired (like the old "Culture & Arts") just stops
-// rendering on its own instead of lingering until its rows age out.
+// field — 3 news fields plus 3 date-anchored/evergreen ones ("National Day",
+// "This Day In History", "Word Of The Day") — and caches each result in
+// trending_topics_cache; this just reads a batch of recent rows with the
+// anon key. No live search happens on the client or per page load.
+// NEWS_FIELDS / SPECIAL_FIELDS below pick the latest row per named field out
+// of that batch, so a field that's been renamed or retired (like the old
+// "Culture & Arts") just stops rendering on its own instead of lingering
+// until its rows age out.
 const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,generated_at&order=generated_at.desc,id.desc&limit=20`;
 const NEWS_FIELDS = ["World News", "Science", "Technology"];
-const SPECIAL_FIELDS = ["National Day", "This Day In History"];
+const SPECIAL_FIELDS = ["National Day", "This Day In History", "Word Of The Day"];
 
 // Picks the single most recent row for each field in `fields`, in that
 // order — not just the first N rows in the batch, since stale rows from a
@@ -1063,11 +1064,11 @@ export default function Hypha() {
               </div>
             )}
 
-            {/* "Today" — National Day + This Day In History, same source
-                table and card treatment as "In the news" but date-anchored
-                rather than searched-for-recency. See promptForField in
-                supabase/functions/generate-trending-topics. Same
-                funded-only gate as "In the news" above. */}
+            {/* "Today" — National Day + This Day In History + Word Of The
+                Day, same source table and card treatment as "In the news"
+                but date-anchored/evergreen rather than searched-for-recency.
+                See promptForField in supabase/functions/generate-trending-topics.
+                Same funded-only gate as "In the news" above. */}
             {todayTopics.length > 0 && !trialExhausted && todayVisible && (
               <div className="mt-10">
                 <div className="flex items-center justify-center gap-1.5 mb-6">
