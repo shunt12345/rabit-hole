@@ -34,7 +34,7 @@ export default function AdCard({ ad, onClick }) {
       >
         <img src="/hypha-logo.png" alt="" className="w-7 h-auto" />
       </div>
-      <p className="rh-display text-sm leading-relaxed" style={{ color: "#1C1006" }}>
+      <p className="rh-display text-sm leading-relaxed" style={{ color: "#FFFFFF" }}>
         {tokens.map((t, i) => {
           if (t.type === "accent") {
             return (
