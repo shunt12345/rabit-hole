@@ -328,6 +328,19 @@ export default function AccountMenu({
                 </button>
               </div>
 
+              {/* Shown for a signed-in, never-funded account — this is the
+                  moment "account created" is actually true, and where the
+                  next step (funding) is right below. Clears up the same
+                  point of confusion the pre-signup form used to try to
+                  cover (someone arriving via a house ad's "Let's go" CTA
+                  could easily assume signing in is the whole unlock — it
+                  isn't). Disappears on its own once balanceUsd > 0. */}
+              {profile && profile.balanceUsd === 0 && (
+                <p className="rh-body text-sm" style={{ color: "#A89478" }}>
+                  Your account has been created! Fund your account to start drinking from the firehose of knowledge!
+                </p>
+              )}
+
               <div
                 className="rounded-xl p-4 flex items-center justify-between gap-3"
                 style={{ backgroundColor: "#14100C", border: "1px solid #3A2E20" }}
@@ -458,15 +471,6 @@ export default function AccountMenu({
                 <X size={18} />
               </button>
             </div>
-
-            {/* Clears up a real point of confusion: someone arriving here
-                via a house ad's "Let's go" CTA could easily assume signing
-                in is the whole unlock. It isn't — an account by itself
-                still sits on the same free-tier limits as before signing
-                in; only adding funds removes them. */}
-            <p className="rh-body text-sm" style={{ color: "#A89478" }}>
-              Signing in saves your account — it's still the free tier though. Full, unlimited access unlocks once you add funds.
-            </p>
 
             {status === "sent" ? (
               <span className="rh-body text-sm" style={{ color: "#A89478" }}>
