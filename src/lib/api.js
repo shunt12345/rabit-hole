@@ -182,7 +182,7 @@ export async function callClaude(system, prompt, endpoint) {
 // callers apply their own cleanup/parsing on top (plain prose vs. JSON).
 async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey, nodeType) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  let timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   let res;
   try {
     res = await fetch(PROXY_URL, {
@@ -258,7 +258,13 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
       const { done, value } = await reader.read();
       if (done) break;
       gotAnyData = true;
+      // Re-armed on every chunk, not just cleared once — this bounds the
+      // gap between chunks, not just the time to the first one. A stream
+      // that produces one chunk and then stalls (server-side hang,
+      // network black hole) used to hang here forever, since the timeout
+      // was cleared on the first chunk and never reset.
       clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop(); // keep the last (possibly incomplete) line for next read

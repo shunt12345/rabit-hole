@@ -14,10 +14,14 @@
 // error, just not something this app currently reacts to.
 //
 // Idempotency: Stripe retries webhook deliveries on anything other than a
-// fast 2xx, so the same session can arrive more than once. The insert into
-// billing_transactions has a unique constraint on stripe_session_id — a
-// duplicate delivery hits that constraint, and the balance is never
-// credited twice for one payment.
+// fast 2xx, so the same session can arrive more than once. The
+// record_stripe_payment SQL function (migration 0018) does the
+// billing_transactions insert AND the balance credit in one atomic
+// transaction — they commit or roll back together, so a transient
+// failure never leaves a recorded-but-uncredited payment behind (a real
+// bug this app hit once in production before that migration). A retry
+// after a truly successful prior call hits stripe_session_id's unique
+// constraint and no-ops inside that same function.
 //
 // DEPLOY STEPS:
 //   1. supabase functions new stripe-webhook
@@ -100,35 +104,15 @@ serve(async (req) => {
       });
     }
 
-    const { error: insertErr } = await supabase.from("billing_transactions").insert({
-      user_id: userId,
-      stripe_session_id: session.id,
-      stripe_payment_intent_id: session.payment_intent,
-      amount_usd: amountUsd,
-      status: "completed",
-    });
-
-    if (insertErr) {
-      // 23505 = unique_violation — this session was already processed by
-      // an earlier delivery of the same webhook. Not an error, just a
-      // duplicate; acknowledge without crediting the balance again.
-      if (insertErr.code === "23505") {
-        return new Response(JSON.stringify({ received: true, duplicate: true }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      console.error("stripe-webhook: failed to record transaction, not crediting balance", insertErr);
-      return new Response("failed to record transaction", { status: 500 });
-    }
-
-    const { error: creditErr } = await supabase.rpc("credit_balance", {
+    const { error: paymentErr } = await supabase.rpc("record_stripe_payment", {
       p_user_id: userId,
-      p_amount: amountUsd,
+      p_stripe_session_id: session.id,
+      p_stripe_payment_intent_id: session.payment_intent,
+      p_amount_usd: amountUsd,
     });
-    if (creditErr) {
-      console.error("stripe-webhook: failed to credit balance", creditErr, session.id);
-      return new Response("failed to credit balance", { status: 500 });
+    if (paymentErr) {
+      console.error("stripe-webhook: failed to record payment / credit balance", paymentErr, session.id);
+      return new Response("failed to record payment", { status: 500 });
     }
 
     return new Response(JSON.stringify({ received: true }), {
