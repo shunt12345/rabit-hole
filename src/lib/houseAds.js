@@ -36,7 +36,7 @@ export const HOUSE_ADS = [
   },
   {
     id: "do-you-want-to-join",
-    body: "**So….do you want to join?** Sorry, my boss is making asking. You know there is no commitment, time frame, or obligation. You control your knowledge destiny like the boss you are.",
+    body: "**So….do you want to join?** Sorry, my boss is making me ask. You know there is no commitment, time frame, or obligation. You control your knowledge destiny like the boss you are.",
     cta: "Let's go",
     stage: "mid",
   },
