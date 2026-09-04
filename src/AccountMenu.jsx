@@ -459,6 +459,15 @@ export default function AccountMenu({
               </button>
             </div>
 
+            {/* Clears up a real point of confusion: someone arriving here
+                via a house ad's "Let's go" CTA could easily assume signing
+                in is the whole unlock. It isn't — an account by itself
+                still sits on the same free-tier limits as before signing
+                in; only adding funds removes them. */}
+            <p className="rh-body text-sm" style={{ color: "#A89478" }}>
+              Signing in saves your account — it's still the free tier though. Full, unlimited access unlocks once you add funds.
+            </p>
+
             {status === "sent" ? (
               <span className="rh-body text-sm" style={{ color: "#A89478" }}>
                 Check your email for a sign-in link.
