@@ -297,11 +297,11 @@ export default function Hypha() {
   // every function" during the trial, à-la-carte toggles only once funded).
   const trialExhausted = !funded && trialStatus.searchesUsed >= trialStatus.searchLimit;
 
-  // House-ad staging (Section H): only an unsubscribed session is
-  // mid-conversion-funnel, so a funded account gets plain rotation
-  // (undefined stage) instead of being bucketed by trial usage that
-  // doesn't apply to it.
-  const adStage = funded ? undefined : engagementStage(trialStatus);
+  // House-ad staging (Section H) — every AdCard placement below is
+  // already gated on `!funded` (funded accounts don't see ads at all), so
+  // this only ever needs to reflect an unsubscribed session's free-trial
+  // usage.
+  const adStage = engagementStage(trialStatus);
   const newsVisible = !funded || !!profile?.featureNews;
   const todayVisible = !funded || !!profile?.featureToday;
   const digDeeperVisible = !funded || !!profile?.featureDigDeeper;
@@ -1132,12 +1132,16 @@ export default function Hypha() {
             )}
 
             {/* House ad (Section H) — bottom of the landing hero, below "In
-                the news". Seeded off the browser's own session id, so it's
-                stable for one visitor across a visit but varies visitor to
-                visitor. */}
-            <div className="mt-8">
-              <AdCard ad={pickHouseAd(getSessionId(), adStage)} onClick={openAccountModal} />
-            </div>
+                the news". Funded accounts don't see ads at all — this is
+                specifically aimed at engaging free/unsubscribed users, not
+                a house ad slot everyone gets. Seeded off the browser's own
+                session id, so it's stable for one visitor across a visit
+                but varies visitor to visitor. */}
+            {!funded && (
+              <div className="mt-8">
+                <AdCard ad={pickHouseAd(getSessionId(), adStage)} onClick={openAccountModal} />
+              </div>
+            )}
 
             <div className="mt-10 flex items-center justify-center gap-4 rh-mono rh-text-10" style={{ color: "#5A4A38" }}>
               <button
@@ -1236,15 +1240,16 @@ export default function Hypha() {
                               </span>
                             ) : null}
                           </p>
-                          {/* House ad (Section H) — one per article, seeded
-                              off the node so the same node always shows the
-                              same ad (no flicker on re-render) while
-                              different nodes tend to show different ones.
-                              Sandwiched after the first paragraph rather
-                              than sitting above the article entirely. A
-                              second one shows after "dig deeper" instead of
-                              repeating this same slot twice. */}
-                          {!selected.articleStreaming && i === 0 && arr.length > 1 && (
+                          {/* House ad (Section H) — one per article, funded
+                              accounts don't see these at all. Seeded off the
+                              node so the same node always shows the same ad
+                              (no flicker on re-render) while different nodes
+                              tend to show different ones. Sandwiched after
+                              the first paragraph rather than sitting above
+                              the article entirely. A second one shows after
+                              "dig deeper" instead of repeating this same
+                              slot twice. */}
+                          {!funded && !selected.articleStreaming && i === 0 && arr.length > 1 && (
                             <AdCard ad={pickHouseAd(selected.id, adStage)} onClick={openAccountModal} />
                           )}
                         </Fragment>
@@ -1270,12 +1275,14 @@ export default function Hypha() {
                         <AlertCircle size={13} /> {selected.deepenError}
                       </div>
                     )}
-                    {/* Second house ad — only once "dig deeper" content has
-                        actually landed, so a reader gets one ad impression
-                        per article by default and a second only if they
-                        asked for more. Different seed than the first ad on
-                        this same node so the two don't just repeat. */}
-                    {selected.deepened && !selected.articleStreaming && (
+                    {/* Second house ad — funded accounts don't see these at
+                        all (same as the first ad above). Only once "dig
+                        deeper" content has actually landed, so a reader
+                        gets one ad impression per article by default and a
+                        second only if they asked for more. Different seed
+                        than the first ad on this same node so the two
+                        don't just repeat. */}
+                    {!funded && selected.deepened && !selected.articleStreaming && (
                       <AdCard ad={pickHouseAd(`${selected.id}:deep`, adStage)} onClick={openAccountModal} />
                     )}
                   </div>
@@ -1378,18 +1385,22 @@ export default function Hypha() {
                         );
                       })}
                       {/* Ad tier 3 (mockup) — lightest unit, mixed into the
-                          branch chips with just a label, no teaser copy */}
-                      <button
-                        type="button"
-                        className="rh-chip rh-body text-sm rounded-full px-4 py-2 border transition-colors inline-flex items-center gap-1.5"
-                        style={{ borderColor: "#5A4C38", color: "#A89478", backgroundColor: "transparent" }}
-                      >
-                        <span className="rh-mono uppercase" style={{ fontSize: "8px", color: "#E3A73C" }}>
-                          Sponsored
-                        </span>
-                        · {CHIP_AD.label} — {CHIP_AD.brand}
-                        <ArrowUpRight size={13} />
-                      </button>
+                          branch chips with just a label, no teaser copy.
+                          Funded accounts don't see ads at all, same as the
+                          house-ad cards. */}
+                      {!funded && (
+                        <button
+                          type="button"
+                          className="rh-chip rh-body text-sm rounded-full px-4 py-2 border transition-colors inline-flex items-center gap-1.5"
+                          style={{ borderColor: "#5A4C38", color: "#A89478", backgroundColor: "transparent" }}
+                        >
+                          <span className="rh-mono uppercase" style={{ fontSize: "8px", color: "#E3A73C" }}>
+                            Sponsored
+                          </span>
+                          · {CHIP_AD.label} — {CHIP_AD.brand}
+                          <ArrowUpRight size={13} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
