@@ -278,39 +278,47 @@ export default function AccountMenu({ user, profile, onProfileChange, onProfileR
               </div>
 
               <div
-                className="rounded-xl p-4 flex flex-col"
+                className="rounded-xl p-4 flex items-center justify-between gap-3"
                 style={{ backgroundColor: "#14100C", border: "1px solid #3A2E20" }}
               >
-                <span className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: "#A89478" }}>
-                  Balance
-                </span>
-                <span className="rh-display text-2xl font-semibold mt-0.5" style={{ color: "#E3A73C" }}>
-                  {profile == null ? "…" : `$${profile.balanceUsd.toFixed(2)}`}
-                </span>
-              </div>
+                <div className="min-w-0">
+                  <span className="rh-mono rh-text-10 uppercase tracking-wider block" style={{ color: "#A89478" }}>
+                    Balance
+                  </span>
+                  <span className="rh-display text-2xl font-semibold" style={{ color: "#E3A73C" }}>
+                    {profile == null ? "…" : `$${profile.balanceUsd.toFixed(2)}`}
+                  </span>
+                </div>
 
-              <form onSubmit={handleAddFunds} className="flex items-center gap-2">
-                <span className="rh-body text-sm" style={{ color: "#A89478" }}>
-                  $
-                </span>
-                <input
-                  type="number"
-                  min={MIN_TOPUP_USD}
-                  step="1"
-                  value={topUpAmount}
-                  onChange={(e) => setTopUpAmount(e.target.value)}
-                  className="rh-body text-sm rounded-full px-3 py-1.5 border outline-none flex-1 min-w-0"
-                  style={{ backgroundColor: "#332617", borderColor: "#5A4630", color: "#F1E6D3" }}
-                />
-                <button
-                  type="submit"
-                  disabled={checkoutStatus === "starting"}
-                  className="rh-body text-sm font-medium rounded-full px-4 py-1.5 disabled:opacity-50 shrink-0"
-                  style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
-                >
-                  {checkoutStatus === "starting" ? "Redirecting…" : "Add funds"}
-                </button>
-              </form>
+                <form onSubmit={handleAddFunds} className="flex items-center gap-1.5 shrink-0">
+                  <div className="relative">
+                    <span
+                      className="rh-body text-sm absolute pointer-events-none"
+                      style={{ color: "#A89478", left: "10px", top: "50%", transform: "translateY(-50%)" }}
+                    >
+                      $
+                    </span>
+                    <input
+                      type="number"
+                      min={MIN_TOPUP_USD}
+                      step="1"
+                      value={topUpAmount}
+                      onChange={(e) => setTopUpAmount(e.target.value)}
+                      aria-label="Amount to add"
+                      className="rh-body text-sm rounded-full pr-1 py-1.5 border outline-none"
+                      style={{ backgroundColor: "#332617", borderColor: "#5A4630", color: "#F1E6D3", width: "68px", paddingLeft: "20px" }}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={checkoutStatus === "starting"}
+                    className="rh-body text-sm font-medium rounded-full px-3.5 py-1.5 disabled:opacity-50 shrink-0"
+                    style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
+                  >
+                    {checkoutStatus === "starting" ? "…" : "Add"}
+                  </button>
+                </form>
+              </div>
               {checkoutStatus === "error" && (
                 <span className="rh-mono rh-text-10" style={{ color: "#D98A6E" }}>
                   Couldn't start checkout — try again.
