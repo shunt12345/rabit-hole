@@ -17,7 +17,7 @@ export default function UsageGauge({ profile, lifetimeFunded }) {
         <span>Usage</span>
         <span>{Math.round(usageFraction * 100)}%</span>
       </div>
-      <div className="rounded-full overflow-hidden" style={{ height: "5px", backgroundColor: "#3A2E20" }}>
+      <div className="rounded-full overflow-hidden" style={{ height: "2.5px", backgroundColor: "#3A2E20" }}>
         <div className="h-full rounded-full" style={{ width: `${usageFraction * 100}%`, backgroundColor: "#E3A73C" }} />
       </div>
     </div>
