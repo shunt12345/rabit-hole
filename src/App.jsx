@@ -16,6 +16,9 @@ import { getProfile, getLifetimeFundedUsd } from "./lib/profile.js";
 import AccountMenu from "./AccountMenu.jsx";
 import LegalModal from "./LegalModal.jsx";
 import UsageGauge from "./UsageGauge.jsx";
+import AdCard from "./AdCard.jsx";
+import { pickHouseAd } from "./lib/houseAds.js";
+import { getSessionId } from "./lib/session.js";
 import { shareArticle } from "./lib/share.js";
 
 const TYPE_COLOR = {
@@ -182,35 +185,15 @@ function latestByField(rows, fields) {
     .filter(Boolean);
 }
 
-// UI-only mockup of the 3-tier ad placement sketch — hardcoded placeholder
-// content, no real sponsor backend, always on (not gated behind any real
-// "should we show an ad here" logic yet). Swap this for real sponsored
-// data — and add real gating — when this becomes more than a mockup.
-const MOCK_SPONSOR = {
-  tier1: {
-    brand: "Farside Media",
-    headline: "The Deep End: A Show About Falling Down Rabbit Holes",
-    description:
-      "A weekly documentary series that picks one wildly specific obsession and actually chases it all the way down.",
-    cta: "Watch the first episode",
-  },
-  tier2: {
-    brand: "Longshelf",
-    text: "Turn today's curiosity into your next real book — a new nonfiction pick every week.",
-    cta: "See this week's pick",
-  },
-  tier3: {
-    brand: "Farside Media",
-    label: "The Deep End",
-  },
-  // The app's own landing screen, below "In the news" — separate slot
-  // from tier1 (which sits on a topic's own page once you've dug in).
-  landing: {
-    brand: "Farside Media",
-    headline: "The Deep End: A Show About Falling Down Rabbit Holes",
-    description: "A weekly documentary series that picks one wildly specific obsession and actually chases it all the way down.",
-    cta: "Watch the trailer",
-  },
+// UI-only mockup of the lightweight "Explore next" chip ad — hardcoded
+// placeholder content, no real sponsor backend. Deliberately NOT part of
+// the house-ad rotation (lib/houseAds.js): this one slot stays constant
+// rather than rotating, per the ad-placement plan. Swap for real
+// sponsored data — and add real gating — when this becomes more than a
+// mockup.
+const CHIP_AD = {
+  brand: "Farside Media",
+  label: "The Deep End",
 };
 
 export default function Hypha() {
@@ -338,6 +321,14 @@ export default function Hypha() {
   const [selectionInfo, setSelectionInfo] = useState(null); // { text, top, left } | null
   const [legalDoc, setLegalDoc] = useState(null); // "terms" | "privacy" | null
   const [shareStatus, setShareStatus] = useState("idle"); // idle | sharing | copied | error
+
+  // House ads' CTA opens the account/funds modal — AccountMenu owns that
+  // modal's open state locally, so this is just a one-way "please open"
+  // signal passed down as a prop (see AccountMenu.jsx's openSignal effect).
+  // Any change opens it, so a simple increment is enough; the value itself
+  // is never read for anything else.
+  const [accountModalSignal, setAccountModalSignal] = useState(0);
+  const openAccountModal = () => setAccountModalSignal((n) => n + 1);
   const selectionDebounceRef = useRef(null);
   useEffect(() => {
     const handleSelectionChange = () => {
@@ -940,6 +931,7 @@ export default function Hypha() {
               onProfileRefresh={refreshProfile}
               onLifetimeFundedRefresh={refreshLifetimeFunded}
               onOpenLegal={setLegalDoc}
+              openSignal={accountModalSignal}
             />
           </div>
         </div>
@@ -1132,27 +1124,12 @@ export default function Hypha() {
               </div>
             )}
 
-            {/* Ad (mockup) — bottom of the landing hero, below "In the news" */}
-            <div className="mt-8 p-4 rounded-2xl border text-left" style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}>
-              <span
-                className="rh-mono rh-text-10 uppercase tracking-wider px-2 py-0.5 rounded-full inline-block mb-2"
-                style={{ color: "#14100C", backgroundColor: "#E3A73C" }}
-              >
-                Sponsored · {MOCK_SPONSOR.landing.brand}
-              </span>
-              <div className="text-base font-semibold mb-1" style={{ color: "#F1E6D3" }}>
-                {MOCK_SPONSOR.landing.headline}
-              </div>
-              <p className="text-sm mb-3" style={{ color: "#B8A886" }}>
-                {MOCK_SPONSOR.landing.description}
-              </p>
-              <button
-                type="button"
-                className="flex items-center gap-1.5 text-sm font-medium transition-colors rh-link-accent"
-                style={{ color: "#E3A73C" }}
-              >
-                {MOCK_SPONSOR.landing.cta} <ArrowUpRight size={14} />
-              </button>
+            {/* House ad (Section H) — bottom of the landing hero, below "In
+                the news". Seeded off the browser's own session id, so it's
+                stable for one visitor across a visit but varies visitor to
+                visitor. */}
+            <div className="mt-8">
+              <AdCard ad={pickHouseAd(getSessionId())} onClick={openAccountModal} />
             </div>
 
             <div className="mt-10 flex items-center justify-center gap-4 rh-mono rh-text-10" style={{ color: "#5A4A38" }}>
@@ -1252,54 +1229,16 @@ export default function Hypha() {
                               </span>
                             ) : null}
                           </p>
-                          {/* Ad tier 1 (mockup) — hero placement. Was
-                              root-only; branch nodes are where most of a
-                              session's actual page views happen once
-                              someone starts exploring outward, so this
-                              tier now shows on every node's article, not
-                              just the root's. Sandwiched between the
-                              article's first two paragraphs rather than
-                              sitting above the article entirely. */}
+                          {/* House ad (Section H) — one per article, seeded
+                              off the node so the same node always shows the
+                              same ad (no flicker on re-render) while
+                              different nodes tend to show different ones.
+                              Sandwiched after the first paragraph rather
+                              than sitting above the article entirely. A
+                              second one shows after "dig deeper" instead of
+                              repeating this same slot twice. */}
                           {!selected.articleStreaming && i === 0 && arr.length > 1 && (
-                            <div className="p-4 rounded-2xl border" style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}>
-                              <span
-                                className="rh-mono rh-text-10 uppercase tracking-wider px-2 py-0.5 rounded-full inline-block mb-2"
-                                style={{ color: "#E3A73C", border: "1px solid #E3A73C55" }}
-                              >
-                                Sponsored · {MOCK_SPONSOR.tier1.brand}
-                              </span>
-                              <div className="text-base font-semibold mb-1" style={{ color: "#F1E6D3" }}>
-                                {MOCK_SPONSOR.tier1.headline}
-                              </div>
-                              <p className="text-sm mb-3" style={{ color: "#B8A886" }}>
-                                {MOCK_SPONSOR.tier1.description}
-                              </p>
-                              <button
-                                type="button"
-                                className="flex items-center gap-1.5 text-sm font-medium transition-colors rh-link-accent"
-                                style={{ color: "#E3A73C" }}
-                              >
-                                {MOCK_SPONSOR.tier1.cta} <ArrowUpRight size={14} />
-                              </button>
-                            </div>
-                          )}
-                          {/* Ad tier 2 (mockup) — inline rest card, one quiet
-                              pause partway through, only once the article has
-                              fully landed */}
-                          {!selected.articleStreaming && i === 1 && arr.length > 2 && (
-                            <div className="p-4 rounded-2xl border" style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}>
-                              <span className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: "#E3A73C" }}>
-                                Sponsored · {MOCK_SPONSOR.tier2.brand}
-                              </span>
-                              <p className="text-sm mt-1 mb-2" style={{ color: "#B8A886" }}>{MOCK_SPONSOR.tier2.text}</p>
-                              <button
-                                type="button"
-                                className="flex items-center gap-1.5 text-sm font-medium transition-colors rh-link-accent"
-                                style={{ color: "#E3A73C" }}
-                              >
-                                {MOCK_SPONSOR.tier2.cta} <ArrowUpRight size={13} />
-                              </button>
-                            </div>
+                            <AdCard ad={pickHouseAd(selected.id)} onClick={openAccountModal} />
                           )}
                         </Fragment>
                       ))}
@@ -1323,6 +1262,14 @@ export default function Hypha() {
                       <div className="flex items-center gap-1.5 text-sm" style={{ color: "#D98A6E" }}>
                         <AlertCircle size={13} /> {selected.deepenError}
                       </div>
+                    )}
+                    {/* Second house ad — only once "dig deeper" content has
+                        actually landed, so a reader gets one ad impression
+                        per article by default and a second only if they
+                        asked for more. Different seed than the first ad on
+                        this same node so the two don't just repeat. */}
+                    {selected.deepened && !selected.articleStreaming && (
+                      <AdCard ad={pickHouseAd(`${selected.id}:deep`)} onClick={openAccountModal} />
                     )}
                   </div>
                 ) : selected.articleLoading ? (
@@ -1433,7 +1380,7 @@ export default function Hypha() {
                         <span className="rh-mono uppercase" style={{ fontSize: "8px", color: "#E3A73C" }}>
                           Sponsored
                         </span>
-                        · {MOCK_SPONSOR.tier3.label} — {MOCK_SPONSOR.tier3.brand}
+                        · {CHIP_AD.label} — {CHIP_AD.brand}
                         <ArrowUpRight size={13} />
                       </button>
                     </div>

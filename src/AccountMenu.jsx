@@ -186,13 +186,31 @@ function Modal({ onClose, children }) {
   );
 }
 
-export default function AccountMenu({ user, profile, onProfileChange, onProfileRefresh, onLifetimeFundedRefresh, onOpenLegal }) {
+export default function AccountMenu({
+  user,
+  profile,
+  onProfileChange,
+  onProfileRefresh,
+  onLifetimeFundedRefresh,
+  onOpenLegal,
+  openSignal,
+}) {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState("idle"); // idle | sending | sent | error
   const [modalOpen, setModalOpen] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState(String(MIN_TOPUP_USD));
   const [checkoutStatus, setCheckoutStatus] = useState("idle"); // idle | starting | error | success
   const [toggleSaving, setToggleSaving] = useState(null); // which toggle key is mid-save, if any
+
+  // House ads (Section H) want their CTA to open this same account/funds
+  // modal — App.jsx has no direct handle on this component's local
+  // modalOpen state, so it just bumps a counter prop; any change opens
+  // the modal, same one-way-trigger shape as the checkout-redirect effect
+  // below (that one triggers off a URL param instead of a prop).
+  useEffect(() => {
+    if (openSignal) setModalOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openSignal]);
 
   // Closes this modal before opening the Terms/Privacy one — App.jsx owns
   // that modal separately (see LegalModal.jsx), and stacking two full-
