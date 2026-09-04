@@ -35,6 +35,12 @@ export const HOUSE_ADS = [
     stage: "early",
   },
   {
+    id: "great-bob",
+    body: "**That is great, Bob.** But can you connect the origins of peaches in China to the design of the Apollo space suits, Bob? Get on Hyfa, and you will.l",
+    cta: "Let's go",
+    stage: "early",
+  },
+  {
     id: "do-you-want-to-join",
     body: "**So….do you want to join?** Sorry, my boss is making me ask. You know there is no commitment, time frame, or obligation. You control your knowledge destiny like the boss you are.",
     cta: "Let's go",
@@ -42,7 +48,13 @@ export const HOUSE_ADS = [
   },
   {
     id: "just-saying",
-    body: "**Just saying….** Give me ten fast ones, and you will not regret it, I promise. Each one of those hard-earned dollar bills will wait silently for you to use them to… a month, a week…. Doesn't matter.",
+    body: "**Just saying….** Give me ten fast ones, and you will not regret it, I promise. Each one of those hard-earned dollar bills will wait silently for you to use them… a month, a year…. Doesn't matter.",
+    cta: "Let's go",
+    stage: "mid",
+  },
+  {
+    id: "does-money-buy-everything",
+    body: "**Does money buy everything?** Obviously not, just the things that cost money. Speaking of money, your brain needs fuel and fuel costs money.",
     cta: "Let's go",
     stage: "mid",
   },
@@ -54,7 +66,13 @@ export const HOUSE_ADS = [
   },
   {
     id: "tiktok",
-    body: "**TikTok.** If I had a foot, I would be tapping it right now. Did you know there is a whole thing called 'fidgeting physiology' *(type that 5 times fast)*",
+    body: "**TikTok.** If I had a foot, I would be tapping it right now. Did you know there is a whole thing called 'fidgeting physiology' *(type that 5 times fast)?*",
+    cta: "Let's go",
+    stage: "late",
+  },
+  {
+    id: "worst-that-could-happen",
+    body: "**What is the worst that could happen?** You become the life of the party by dropping knowledge bombs to the point that you gain enough confidence to dust off the windmill on the dance floor?",
     cta: "Let's go",
     stage: "late",
   },
