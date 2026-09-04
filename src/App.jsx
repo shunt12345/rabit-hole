@@ -12,9 +12,10 @@ import {
 import { HYPHA_SYSTEM, OBSCURITY_LEVELS, FIXED_OBSCURITY } from "./lib/hyphaSystemPrompt.js";
 import { createPacedReveal } from "./lib/pacedReveal.js";
 import { getCurrentUser, onAuthStateChange } from "./lib/auth.js";
-import { getProfile } from "./lib/profile.js";
+import { getProfile, getLifetimeFundedUsd } from "./lib/profile.js";
 import AccountMenu from "./AccountMenu.jsx";
 import LegalModal from "./LegalModal.jsx";
+import UsageGauge from "./UsageGauge.jsx";
 import { shareArticle } from "./lib/share.js";
 
 const TYPE_COLOR = {
@@ -277,6 +278,21 @@ export default function Hypha() {
     getProfile().then(setProfile);
   };
   useEffect(refreshProfile, [user]);
+
+  // Lifetime funded total, for UsageGauge (now on the hero page — see
+  // that file — rather than tucked inside the account modal). Was
+  // previously fetched inside AccountMenu itself; lives here instead so
+  // the hero page can read it too, with AccountMenu getting it as a prop
+  // and calling onLifetimeFundedRefresh after a successful top-up.
+  const [lifetimeFunded, setLifetimeFunded] = useState(null);
+  const refreshLifetimeFunded = () => {
+    if (!user) {
+      setLifetimeFunded(null);
+      return;
+    }
+    getLifetimeFundedUsd().then(setLifetimeFunded);
+  };
+  useEffect(refreshLifetimeFunded, [user]);
 
   // Real-time "is this account funded" check, computed directly from the
   // profile row (fetched independently, on sign-in and after checkout)
@@ -917,7 +933,13 @@ export default function Hypha() {
                 {trialStatus.searchesUsed}/{trialStatus.searchLimit} free searches today
               </div>
             )}
-            <AccountMenu user={user} profile={profile} onProfileChange={setProfile} onProfileRefresh={refreshProfile} />
+            <AccountMenu
+              user={user}
+              profile={profile}
+              onProfileChange={setProfile}
+              onProfileRefresh={refreshProfile}
+              onLifetimeFundedRefresh={refreshLifetimeFunded}
+            />
           </div>
         </div>
       </div>
@@ -964,6 +986,9 @@ export default function Hypha() {
                 )}
               </button>
             </div>
+
+            <UsageGauge profile={profile} lifetimeFunded={lifetimeFunded} />
+
             {rootError && (
               <div className="mt-4 flex items-center justify-center gap-1.5 text-xs rh-body" style={{ color: "#D98A6E" }}>
                 <AlertCircle size={13} /> {rootError}

@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { X, User as UserIcon } from "lucide-react";
 import { sendMagicLink, signOut } from "./lib/auth.js";
-import { updateFeatureToggles, getLifetimeFundedUsd } from "./lib/profile.js";
+import { updateFeatureToggles } from "./lib/profile.js";
 import { startCheckout, MIN_TOPUP_USD } from "./lib/billing.js";
 
 // Production punch list, Section C (funded experience) UI pass: a single
 // avatar/account button in the header corner, opening a modal with
-// balance, the "Usage" gas-gauge, add-funds, and the per-feature toggle
-// panel — replaces the earlier always-expanded inline bar. Node count
+// balance, add-funds, and the per-feature toggle panel — replaces the
+// earlier always-expanded inline bar. The real "Usage" gas-gauge lives on
+// the hero page now (see UsageGauge.jsx), not in here. Node count
 // ("Explore — 3/4/5 nodes") is deliberately NOT a toggle here — its exact
 // mechanics are still an open decision (punch list Section G).
 //
@@ -161,22 +162,13 @@ function Modal({ onClose, children }) {
   );
 }
 
-export default function AccountMenu({ user, profile, onProfileChange, onProfileRefresh }) {
+export default function AccountMenu({ user, profile, onProfileChange, onProfileRefresh, onLifetimeFundedRefresh }) {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState("idle"); // idle | sending | sent | error
   const [modalOpen, setModalOpen] = useState(false);
-  const [lifetimeFunded, setLifetimeFunded] = useState(null);
   const [topUpAmount, setTopUpAmount] = useState(String(MIN_TOPUP_USD));
   const [checkoutStatus, setCheckoutStatus] = useState("idle"); // idle | starting | error | success
   const [toggleSaving, setToggleSaving] = useState(null); // which toggle key is mid-save, if any
-
-  useEffect(() => {
-    if (!user) {
-      setLifetimeFunded(null);
-      return;
-    }
-    getLifetimeFundedUsd().then(setLifetimeFunded);
-  }, [user]);
 
   // Stripe redirects back to `/?checkout=success` (or `?checkout=cancel`)
   // after a top-up — see create-checkout-session's success_url/cancel_url.
@@ -196,7 +188,7 @@ export default function AccountMenu({ user, profile, onProfileChange, onProfileR
       setModalOpen(true);
       const timeoutId = setTimeout(() => {
         onProfileRefresh();
-        getLifetimeFundedUsd().then(setLifetimeFunded);
+        onLifetimeFundedRefresh();
       }, 1500);
       return () => clearTimeout(timeoutId);
     }
@@ -244,16 +236,6 @@ export default function AccountMenu({ user, profile, onProfileChange, onProfileR
   };
 
   if (user) {
-    // Real usage gauge (punch list Section C): fraction of every dollar
-    // ever funded that's already been spent — a real, non-fabricated
-    // number rather than an arbitrary made-up ceiling. Undefined (never
-    // funded, nothing to show a gauge against) until the first top-up
-    // lands.
-    const usageFraction =
-      lifetimeFunded && lifetimeFunded > 0 && profile
-        ? Math.min(1, Math.max(0, 1 - profile.balanceUsd / lifetimeFunded))
-        : null;
-
     return (
       <>
         <button
@@ -305,20 +287,6 @@ export default function AccountMenu({ user, profile, onProfileChange, onProfileR
                 <span className="rh-display text-2xl font-semibold mt-0.5" style={{ color: "#E3A73C" }}>
                   {profile == null ? "…" : `$${profile.balanceUsd.toFixed(2)}`}
                 </span>
-                {usageFraction != null && (
-                  <div className="mt-3">
-                    <div className="flex justify-between rh-mono rh-text-10 mb-1" style={{ color: "#A89478" }}>
-                      <span>Usage</span>
-                      <span>{Math.round(usageFraction * 100)}%</span>
-                    </div>
-                    <div className="rounded-full overflow-hidden" style={{ height: "5px", backgroundColor: "#3A2E20" }}>
-                      <div
-                        className="h-full rounded-full"
-                        style={{ width: `${usageFraction * 100}%`, backgroundColor: "#E3A73C" }}
-                      />
-                    </div>
-                  </div>
-                )}
               </div>
 
               <form onSubmit={handleAddFunds} className="flex items-center gap-2">
