@@ -23,7 +23,7 @@
 export const HOUSE_ADS = [
   {
     id: "death-scrolling",
-    body: "**Death scrolling again?!** Come on. I get it you got some __you time__ finally but replacing the social with Hyfa with that fresh feeling of knowledge rather than … well you know.",
+    body: "**Death scrolling again?!** Come on. I get it, you got some __you-time__ finally, but replacing the social with Hyfa will give you that fresh feeling of knowledge rather than … well you know.",
     cta: "Let's go",
   },
 
