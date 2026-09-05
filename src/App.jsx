@@ -915,7 +915,7 @@ export default function Hypha() {
           cramped right-hand column, which wrapped and collided with the
           centered logo/tagline on narrow phones — moved to their own
           full-width row below instead, where there's actually room. */}
-      <div className="grid grid-cols-3 items-start p-5 md:p-7 shrink-0">
+      <div className="grid grid-cols-3 items-start p-5 md:p-7 shrink-0 max-w-4xl mx-auto w-full">
         <div />
         <div className="flex flex-col items-center text-center">
           <h1 className="flex items-center">
@@ -947,7 +947,7 @@ export default function Hypha() {
       </div>
 
       {(hasStarted || !funded) && (
-        <div className="flex items-center justify-center gap-5 px-5 pb-4 -mt-2 shrink-0 flex-wrap">
+        <div className="flex items-center justify-center gap-5 px-5 pb-4 -mt-2 shrink-0 flex-wrap max-w-4xl mx-auto w-full">
           {hasStarted && (
             <div className="rh-mono rh-text-10 whitespace-nowrap" style={{ color: "#A89478" }}>
               {nodes.length} thought{nodes.length === 1 ? "" : "s"} uncovered
@@ -1316,7 +1316,7 @@ export default function Hypha() {
                   <div className="mt-4 flex items-center gap-1.5 text-base" style={{ color: "#B8A886" }}>
                     <Loader2 size={16} className="animate-spin" /> Loading more…
                   </div>
-                ) : selected.articleError ? (
+                ) : selected.articleError && !trialExhausted ? (
                   <div className="mt-4">
                     <button
                       onClick={() => loadArticle(selected.id)}
@@ -1331,7 +1331,25 @@ export default function Hypha() {
                   </div>
                 ) : null}
 
-                {selected.error && (
+                {/* Trial exhausted — one consolidated message + a house ad
+                    instead of the normal per-call retry UI, since
+                    retrying won't help until the trial resets tomorrow or
+                    the account is funded. expandNode and loadArticle both
+                    independently fail with this same rejection for a
+                    freshly-clicked, not-yet-expanded node (loadArticle
+                    always fires in expandNode's .finally(), regardless of
+                    whether expand itself succeeded), so this checks both
+                    error fields but renders the message only once. */}
+                {trialExhausted && (selected.error || selected.articleError) && (
+                  <div className="mt-4">
+                    <div className="flex items-center gap-1.5 text-sm mb-4" style={{ color: "#D98A6E" }}>
+                      <AlertCircle size={13} /> {selected.articleError || selected.error}
+                    </div>
+                    <AdCard ad={pickHouseAd(`${selected.id}:trial-exhausted`, adStage)} onClick={openAccountModal} />
+                  </div>
+                )}
+
+                {selected.error && !trialExhausted && (
                   <div className="flex items-center gap-1.5 text-sm mt-3" style={{ color: "#D98A6E" }}>
                     <AlertCircle size={13} /> {selected.error}
                   </div>
@@ -1341,7 +1359,7 @@ export default function Hypha() {
                     <Loader2 size={16} className="animate-spin" /> Digging in…
                   </div>
                 )}
-                {selected.error && !selected.loading && (
+                {selected.error && !selected.loading && !trialExhausted && (
                   <button
                     onClick={() => expandNode(selected.id)}
                     className="mt-2 flex items-center gap-1.5 text-base font-medium transition-colors rh-link-accent"

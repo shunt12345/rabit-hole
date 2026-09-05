@@ -536,19 +536,21 @@ serve(async (req) => {
     // News/Today/Dig Deeper once the trial's used up instead of only
     // finding out from a failed request.
     const searchCount = await countSearches(userId, sessionId);
-    // +1 only when THIS call is itself an "article" — countSearches
-    // queried rabbit_hole_request_logs before logRequest() below inserts
-    // this request's own row, so a fresh page's own article call never
-    // counted itself, showing one less than reality until the next call
-    // caught up. Every other endpoint doesn't add to the count at all, so
-    // no adjustment applies there — same "+1 accounts for the request
-    // this response is answering" fix usageHeaders already does above,
-    // just conditional on endpoint here since this header only tracks
-    // "article" calls specifically.
-    const displaySearchCount = (searchCount ?? 0) + (endpoint === "article" ? 1 : 0);
+    const trialBlocked = !funded && searchCount !== null && searchCount >= FREE_SEARCH_LIMIT && GATED_ENDPOINTS.has(endpoint);
+    // +1 only when THIS call is itself an "article" call that's actually
+    // going to be allowed through — countSearches queried
+    // rabbit_hole_request_logs before logRequest() below inserts this
+    // request's own row, so a fresh page's own article call never counted
+    // itself, showing one less than reality until the next call caught
+    // up. A BLOCKED article call never gets logged at all (it's rejected
+    // below before ever reaching Anthropic), so it must not get this +1
+    // either — that bug briefly showed counts like "7/6", climbing by one
+    // on every retry after the trial was already exhausted, since each
+    // rejected retry still claimed credit for a call that never happened.
+    const displaySearchCount = (searchCount ?? 0) + (!trialBlocked && endpoint === "article" ? 1 : 0);
     const responseHeaders = { ...corsHeaders, ...usageHeaders(count), ...trialHeaders(displaySearchCount, funded) };
 
-    if (!funded && searchCount !== null && searchCount >= FREE_SEARCH_LIMIT && GATED_ENDPOINTS.has(endpoint)) {
+    if (trialBlocked) {
       return new Response(
         JSON.stringify({
           error: "trial_exhausted",
