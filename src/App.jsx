@@ -763,6 +763,16 @@ export default function Hypha() {
     const node = nodesRef.current.find((n) => n.id === selectedId);
     if (!node) return;
 
+    // Once the trial's exhausted, don't even attempt article/expand calls
+    // that are guaranteed to be rejected — that's what used to make a
+    // brand new "Dig In" search look like it broke mid-generation (root
+    // itself isn't gated, so it would finish, then immediately slam into
+    // the wall trying to auto-load its own article). Dig In still works
+    // for a fresh general topic; it just stops short of any further
+    // hyperlink into it, which is also why "Explore next"/in-text links
+    // are hidden for the same condition elsewhere in this file.
+    if (trialExhausted) return;
+
     if (node.generated) {
       if (!node.article && !node.articleLoading) {
         loadArticle(selectedId);
@@ -785,7 +795,7 @@ export default function Hypha() {
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId]);
+  }, [selectedId, trialExhausted]);
 
   const reset = () => {
     nodesRef.current = [];
@@ -877,6 +887,11 @@ export default function Hypha() {
   const todayTopics = latestByField(trendingTopics, SPECIAL_FIELDS);
   const selected = nodes.find((n) => n.id === selectedId) || null;
   const selectedChildren = selected ? nodes.filter((n) => n.parentId === selected.id) : [];
+  // Once the trial's exhausted, Dig In still works for a fresh general
+  // topic, but nothing it produces should offer a further hyperlink to
+  // dig into — passing an empty list here means renderLinked below just
+  // renders plain text instead of clickable child names.
+  const linkableChildren = trialExhausted ? [] : selectedChildren;
   const breadcrumb = selected ? nodePathToRoot(selected) : [];
 
   return (
@@ -1247,7 +1262,7 @@ export default function Hypha() {
                     </span>
                   </p>
                 ) : (selected.type === "root" ? selected.overview || selected.teaser : selected.teaser) ? (
-                  <p>{renderLinked(selected.type === "root" ? selected.overview || selected.teaser : selected.teaser, selectedChildren)}</p>
+                  <p>{renderLinked(selected.type === "root" ? selected.overview || selected.teaser : selected.teaser, linkableChildren)}</p>
                 ) : null}
 
                 {selected.article ? (
@@ -1259,7 +1274,7 @@ export default function Hypha() {
                       .map((para, i, arr) => (
                         <Fragment key={i}>
                           <p>
-                            {renderLinked(para, selectedChildren)}
+                            {renderLinked(para, linkableChildren)}
                             {selected.articleStreaming && i === arr.length - 1 ? (
                               <span className="rh-cursor-blink" style={{ color: "#E3A73C" }}>
                                 {"▌"}
@@ -1403,8 +1418,12 @@ export default function Hypha() {
                     plain underlined-text list, colored the same way nodes
                     used to be so the branch type is still legible at a
                     glance. A chip with a filled tint has already been
-                    opened; an outlined one hasn't. */}
-                {selectedChildren.length > 0 && (
+                    opened; an outlined one hasn't. Hidden once the trial's
+                    exhausted — every one of these would be a dead-end
+                    hyperlink into content that's guaranteed to be
+                    rejected, matching linkableChildren's same rule for
+                    in-text links above. */}
+                {!trialExhausted && selectedChildren.length > 0 && (
                   <div className="mt-6 pt-4 border-t" style={{ borderColor: "#4A3C2C" }}>
                     <div className="rh-mono rh-text-10 uppercase tracking-wider mb-3" style={{ color: "#A89478" }}>
                       Explore next
