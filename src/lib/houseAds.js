@@ -36,7 +36,19 @@ export const HOUSE_ADS = [
   },
   {
     id: "great-bob",
-    body: "**That is great, Bob.** But can you connect the origins of peaches in China to the design of the Apollo space suits, Bob? Get on Hyfax, and you will.l",
+    body: "**That is great, Bob.** But can you connect the origins of peaches in China to the design of the Apollo space suits, Bob? Get on Hyfax, and you will.",
+    cta: "Let's go",
+    stage: "early",
+  },
+  {
+    id: "what-are-you-looking-for",
+    body: "**What are you looking for?** An environment that keeps you entertained while you learn. A place that enhances your general knowledge, making you a master problem solver. We got you.",
+    cta: "Let's go",
+    stage: "early",
+  },
+  {
+    id: "hey-you",
+    body: "**Hey, you.** Did you know that if you click on any word or phrase, you can start a new search thread? Again, you are the boss of bosses.",
     cta: "Let's go",
     stage: "early",
   },
@@ -54,7 +66,13 @@ export const HOUSE_ADS = [
   },
   {
     id: "does-money-buy-everything",
-    body: "**Does money buy everything?** Obviously not, just the things that cost money. Speaking of money, your brain needs fuel and fuel costs money.",
+    body: "**Does money buy everything?** Obviously not, just the things that cost money. Speaking of money, your brain needs fuel, and fuel costs money.",
+    cta: "Let's go",
+    stage: "mid",
+  },
+  {
+    id: "no-permission-slip",
+    body: "**You don't need a permission slip.** Just a funded subscription is all for this guided rabbit hole trip that will leave you breathless and yearning for more. *Yearning!!*",
     cta: "Let's go",
     stage: "mid",
   },
@@ -76,10 +94,12 @@ export const HOUSE_ADS = [
     cta: "Let's go",
     stage: "late",
   },
-
-  // Add the rest here, same shape as above — each needs a unique `id`
-  // (used for the rotation, not shown anywhere), a `body`, and a `cta`,
-  // plus an optional `stage` per the note above.
+  {
+    id: "cant-click-subscribe-for-you",
+    body: "**I can't click subscribe for you.** Apparently that is a no-no, says Bill over at the Consumer Protection Agency. This one is all you, and I promise it is worth it.",
+    cta: "Let's go",
+    stage: "late",
+  },
 ];
 
 // Deterministic pick — the same seed always returns the same ad (so a
