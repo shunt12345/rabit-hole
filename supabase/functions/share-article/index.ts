@@ -1,7 +1,7 @@
 // Supabase Edge Function: share-article
 //
 // Word-of-mouth growth tool — the "Share" button on an article snapshots
-// its content here so it can be sent to someone who's never used Hypha.
+// its content here so it can be sent to someone who's never used Hyfax.
 // No sign-in required to create or read a share: word of mouth from
 // people still on the free tier is exactly the audience this is for.
 //
@@ -15,13 +15,13 @@
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const APP_ORIGIN = Deno.env.get("APP_ORIGIN") ?? "https://hyfa-x.vercel.app";
+const APP_ORIGIN = Deno.env.get("APP_ORIGIN") ?? "https://hyfax.app";
 
 // Same CORS-lockdown pattern as the other functions (production punch
 // list, Section J) — echoes the request's Origin back only when it's in
 // this allowlist, instead of a wide-open "*".
 const ALLOWED_ORIGINS = (
-  Deno.env.get("ALLOWED_ORIGINS") ?? "https://hyfa-x.vercel.app,http://localhost:5173,http://localhost:5183"
+  Deno.env.get("ALLOWED_ORIGINS") ?? "https://hyfax.app,https://hyfa-x.vercel.app,http://localhost:5173,http://localhost:5183"
 )
   .split(",")
   .map((s) => s.trim())

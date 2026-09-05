@@ -256,7 +256,7 @@ export default function AccountMenu({
       // startCheckout redirects the browser away on success — nothing
       // left to do here in that case.
     } catch (err) {
-      console.error("Hypha: failed to start checkout", err);
+      console.error("Hyfax: failed to start checkout", err);
       setCheckoutStatus("error");
     }
   };
@@ -281,7 +281,7 @@ export default function AccountMenu({
       await sendMagicLink(email.trim());
       setStatus("sent");
     } catch (err) {
-      console.error("Hypha: failed to send magic link", err);
+      console.error("Hyfax: failed to send magic link", err);
       setStatus("error");
     }
   };

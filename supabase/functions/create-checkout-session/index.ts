@@ -1,7 +1,7 @@
 // Supabase Edge Function: create-checkout-session
 //
 // Section D of the production punch list (billing). Starts a Stripe
-// Checkout session for a one-time balance top-up — Hypha's model is a
+// Checkout session for a one-time balance top-up — Hyfax's model is a
 // prepaid dollar balance (monetization outline doc, Section 14.1), not a
 // recurring subscription, so this is `mode: "payment"`, not `mode:
 // "subscription"`. Auto-reload (opt-in only, per 14.1) would reuse the
@@ -28,13 +28,13 @@ import Stripe from "https://esm.sh/stripe@17.5.0?target=deno";
 // client-supplied return URL — Stripe redirects the browser here after
 // checkout, and accepting an arbitrary client-supplied origin would turn
 // this into an open redirect. Override via secret if the domain changes.
-const APP_ORIGIN = Deno.env.get("APP_ORIGIN") ?? "https://hyfa-x.vercel.app";
+const APP_ORIGIN = Deno.env.get("APP_ORIGIN") ?? "https://hyfax.app";
 
 // Production punch list, Section J: same CORS-lockdown pattern as
 // rabbit-hole-proxy — echoes the request's Origin back only when it's in
 // this allowlist, instead of the wide-open "*" this shipped with.
 const ALLOWED_ORIGINS = (
-  Deno.env.get("ALLOWED_ORIGINS") ?? "https://hyfa-x.vercel.app,http://localhost:5173,http://localhost:5183"
+  Deno.env.get("ALLOWED_ORIGINS") ?? "https://hyfax.app,https://hyfa-x.vercel.app,http://localhost:5173,http://localhost:5183"
 )
   .split(",")
   .map((s) => s.trim())
@@ -127,7 +127,7 @@ serve(async (req) => {
         {
           price_data: {
             currency: "usd",
-            product_data: { name: "Hypha balance top-up" },
+            product_data: { name: "Hyfax balance top-up" },
             unit_amount: Math.round(amount * 100),
           },
           quantity: 1,

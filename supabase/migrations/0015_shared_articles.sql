@@ -1,6 +1,6 @@
 -- Word-of-mouth sharing. A "Share" button on any article snapshots that
 -- node's content into this table so a link can be sent to someone who
--- has never used Hypha, without requiring them to sign in to read it.
+-- has never used Hyfax, without requiring them to sign in to read it.
 --
 -- Only the share-article edge function (service role) inserts rows —
 -- public access is select-only, and the client always looks up by exact

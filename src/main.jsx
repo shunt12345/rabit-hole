@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import Hypha from "./App.jsx";
+import Hyfax from "./App.jsx";
 import "./index.css";
 
 // /s/:id (a shared-article link, see lib/share.js) is served entirely by
@@ -10,6 +10,6 @@ import "./index.css";
 // renders that route client-side.
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <Hypha />
+    <Hyfax />
   </React.StrictMode>
 );

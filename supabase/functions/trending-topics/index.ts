@@ -58,7 +58,7 @@ import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 // rabbit-hole-proxy — echoes the request's Origin back only when it's in
 // this allowlist, instead of the wide-open "*" this shipped with.
 const ALLOWED_ORIGINS = (
-  Deno.env.get("ALLOWED_ORIGINS") ?? "https://hyfa-x.vercel.app,http://localhost:5173,http://localhost:5183"
+  Deno.env.get("ALLOWED_ORIGINS") ?? "https://hyfax.app,https://hyfa-x.vercel.app,http://localhost:5173,http://localhost:5183"
 )
   .split(",")
   .map((s) => s.trim())

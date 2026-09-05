@@ -36,7 +36,7 @@ export default function AdCard({ ad, onClick }) {
         className="shrink-0 flex items-center justify-center rounded-xl"
         style={{ width: "44px", height: "44px", backgroundColor: "#14100C" }}
       >
-        <img src="/hypha-logo.png" alt="" className="w-7 h-auto" />
+        <img src="/hyfax-logo.png" alt="" className="w-7 h-auto" />
       </div>
       <p className="rh-display text-sm leading-relaxed" style={{ color: "#FFFFFF" }}>
         {tokens.map((t, i) => {

@@ -9,7 +9,7 @@ import {
   writeNewsRootCache,
   TrialExhaustedError,
 } from "./lib/api.js";
-import { HYPHA_SYSTEM, OBSCURITY_LEVELS, FIXED_OBSCURITY } from "./lib/hyphaSystemPrompt.js";
+import { HYFAX_SYSTEM, OBSCURITY_LEVELS, FIXED_OBSCURITY } from "./lib/hyfaxSystemPrompt.js";
 import { createPacedReveal } from "./lib/pacedReveal.js";
 import { getCurrentUser, onAuthStateChange } from "./lib/auth.js";
 import { getProfile, getLifetimeFundedUsd } from "./lib/profile.js";
@@ -93,7 +93,7 @@ async function fetchArticleTextStreaming(topicLabel, path, childLabels, onChunk,
 Path so far: ${path.join(" → ")}
 Topic: "${topicLabel}"${newsNote}${branchNote}`;
 
-  return streamTextFromPrompt(HYPHA_SYSTEM, userContent, 700, 30000, "article", onChunk, nodeType);
+  return streamTextFromPrompt(HYFAX_SYSTEM, userContent, 700, 30000, "article", onChunk, nodeType);
 }
 
 // "Dig deeper" — this app is entertainment, not a research tool, so this is
@@ -114,7 +114,7 @@ What they already read:
 ${existingArticle}
 """`;
 
-  return streamTextFromPrompt(HYPHA_SYSTEM, userContent, 500, 30000, "continuation", onChunk, nodeType);
+  return streamTextFromPrompt(HYFAX_SYSTEM, userContent, 500, 30000, "continuation", onChunk, nodeType);
 }
 
 function branchMix() {
@@ -198,7 +198,7 @@ const CHIP_AD = {
   label: "The Deep End",
 };
 
-export default function Hypha() {
+export default function Hyfax() {
   const [topic, setTopic] = useState("");
   const [inputVal, setInputVal] = useState("");
   const [nodes, setNodes] = useState([]);
@@ -444,7 +444,7 @@ export default function Hypha() {
   // of anything else — proves the click registered even if startTopic itself
   // fails in some unexpected way.
   const handleStartClick = () => {
-    console.log("Hypha: Dig in tapped, value =", JSON.stringify(inputVal));
+    console.log("Hyfax: Dig in tapped, value =", JSON.stringify(inputVal));
     try {
       if (!inputVal.trim()) {
         setRootError("Type a topic first.");
@@ -454,7 +454,7 @@ export default function Hypha() {
       setSelectedTodayIdx(null);
       startTopic(inputVal);
     } catch (syncErr) {
-      console.error("Hypha: synchronous error on click", syncErr);
+      console.error("Hyfax: synchronous error on click", syncErr);
       setRootError(`Unexpected error: ${syncErr.message || syncErr}`);
       setRootLoading(false);
     }
@@ -491,7 +491,7 @@ export default function Hypha() {
       // request, after this one has already finished streaming.
       const newsCacheKey = newsContext ? t : undefined;
       const data = await streamJSON(
-        HYPHA_SYSTEM,
+        HYFAX_SYSTEM,
         rootPrompt(t, newsContext),
         "root",
         (partialOverview) => reveal.push(partialOverview),
@@ -528,7 +528,7 @@ export default function Hypha() {
       setNodes(newNodes);
       setSelectedId(root.id);
     } catch (e) {
-      console.error("Hypha: startTopic failed", e);
+      console.error("Hyfax: startTopic failed", e);
       reveal.cancel();
       setSelectedNewsIdx(null);
       setSelectedTodayIdx(null);
@@ -542,7 +542,7 @@ export default function Hypha() {
 
   // Reads a starting topic straight from the URL on load, e.g.
   // ?topic=octopus%20cognition — the foundation piece for anything that
-  // wants to hand off INTO Hypha from somewhere else (a bookmarklet,
+  // wants to hand off INTO Hyfax from somewhere else (a bookmarklet,
   // a browser extension, a link shared from another app). This alone
   // doesn't capture text from other webpages — it's the landing side of
   // that handoff, what any of those tools would actually link to. Only
@@ -557,7 +557,7 @@ export default function Hypha() {
         startTopic(urlTopic);
       }
     } catch (e) {
-      console.error("Hypha: failed to read topic from URL", e);
+      console.error("Hyfax: failed to read topic from URL", e);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -579,7 +579,7 @@ export default function Hypha() {
       .then((rows) => {
         if (!cancelled) setTrendingTopics(Array.isArray(rows) ? rows : []);
       })
-      .catch((e) => console.error("Hypha: failed to load trending topics", e));
+      .catch((e) => console.error("Hyfax: failed to load trending topics", e));
     return () => {
       cancelled = true;
     };
@@ -618,7 +618,7 @@ export default function Hypha() {
     const existingLabels = nodesRef.current.map((n) => n.label);
 
     try {
-      const data = await callClaude(HYPHA_SYSTEM, childPrompt(node.label, path, existingLabels, node.depth + 1), "expand");
+      const data = await callClaude(HYFAX_SYSTEM, childPrompt(node.label, path, existingLabels, node.depth + 1), "expand");
       const children = placeChildren(node, normalizeChildren(data.children));
       node.loading = false;
       node.generated = true;
@@ -626,7 +626,7 @@ export default function Hypha() {
       nodesRef.current = newNodes;
       setNodes(newNodes);
     } catch (e) {
-      console.error("Hypha: expandNode failed", e);
+      console.error("Hyfax: expandNode failed", e);
       node.loading = false;
       node.error = e.message || "Dig failed — try again.";
       setNodes([...nodesRef.current]);
@@ -690,7 +690,7 @@ export default function Hypha() {
       node.articleStreaming = false;
       node.articleLoading = false;
     } catch (e) {
-      console.error("Hypha: loadArticle failed", e);
+      console.error("Hyfax: loadArticle failed", e);
       reveal.cancel();
       node.articleLoading = false;
       node.articleStreaming = false;
@@ -735,7 +735,7 @@ export default function Hypha() {
       node.articleStreaming = false;
       node.deepened = true;
     } catch (e) {
-      console.error("Hypha: deepenArticle failed", e);
+      console.error("Hyfax: deepenArticle failed", e);
       reveal.cancel();
       node.article = baseArticle;
       node.articleStreaming = false;
@@ -828,7 +828,7 @@ export default function Hypha() {
         article: node.article || "",
       });
       if (navigator.share) {
-        await navigator.share({ title: node.label, text: "Follow this thread on Hypha", url });
+        await navigator.share({ title: node.label, text: "Follow this thread on Hyfax", url });
         setShareStatus("idle");
       } else {
         await navigator.clipboard.writeText(url);
@@ -842,7 +842,7 @@ export default function Hypha() {
         setShareStatus("idle");
         return;
       }
-      console.error("Hypha: share failed", e);
+      console.error("Hyfax: share failed", e);
       setShareStatus("error");
       setTimeout(() => setShareStatus("idle"), 2000);
     }
@@ -943,7 +943,7 @@ export default function Hypha() {
               className="flex items-center rh-logo-btn"
               style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}
             >
-              <img src="/hypha-logo.png" alt="Hypha" className="h-8 md:h-10 w-auto" />
+              <img src="/hyfax-logo.png" alt="Hyfax" className="h-8 md:h-10 w-auto" />
             </button>
           </h1>
           <div className="rh-mono rh-text-10 rh-tracking-25 uppercase mt-1" style={{ color: "#A89478" }}>

@@ -1,4 +1,4 @@
-// House ads promoting Hypha's own subscription/funding (production punch
+// House ads promoting Hyfax's own subscription/funding (production punch
 // list, Section H) — replaces the third-party MOCK_SPONSOR placeholders
 // in the hero and in-article ad slots. The "Explore next" chip ad is a
 // separate, constant slot and stays out of this rotation (see App.jsx).
@@ -24,7 +24,7 @@
 export const HOUSE_ADS = [
   {
     id: "death-scrolling",
-    body: "**Death scrolling again?!** Come on. I get it, you got some __you-time__ finally, but replacing the social with Hyfa will give you that fresh feeling of knowledge rather than … well you know.",
+    body: "**Death scrolling again?!** Come on. I get it, you got some __you-time__ finally, but replacing the social with Hyfax will give you that fresh feeling of knowledge rather than … well you know.",
     cta: "Let's go",
     stage: "early",
   },
@@ -36,7 +36,7 @@ export const HOUSE_ADS = [
   },
   {
     id: "great-bob",
-    body: "**That is great, Bob.** But can you connect the origins of peaches in China to the design of the Apollo space suits, Bob? Get on Hyfa, and you will.l",
+    body: "**That is great, Bob.** But can you connect the origins of peaches in China to the design of the Apollo space suits, Bob? Get on Hyfax, and you will.l",
     cta: "Let's go",
     stage: "early",
   },

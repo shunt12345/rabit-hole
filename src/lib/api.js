@@ -20,7 +20,7 @@ function proxyHeaders() {
   };
 }
 
-// Wraps the fixed instruction/tone text (src/lib/hyphaSystemPrompt.js) in
+// Wraps the fixed instruction/tone text (src/lib/hyfaxSystemPrompt.js) in
 // the shape the proxy/Anthropic expect, with a prompt-caching breakpoint on
 // it — see the proxy for how this gets forwarded. 1h TTL rather than the
 // 5-minute default: this app's real traffic is spread-out, occasional
@@ -121,7 +121,7 @@ async function fetchClaudeText(system, prompt, maxTokens, endpoint) {
     if (networkErr.name === "AbortError") {
       throw new Error("Request timed out after 25s — no response from the API.");
     }
-    console.error("Hypha: network error calling Claude", networkErr);
+    console.error("Hyfax: network error calling Claude", networkErr);
     throw new Error(`Network error: ${networkErr.message || "fetch failed"}`);
   } finally {
     clearTimeout(timeoutId);
@@ -143,7 +143,7 @@ async function fetchClaudeText(system, prompt, maxTokens, endpoint) {
     try {
       bodySnippet = (await res.text()).slice(0, 200);
     } catch (_) {}
-    console.error("Hypha: API returned non-OK status", res.status, bodySnippet);
+    console.error("Hyfax: API returned non-OK status", res.status, bodySnippet);
     throw new Error(`API returned ${res.status}${bodySnippet ? `: ${bodySnippet}` : ""}`);
   }
 
@@ -153,7 +153,7 @@ async function fetchClaudeText(system, prompt, maxTokens, endpoint) {
     .map((b) => b.text)
     .join("");
   if (!text) {
-    console.error("Hypha: no text content in API response", data);
+    console.error("Hyfax: no text content in API response", data);
     throw new Error("Empty response from the API.");
   }
   return text;
@@ -165,13 +165,13 @@ export async function callClaude(system, prompt, endpoint) {
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
   if (start === -1 || end === -1) {
-    console.error("Hypha: couldn't find JSON in response text", text);
+    console.error("Hyfax: couldn't find JSON in response text", text);
     throw new Error("Couldn't parse the API's response.");
   }
   try {
     return JSON.parse(cleaned.slice(start, end + 1));
   } catch (parseErr) {
-    console.error("Hypha: JSON parse failed", parseErr, cleaned);
+    console.error("Hyfax: JSON parse failed", parseErr, cleaned);
     throw new Error("Couldn't parse the API's response.");
   }
 }
@@ -206,7 +206,7 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
     if (networkErr.name === "AbortError") {
       throw new Error("Request timed out — no response from the API.");
     }
-    console.error("Hypha: network error streaming", networkErr);
+    console.error("Hyfax: network error streaming", networkErr);
     throw new Error(`Network error: ${networkErr.message || "fetch failed"}`);
   }
 
@@ -228,7 +228,7 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
     try {
       bodySnippet = (await res.text()).slice(0, 200);
     } catch (_) {}
-    console.error("Hypha: stream returned non-OK status", res.status, bodySnippet);
+    console.error("Hyfax: stream returned non-OK status", res.status, bodySnippet);
     throw new Error(`API returned ${res.status}${bodySnippet ? `: ${bodySnippet}` : ""}`);
   }
 
@@ -287,7 +287,7 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
       }
     }
   } catch (streamErr) {
-    console.error("Hypha: stream failed", streamErr);
+    console.error("Hyfax: stream failed", streamErr);
     if (!gotAnyData) throw streamErr;
     // if we already streamed in some real text before failing, keep it rather
     // than throwing the whole thing away — partial content is still useful
@@ -303,7 +303,7 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
 //
 // `nodeType` (direct/indirect/tangent/custom/root) is logged alongside this
 // request purely for analysis — which branch types people actually choose
-// to read, so the obscurity mix (hyphaSystemPrompt.js's OBSCURITY_LEVELS)
+// to read, so the obscurity mix (hyfaxSystemPrompt.js's OBSCURITY_LEVELS)
 // can eventually be tuned toward what resonates instead of a guess.
 export async function streamTextFromPrompt(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, nodeType) {
   const fullText = await streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, undefined, nodeType);
@@ -347,13 +347,13 @@ export async function streamJSON(system, prompt, endpoint, onOverviewChunk, news
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
   if (start === -1 || end === -1) {
-    console.error("Hypha: couldn't find JSON in streamed response", fullText);
+    console.error("Hyfax: couldn't find JSON in streamed response", fullText);
     throw new Error("Couldn't parse the API's response.");
   }
   try {
     return JSON.parse(cleaned.slice(start, end + 1));
   } catch (parseErr) {
-    console.error("Hypha: JSON parse failed", parseErr, cleaned);
+    console.error("Hyfax: JSON parse failed", parseErr, cleaned);
     throw new Error("Couldn't parse the API's response.");
   }
 }
@@ -373,5 +373,5 @@ export function writeNewsRootCache(cacheKey, rootLabel, overview, children) {
     method: "POST",
     headers: proxyHeaders(),
     body: JSON.stringify({ newsCacheWrite: { cacheKey, rootLabel, overview, children } }),
-  }).catch((e) => console.error("Hypha: failed to write news root cache", e));
+  }).catch((e) => console.error("Hyfax: failed to write news root cache", e));
 }

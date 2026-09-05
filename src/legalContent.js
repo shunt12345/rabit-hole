@@ -16,11 +16,11 @@ export const LEGAL_LAST_UPDATED = "September 3, 2026";
 export const TERMS_SECTIONS = [
   {
     heading: "1. Acceptance of these terms",
-    body: `By creating an account or using Hypha ("the Service"), you agree to these Terms of Service. If you don't agree, don't use the Service.`,
+    body: `By creating an account or using Hyfax ("the Service"), you agree to these Terms of Service. If you don't agree, don't use the Service.`,
   },
   {
-    heading: "2. What Hypha is",
-    body: `Hypha lets you explore a topic by generating related threads, articles, and summaries on demand. Content is produced automatically, on request, using automated language-processing technology. It is not written or reviewed by a human before it's shown to you, and it can be incomplete, out of date, or wrong.`,
+    heading: "2. What Hyfax is",
+    body: `Hyfax lets you explore a topic by generating related threads, articles, and summaries on demand. Content is produced automatically, on request, using automated language-processing technology. It is not written or reviewed by a human before it's shown to you, and it can be incomplete, out of date, or wrong.`,
   },
   {
     heading: "3. Not professional advice",

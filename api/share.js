@@ -6,7 +6,7 @@
 // endpoint returns without running JavaScript, so the real per-article
 // title/description has to already be in the markup on the first
 // response — a client-rendered React page would show every shared link
-// as the same generic "Hypha" card. And once that's true anyway, serving
+// as the same generic "Hyfax" card. And once that's true anyway, serving
 // the same HTML to real visitors means one implementation of this page
 // instead of a server-rendered one for bots and a separate React one for
 // people, which would drift out of sync with each other over time.
@@ -16,7 +16,7 @@
 // a serverless function at runtime. No new secrets needed.
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY;
-const APP_ORIGIN = process.env.APP_ORIGIN || "https://hyfa-x.vercel.app";
+const APP_ORIGIN = process.env.APP_ORIGIN || "https://hyfax.app";
 
 const TYPE_LABEL = {
   root: "Origin",
@@ -52,7 +52,7 @@ function page({ title, description, url, bodyHtml }) {
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(description)}" />
 <meta property="og:type" content="article" />
-<meta property="og:site_name" content="Hypha" />
+<meta property="og:site_name" content="Hyfax" />
 <meta property="og:title" content="${escapeHtml(title)}" />
 <meta property="og:description" content="${escapeHtml(description)}" />
 <meta property="og:url" content="${escapeHtml(url)}" />
@@ -61,7 +61,7 @@ function page({ title, description, url, bodyHtml }) {
 <meta name="twitter:title" content="${escapeHtml(title)}" />
 <meta name="twitter:description" content="${escapeHtml(description)}" />
 <meta name="twitter:image" content="${APP_ORIGIN}/icon-512.png" />
-<link rel="icon" type="image/png" href="/hypha-favicon.png" />
+<link rel="icon" type="image/png" href="/hyfax-favicon.png" />
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; background: #14100C; font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif; color: #F5EDDC; }
@@ -80,7 +80,7 @@ function page({ title, description, url, bodyHtml }) {
 </head>
 <body>
 <div class="wrap">
-  <a class="logo-link" href="${APP_ORIGIN}/"><img src="${APP_ORIGIN}/hypha-logo.png" alt="Hypha" /></a>
+  <a class="logo-link" href="${APP_ORIGIN}/"><img src="${APP_ORIGIN}/hyfax-logo.png" alt="Hyfax" /></a>
   <div class="tag">always another thread</div>
   ${bodyHtml}
 </div>
@@ -97,7 +97,7 @@ function notFoundBody() {
 export default async function handler(req, res) {
   const id = typeof req.query?.id === "string" ? req.query.id : "";
   const shareUrl = `${APP_ORIGIN}/s/${id}`;
-  const fallback = { title: "Hypha", description: "Follow any thought as far as it goes.", url: shareUrl, bodyHtml: notFoundBody() };
+  const fallback = { title: "Hyfax", description: "Follow any thought as far as it goes.", url: shareUrl, bodyHtml: notFoundBody() };
 
   if (!id || !/^[A-Za-z0-9]+$/.test(id)) {
     res.status(404).setHeader("Content-Type", "text/html; charset=utf-8");
@@ -147,5 +147,5 @@ ${paragraphs}
   res.status(200);
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "public, max-age=300, s-maxage=3600");
-  res.end(page({ title: `${row.topic_label} · Hypha`, description, url: shareUrl, bodyHtml }));
+  res.end(page({ title: `${row.topic_label} · Hyfax`, description, url: shareUrl, bodyHtml }));
 }

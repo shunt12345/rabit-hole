@@ -98,7 +98,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // function from `npm run dev` is routine for this project; override/extend
 // via the ALLOWED_ORIGINS secret (comma-separated) without a code change.
 const ALLOWED_ORIGINS = (
-  Deno.env.get("ALLOWED_ORIGINS") ?? "https://hyfa-x.vercel.app,http://localhost:5173,http://localhost:5183"
+  Deno.env.get("ALLOWED_ORIGINS") ?? "https://hyfax.app,https://hyfa-x.vercel.app,http://localhost:5173,http://localhost:5183"
 )
   .split(",")
   .map((s) => s.trim())

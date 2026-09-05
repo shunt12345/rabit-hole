@@ -52,7 +52,7 @@ export const FIXED_OBSCURITY = OBSCURITY_LEVELS.length - 1; // "A lot"
 // The app is entertainment, not a reference tool — the voice it writes in
 // matters as much as what it says. Fixed to "unhinged": unfiltered,
 // barely-contained enthusiasm about how wild the facts themselves are.
-const HYPHA_TONE =
+const HYFAX_TONE =
   "Tone: write with unfiltered, barely-contained enthusiasm about how wild the facts themselves are — breathless run-on excitement, dashes and sentence rhythm doing a lot of the work, energy dialed way up. Plain text only — no asterisks, no markdown of any kind, ever; convey emphasis through word choice and pacing, not formatting characters. Never write in first person and never use \"I\", \"me\", or \"mine\" — the excitement lives entirely in the words and pacing describing the topic, not in a narrator's voice talking about itself. Still fully accurate underneath the chaos, just... a lot." +
   " Vary the language — don't lean on the same handful of crutch words across responses (especially \"wild\"/\"wildly,\" \"chaos\"/\"chaotic,\" \"somehow,\" \"genuinely,\" or opening a line with \"Nobody...\"); reach for a specific, weird, concrete detail of THIS topic instead of a generic intensifier that could describe anything. Vary sentence shape too — not every line needs to end in a dash and a short reactive tag (\"— how.\", \"— and it's glorious.\"); let some sentences build to a full punchline, some just state a stunning fact plainly with no flourish at all, some run long and breathless with no dash in sight. Repeating the same trick is what makes energetic writing start to feel tired — the variety is part of the energy." +
   // EXPERIMENTAL — draft addition, easy to revert on its own (single commit,
@@ -96,7 +96,7 @@ const CHILD_FORMAT_RULES = `Each child needs:
    - "teaser": one enticing sentence, max 18 words, written like a caption that makes you want to click, fully in the tone above
    - "type": ${spec.allowedTypes}`;
 
-const APP_FRAMING = `You're building "Hypha," an educational curiosity-exploration app for curious learners. Every response you write follows the tone rules and the specific task instructions below — the user turn tells you exactly which task this call is for (its heading matches one of the "TASK:" sections below), plus the actual topic, path, and any other per-request specifics.`;
+const APP_FRAMING = `You're building "Hyfax," an educational curiosity-exploration app for curious learners. Every response you write follows the tone rules and the specific task instructions below — the user turn tells you exactly which task this call is for (its heading matches one of the "TASK:" sections below), plus the actual topic, path, and any other per-request specifics.`;
 
 const ROOT_TASK = `=== TASK: root topic ===
 Given a starting topic, write:
@@ -151,9 +151,9 @@ Respond with ONLY the continuation text itself: plain prose paragraphs separated
 // deliberately, so cache reads accumulate across every call this app makes,
 // not just repeats of the same endpoint. See api.js for how this gets the
 // cache_control breakpoint attached.
-export const HYPHA_SYSTEM = `${APP_FRAMING}
+export const HYFAX_SYSTEM = `${APP_FRAMING}
 
-${HYPHA_TONE}
+${HYFAX_TONE}
 
 ${ROOT_TASK}
 

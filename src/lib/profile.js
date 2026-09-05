@@ -18,7 +18,7 @@ export async function getProfile() {
     .select("balance_usd, feature_news, feature_today, feature_dig_deeper, feature_email")
     .maybeSingle();
   if (error) {
-    console.error("Hypha: failed to read profile", error);
+    console.error("Hyfax: failed to read profile", error);
     return null;
   }
   return data
@@ -58,7 +58,7 @@ export async function updateFeatureToggles(toggles) {
 
   const { error } = await supabase.from("profiles").update(patch).eq("id", userId);
   if (error) {
-    console.error("Hypha: failed to update feature toggles", error);
+    console.error("Hyfax: failed to update feature toggles", error);
     throw error;
   }
 }
@@ -69,7 +69,7 @@ export async function updateFeatureToggles(toggles) {
 export async function getLifetimeFundedUsd() {
   const { data, error } = await supabase.from("billing_transactions").select("amount_usd");
   if (error) {
-    console.error("Hypha: failed to read billing transactions", error);
+    console.error("Hyfax: failed to read billing transactions", error);
     return null;
   }
   return data.reduce((sum, row) => sum + Number(row.amount_usd), 0);
