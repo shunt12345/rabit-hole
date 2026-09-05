@@ -468,6 +468,17 @@ export default function Hypha() {
     setRootPreview("");
     idCounter = 0;
 
+    // Optimistic bump — same "updates the instant it happens" feel as
+    // nodes.length ("N thoughts uncovered"), instead of sitting frozen
+    // for the whole root generation and only jumping once it finishes.
+    // Every "root" call counts as one search, so this can only ever be
+    // off by however much the real server figure differs — and the
+    // finally block's syncActionsToday() below overwrites this with that
+    // real, authoritative number the moment the call actually completes
+    // (correcting it back down too, if the call never reached the server
+    // at all), so it can't drift permanently wrong.
+    setTrialStatus((prev) => ({ ...prev, searchesUsed: Math.min(prev.searchesUsed + 1, prev.searchLimit) }));
+
     // Streams the overview in at reading pace while the rest of the JSON
     // (children, etc.) keeps generating — the wait feels like reading
     // something appear rather than staring at a spinner. `finish` is
