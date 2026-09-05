@@ -468,17 +468,6 @@ export default function Hypha() {
     setRootPreview("");
     idCounter = 0;
 
-    // Optimistic bump — same "updates the instant it happens" feel as
-    // nodes.length ("N thoughts uncovered"), instead of sitting frozen
-    // for the whole root generation and only jumping once it finishes.
-    // Every "root" call counts as one search, so this can only ever be
-    // off by however much the real server figure differs — and the
-    // finally block's syncActionsToday() below overwrites this with that
-    // real, authoritative number the moment the call actually completes
-    // (correcting it back down too, if the call never reached the server
-    // at all), so it can't drift permanently wrong.
-    setTrialStatus((prev) => ({ ...prev, searchesUsed: Math.min(prev.searchesUsed + 1, prev.searchLimit) }));
-
     // Streams the overview in at reading pace while the rest of the JSON
     // (children, etc.) keeps generating — the wait feels like reading
     // something appear rather than staring at a spinner. `finish` is
@@ -658,6 +647,19 @@ export default function Hypha() {
     node.articleStreaming = false;
     node.articleError = null;
     setNodes([...nodesRef.current]);
+
+    // Optimistic bump — this is the actual unit that counts as "one
+    // search" now (see rabbit-hole-proxy's countSearches): every genuinely
+    // fresh page dug into, root or child, link or chip or custom
+    // highlight, fires exactly one of these. Same "updates the instant it
+    // happens" feel as nodes.length ("N thoughts uncovered") instead of
+    // sitting frozen until the call finishes. Can only ever be off by
+    // however much the real server figure differs, and syncActionsToday()
+    // in the finally block below overwrites this with that real number
+    // the moment the call completes (correcting it back down if the call
+    // was actually blocked, e.g. trial exhausted), so it can't drift
+    // permanently wrong.
+    setTrialStatus((prev) => ({ ...prev, searchesUsed: Math.min(prev.searchesUsed + 1, prev.searchLimit) }));
 
     const path = pathToNode(node);
     const childLabels = nodesRef.current.filter((n) => n.parentId === node.id).map((n) => n.label);

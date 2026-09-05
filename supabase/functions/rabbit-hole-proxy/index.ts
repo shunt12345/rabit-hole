@@ -46,15 +46,25 @@
 // Free-trial enforcement (production punch list, Section B; see the
 // monetization outline doc, Section 14.1/14.2): "root" calls (typing a
 // topic, or clicking a News/Today card — the "Dig In" action) are never
-// blocked, and aren't what's being metered. What's gated is the three
-// "rich" functions — expand ("explore next"), article ("read more"), and
-// continuation ("dig deeper") — once a non-funded identity has made
-// FREE_SEARCH_LIMIT root calls in the last 24h. A signed-in user counts
-// against their real account (verified via their access token, never a
-// client-supplied id); an anonymous visitor still counts against their
-// browser's session_id, per Section 14.2's deliberate choice to keep the
-// free tier loosely gated rather than hard-walled. A funded account
-// (profiles.balance_usd > 0) skips this gate entirely.
+// blocked themselves. What's metered is "article" calls specifically —
+// every genuinely fresh page dug into, whether that's a root topic's own
+// auto-loaded read-more, or any child reached via an "explore next" chip,
+// an in-text link, or a highlighted custom exploration. That's exactly
+// one article generation per new node regardless of entry point, so it
+// counts uniformly no matter how someone got there — re-reading an
+// already-loaded node makes no new call at all (cached client-side), and
+// "dig deeper" (continuation) extends an existing page rather than
+// opening a fresh one, so it's correctly never counted either. Once a
+// non-funded identity has made FREE_SEARCH_LIMIT of these in the last
+// 24h, the three "rich" functions — expand, article, and continuation —
+// are blocked (GATED_ENDPOINTS below); root itself stays unblocked, so
+// typing a brand new topic always works even with the trial exhausted, it
+// just won't have a readable article until funded. A signed-in user
+// counts against their real account (verified via their access token,
+// never a client-supplied id); an anonymous visitor still counts against
+// their browser's session_id, per Section 14.2's deliberate choice to
+// keep the free tier loosely gated rather than hard-walled. A funded
+// account (profiles.balance_usd > 0) skips this gate entirely.
 //
 // Billing (production punch list, Section D): real balance drawdown per
 // action, added alongside the Stripe top-up flow (create-checkout-session/
@@ -388,7 +398,7 @@ async function countSearches(userId: string | null, sessionId: string) {
   let query = supabase
     .from("rabbit_hole_request_logs")
     .select("*", { count: "exact", head: true })
-    .eq("endpoint", "root")
+    .eq("endpoint", "article")
     .gte("created_at", since);
   query = userId ? query.eq("user_id", userId) : query.eq("session_id", sessionId || "unknown");
   const { count, error } = await query;
@@ -526,16 +536,16 @@ serve(async (req) => {
     // News/Today/Dig Deeper once the trial's used up instead of only
     // finding out from a failed request.
     const searchCount = await countSearches(userId, sessionId);
-    // +1 only when THIS call is itself a "root" (Dig In) — countSearches
+    // +1 only when THIS call is itself an "article" — countSearches
     // queried rabbit_hole_request_logs before logRequest() below inserts
-    // this request's own row, so a root call's own search never counted
-    // itself, showing 0/6 instead of 1/6 on the very first search of the
-    // day (and lagging by one from then on). Every other endpoint doesn't
-    // add to the root count at all, so no adjustment applies there — same
-    // "+1 accounts for the request this response is answering" fix
-    // usageHeaders already does above, just conditional on endpoint here
-    // since this header only tracks "root" calls specifically.
-    const displaySearchCount = (searchCount ?? 0) + (endpoint === "root" ? 1 : 0);
+    // this request's own row, so a fresh page's own article call never
+    // counted itself, showing one less than reality until the next call
+    // caught up. Every other endpoint doesn't add to the count at all, so
+    // no adjustment applies there — same "+1 accounts for the request
+    // this response is answering" fix usageHeaders already does above,
+    // just conditional on endpoint here since this header only tracks
+    // "article" calls specifically.
+    const displaySearchCount = (searchCount ?? 0) + (endpoint === "article" ? 1 : 0);
     const responseHeaders = { ...corsHeaders, ...usageHeaders(count), ...trialHeaders(displaySearchCount, funded) };
 
     if (!funded && searchCount !== null && searchCount >= FREE_SEARCH_LIMIT && GATED_ENDPOINTS.has(endpoint)) {
