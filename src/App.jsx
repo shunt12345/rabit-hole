@@ -16,6 +16,7 @@ import { getProfile, getLifetimeFundedUsd } from "./lib/profile.js";
 import AccountMenu from "./AccountMenu.jsx";
 import LegalModal from "./LegalModal.jsx";
 import UsageGauge from "./UsageGauge.jsx";
+import MiniGauge from "./MiniGauge.jsx";
 import AdCard from "./AdCard.jsx";
 import { pickHouseAd, engagementStage } from "./lib/houseAds.js";
 import { getSessionId } from "./lib/session.js";
@@ -896,7 +897,11 @@ export default function Hypha() {
         .rh-cursor-blink { display: inline-block; animation: rh-blink 1s step-end infinite; margin-left: 1px; }
       `}</style>
 
-      {/* header — always present, right side only once a topic exists */}
+      {/* header — always present, avatar always top-right. The thought
+          count and free-search gauge used to also live in this same
+          cramped right-hand column, which wrapped and collided with the
+          centered logo/tagline on narrow phones — moved to their own
+          full-width row below instead, where there's actually room. */}
       <div className="grid grid-cols-3 items-start p-5 md:p-7 shrink-0">
         <div />
         <div className="flex flex-col items-center text-center">
@@ -916,33 +921,41 @@ export default function Hypha() {
           </div>
         </div>
         <div className="flex justify-end">
-          <div className="flex items-center gap-3">
-            {hasStarted && (
-              <div className="rh-mono rh-text-10" style={{ color: "#A89478" }}>
-                {nodes.length} thought{nodes.length === 1 ? "" : "s"} uncovered
-              </div>
-            )}
-            {/* Real free-trial status (production punch list, Section B) —
-                replaces the earlier placeholder tier-zone debug readout
-                now that real enforcement exists. Funded accounts aren't
-                limited by this at all, so nothing to show them here. */}
-            {!funded && (
-              <div className="rh-mono rh-text-10" style={{ color: "#6B5B45" }}>
-                {trialStatus.searchesUsed}/{trialStatus.searchLimit} free searches today
-              </div>
-            )}
-            <AccountMenu
-              user={user}
-              profile={profile}
-              onProfileChange={setProfile}
-              onProfileRefresh={refreshProfile}
-              onLifetimeFundedRefresh={refreshLifetimeFunded}
-              onOpenLegal={setLegalDoc}
-              openSignal={accountModalSignal}
-            />
-          </div>
+          <AccountMenu
+            user={user}
+            profile={profile}
+            onProfileChange={setProfile}
+            onProfileRefresh={refreshProfile}
+            onLifetimeFundedRefresh={refreshLifetimeFunded}
+            onOpenLegal={setLegalDoc}
+            openSignal={accountModalSignal}
+          />
         </div>
       </div>
+
+      {(hasStarted || !funded) && (
+        <div className="flex items-center justify-center gap-5 px-5 pb-4 -mt-2 shrink-0 flex-wrap">
+          {hasStarted && (
+            <div className="rh-mono rh-text-10 whitespace-nowrap" style={{ color: "#A89478" }}>
+              {nodes.length} thought{nodes.length === 1 ? "" : "s"} uncovered
+            </div>
+          )}
+          {/* Real free-trial status (production punch list, Section B) —
+              same gauge treatment as the funded UsageGauge, just measuring
+              free searches used against today's limit instead of dollars
+              spent against lifetime funded. Funded accounts aren't limited
+              by this at all, so nothing to show them here. */}
+          {!funded && (
+            <div style={{ width: "150px" }}>
+              <MiniGauge
+                label="Free searches today"
+                valueText={`${trialStatus.searchesUsed}/${trialStatus.searchLimit}`}
+                fraction={trialStatus.searchLimit ? trialStatus.searchesUsed / trialStatus.searchLimit : 0}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {!hasStarted && (
         <div className="flex-1 flex flex-col items-center px-6 pt-10 md:pt-16 pb-10 overflow-y-auto">
