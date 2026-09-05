@@ -526,7 +526,17 @@ serve(async (req) => {
     // News/Today/Dig Deeper once the trial's used up instead of only
     // finding out from a failed request.
     const searchCount = await countSearches(userId, sessionId);
-    const responseHeaders = { ...corsHeaders, ...usageHeaders(count), ...trialHeaders(searchCount ?? 0, funded) };
+    // +1 only when THIS call is itself a "root" (Dig In) — countSearches
+    // queried rabbit_hole_request_logs before logRequest() below inserts
+    // this request's own row, so a root call's own search never counted
+    // itself, showing 0/6 instead of 1/6 on the very first search of the
+    // day (and lagging by one from then on). Every other endpoint doesn't
+    // add to the root count at all, so no adjustment applies there — same
+    // "+1 accounts for the request this response is answering" fix
+    // usageHeaders already does above, just conditional on endpoint here
+    // since this header only tracks "root" calls specifically.
+    const displaySearchCount = (searchCount ?? 0) + (endpoint === "root" ? 1 : 0);
+    const responseHeaders = { ...corsHeaders, ...usageHeaders(count), ...trialHeaders(displaySearchCount, funded) };
 
     if (!funded && searchCount !== null && searchCount >= FREE_SEARCH_LIMIT && GATED_ENDPOINTS.has(endpoint)) {
       return new Response(
