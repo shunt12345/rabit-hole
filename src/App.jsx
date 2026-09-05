@@ -20,6 +20,7 @@ import MiniGauge from "./MiniGauge.jsx";
 import AdCard from "./AdCard.jsx";
 import { pickHouseAd, engagementStage } from "./lib/houseAds.js";
 import { getSessionId } from "./lib/session.js";
+import { saveExploredRoot, getExploredHistory } from "./lib/exploredHistory.js";
 import { shareArticle } from "./lib/share.js";
 
 const TYPE_COLOR = {
@@ -214,6 +215,10 @@ export default function Hyfax() {
   // submitting a fresh topic does, instead of a bare loading spinner.
   const [childPreview, setChildPreview] = useState(null);
   const [trendingTopics, setTrendingTopics] = useState([]);
+  // Browser-local "continue exploring" history (see lib/exploredHistory.js)
+  // — loaded once on mount, refreshed after every save so the hero screen
+  // stays in sync without re-reading localStorage on every render.
+  const [exploredHistory, setExploredHistory] = useState(() => getExploredHistory());
   // Which "In the news" card was clicked, so only that one highlights
   // instead of all three dimming identically once rootLoading flips on.
   const [selectedNewsIdx, setSelectedNewsIdx] = useState(null);
@@ -527,6 +532,8 @@ export default function Hyfax() {
       nodesRef.current = newNodes;
       setNodes(newNodes);
       setSelectedId(root.id);
+      saveExploredRoot({ label: root.label, fullTopic: root.fullTopic, overview: root.overview, children });
+      setExploredHistory(getExploredHistory());
     } catch (e) {
       console.error("Hyfax: startTopic failed", e);
       reveal.cancel();
@@ -538,6 +545,43 @@ export default function Hyfax() {
       setRootPreview("");
       syncActionsToday();
     }
+  };
+
+  // Jumps back into a previously-explored topic from this browser's local
+  // history (see lib/exploredHistory.js) — rebuilds the exact root +
+  // children it had before straight from the stored snapshot, with no
+  // network call at all. Free in every sense: no Claude generation, no
+  // trial-search count, works even with the trial exhausted.
+  const resumeExploredRoot = (entry) => {
+    idCounter = 0;
+    const root = {
+      id: nextId(),
+      label: entry.label,
+      fullTopic: entry.fullTopic || entry.label,
+      teaser: "",
+      overview: entry.overview || "",
+      type: "root",
+      depth: 0,
+      generated: true,
+      loading: false,
+      error: null,
+      article: null,
+      articleLoading: false,
+      articleStreaming: false,
+      articleError: null,
+      deepened: false,
+      deepenError: null,
+      newsContext: null,
+    };
+    const children = placeChildren(root, entry.children || []);
+    const newNodes = [root, ...children];
+
+    setTopic(root.label);
+    nodesRef.current = newNodes;
+    setNodes(newNodes);
+    setSelectedId(root.id);
+    saveExploredRoot({ label: root.label, fullTopic: root.fullTopic, overview: root.overview, children });
+    setExploredHistory(getExploredHistory());
   };
 
   // Reads a starting topic straight from the URL on load, e.g.
@@ -1044,6 +1088,42 @@ export default function Hyfax() {
                 <span className="rh-cursor-blink" style={{ color: "#E3A73C" }}>
                   {"▌"}
                 </span>
+              </div>
+            )}
+
+            {/* Browser-local "continue exploring" hook (see
+                lib/exploredHistory.js) — resurfaces topics already dug
+                into on this device so a returning visitor lands back in
+                their own thread instead of a generic news wall. Not
+                gated by trialExhausted/funded at all: resuming costs
+                nothing (no network call, no trial-search count), so it
+                stays available exactly when everything else might not. */}
+            {exploredHistory.length > 0 && (
+              <div className="mt-10">
+                <div className="flex items-center justify-center gap-1.5 mb-6">
+                  <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
+                    Continue exploring
+                  </span>
+                </div>
+                <div className="flex flex-col gap-3 max-w-md mx-auto">
+                  {exploredHistory.map((entry) => (
+                    <button
+                      key={entry.label}
+                      type="button"
+                      onClick={() => resumeExploredRoot(entry)}
+                      disabled={rootLoading}
+                      className={`rh-chip text-left p-4 rounded-2xl border transition-colors ${rootLoading ? "opacity-40" : ""}`}
+                      style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}
+                    >
+                      <div className="rh-body text-lg font-semibold" style={{ color: "#F1E6D3" }}>
+                        {entry.label}
+                      </div>
+                      <p className="rh-body text-sm mt-1" style={{ color: "#B8A886" }}>
+                        {entry.overview}
+                      </p>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
