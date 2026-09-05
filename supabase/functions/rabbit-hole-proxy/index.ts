@@ -57,9 +57,12 @@
 // opening a fresh one, so it's correctly never counted either. Once a
 // non-funded identity has made FREE_SEARCH_LIMIT of these in the last
 // 24h, the three "rich" functions — expand, article, and continuation —
-// are blocked (GATED_ENDPOINTS below); root itself stays unblocked, so
-// typing a brand new topic always works even with the trial exhausted, it
-// just won't have a readable article until funded. A signed-in user
+// are blocked (GATED_ENDPOINTS below), with one deliberate exception: a
+// root topic's own auto-loaded read-more article is never blocked either,
+// so typing a brand new topic always gets a full standalone page (title +
+// overview + body text), even with the trial exhausted — it just can't be
+// branched into any further (no expand, no child articles, no dig
+// deeper/continuation) until funded. A signed-in user
 // counts against their real account (verified via their access token,
 // never a client-supplied id); an anonymous visitor still counts against
 // their browser's session_id, per Section 14.2's deliberate choice to
@@ -536,7 +539,18 @@ serve(async (req) => {
     // News/Today/Dig Deeper once the trial's used up instead of only
     // finding out from a failed request.
     const searchCount = await countSearches(userId, sessionId);
-    const trialBlocked = !funded && searchCount !== null && searchCount >= FREE_SEARCH_LIMIT && GATED_ENDPOINTS.has(endpoint);
+    // A root topic's OWN auto-loaded "read more" article is exempt from the
+    // gate, same as root itself — otherwise a brand new "Dig In" search
+    // after the trial's exhausted would generate its title/overview fine
+    // and then immediately fail trying to load the body text, looking
+    // broken. This is the one article call still allowed past the limit;
+    // every other article (a child reached via a link/chip) and every
+    // expand/continuation call stays gated, so there's still no way to
+    // branch or "dig deeper" for free once exhausted — just always a full
+    // standalone page for whatever was just typed in.
+    const isRootArticle = endpoint === "article" && nodeType === "root";
+    const trialBlocked =
+      !funded && searchCount !== null && searchCount >= FREE_SEARCH_LIMIT && GATED_ENDPOINTS.has(endpoint) && !isRootArticle;
     // +1 only when THIS call is itself an "article" call that's actually
     // going to be allowed through — countSearches queried
     // rabbit_hole_request_logs before logRequest() below inserts this
@@ -547,6 +561,9 @@ serve(async (req) => {
     // either — that bug briefly showed counts like "7/6", climbing by one
     // on every retry after the trial was already exhausted, since each
     // rejected retry still claimed credit for a call that never happened.
+    // A root article allowed through past the limit legitimately can push
+    // the displayed count above the limit (e.g. 7/6) — that's real, not a
+    // bug, since it's the one call that's always allowed to go through.
     const displaySearchCount = (searchCount ?? 0) + (!trialBlocked && endpoint === "article" ? 1 : 0);
     const responseHeaders = { ...corsHeaders, ...usageHeaders(count), ...trialHeaders(displaySearchCount, funded) };
 

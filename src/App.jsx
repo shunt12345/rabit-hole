@@ -763,15 +763,17 @@ export default function Hypha() {
     const node = nodesRef.current.find((n) => n.id === selectedId);
     if (!node) return;
 
-    // Once the trial's exhausted, don't even attempt article/expand calls
-    // that are guaranteed to be rejected — that's what used to make a
-    // brand new "Dig In" search look like it broke mid-generation (root
-    // itself isn't gated, so it would finish, then immediately slam into
-    // the wall trying to auto-load its own article). Dig In still works
-    // for a fresh general topic; it just stops short of any further
-    // hyperlink into it, which is also why "Explore next"/in-text links
-    // are hidden for the same condition elsewhere in this file.
-    if (trialExhausted) return;
+    // Once the trial's exhausted, don't even attempt an expand or a child's
+    // article call — those are guaranteed to be rejected server-side, and
+    // that's what used to make a brand new "Dig In" search look like it
+    // broke mid-generation. The one exception is the root node's OWN
+    // article (its "read more" body text): the server exempts that call
+    // specifically (see rabbit-hole-proxy's isRootArticle) so a fresh Dig
+    // In always gets a full standalone page, title/overview AND body text
+    // — it just can't be branched into any further, which is also why
+    // "Explore next"/in-text links are hidden for the same condition
+    // elsewhere in this file.
+    if (trialExhausted && node.type !== "root") return;
 
     if (node.generated) {
       if (!node.article && !node.articleLoading) {
