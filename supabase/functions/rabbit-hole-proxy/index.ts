@@ -54,9 +54,15 @@
 // counts uniformly no matter how someone got there — re-reading an
 // already-loaded node makes no new call at all (cached client-side), and
 // "dig deeper" (continuation) extends an existing page rather than
-// opening a fresh one, so it's correctly never counted either. Once a
-// non-funded identity has made FREE_SEARCH_LIMIT of these in the last
-// 24h, the three "rich" functions — expand, article, and continuation —
+// opening a fresh one, so it's correctly never counted either. Counted
+// per "trial day" — a hard reset at 3:00 AM America/New_York (see
+// trialDayStartIso below), not a rolling 24h window from each individual
+// search. A rolling window meant someone's count ticked back down
+// gradually all day as old searches aged out one by one, which read as
+// confusing/unpredictable; a single fixed overnight cutoff is one clean
+// number everyone resets to at the same moment. Once a non-funded
+// identity has made FREE_SEARCH_LIMIT of these since that cutoff, the
+// three "rich" functions — expand, article, and continuation —
 // are blocked (GATED_ENDPOINTS below), with one deliberate exception: a
 // root topic's own auto-loaded read-more article is never blocked either,
 // so typing a brand new topic always gets a full standalone page (title +
@@ -392,12 +398,69 @@ async function resolveIdentity(userAccessToken: string | undefined) {
   }
 }
 
-// How many "root" (Dig In) calls this identity has made in the last 24h —
-// the free-trial search count from Section 14.1. Signed-in callers count
-// against their real account; anonymous callers still count against their
-// session_id (see the top-of-file note on why that stays loose on purpose).
+// America/New_York's current UTC offset in minutes (negative), DST-aware
+// (-300 for EST, -240 for EDT) — read straight from ICU via
+// Intl.DateTimeFormat rather than hardcoding either offset, so this
+// stays correct across the DST transitions without a timezone library.
+function nyOffsetMinutesAt(utcMs: number): number {
+  const part =
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      timeZoneName: "shortOffset",
+    })
+      .formatToParts(new Date(utcMs))
+      .find((p) => p.type === "timeZoneName")?.value ?? "GMT-5";
+  const m = part.match(/GMT([+-]\d+)(?::(\d+))?/);
+  const hours = m ? parseInt(m[1], 10) : -5;
+  const minutes = m?.[2] ? parseInt(m[2], 10) : 0;
+  return hours * 60 + (hours < 0 ? -minutes : minutes);
+}
+
+// Converts a wall-clock date/hour as experienced in America/New_York into
+// the real UTC instant it corresponds to. Two-pass correction: the first
+// guess treats the wall time as UTC to get a rough instant, then re-reads
+// NY's actual offset at that instant and corrects — enough to land
+// exactly right even right around a DST transition.
+function nyWallTimeToUtcMs(year: number, month: number, day: number, hour: number): number {
+  let ms = Date.UTC(year, month - 1, day, hour, 0, 0);
+  for (let i = 0; i < 2; i++) {
+    ms = Date.UTC(year, month - 1, day, hour, 0, 0) - nyOffsetMinutesAt(ms) * 60 * 1000;
+  }
+  return ms;
+}
+
+// Start of the current free-trial day: the most recent 3:00 AM
+// America/New_York boundary at or before `now` — a hard overnight reset
+// rather than a rolling window (see the top-of-file note on why).
+function trialDayStartIso(now: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)!.value);
+  const year = get("year");
+  const month = get("month");
+  const day = get("day");
+
+  let boundaryMs = nyWallTimeToUtcMs(year, month, day, 3);
+  if (now.getTime() < boundaryMs) {
+    // Still before today's 3am cutoff — the current trial day actually
+    // started yesterday at 3am.
+    const prev = new Date(Date.UTC(year, month - 1, day - 1));
+    boundaryMs = nyWallTimeToUtcMs(prev.getUTCFullYear(), prev.getUTCMonth() + 1, prev.getUTCDate(), 3);
+  }
+  return new Date(boundaryMs).toISOString();
+}
+
+// How many "root" (Dig In) calls this identity has made since the current
+// trial day's 3am ET cutoff — the free-trial search count from Section
+// 14.1. Signed-in callers count against their real account; anonymous
+// callers still count against their session_id (see the top-of-file note
+// on why that stays loose on purpose).
 async function countSearches(userId: string | null, sessionId: string) {
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const since = trialDayStartIso();
   let query = supabase
     .from("rabbit_hole_request_logs")
     .select("*", { count: "exact", head: true })
@@ -571,7 +634,7 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({
           error: "trial_exhausted",
-          message: `Free trial searches used up for today (${FREE_SEARCH_LIMIT}/24h) — Dig In still works, upgrade for full access.`,
+          message: `Free trial searches used up for today (${FREE_SEARCH_LIMIT}) — resets at 3am ET. Dig In still works, upgrade for full access.`,
         }),
         { status: 402, headers: { ...responseHeaders, "Content-Type": "application/json" } }
       );
