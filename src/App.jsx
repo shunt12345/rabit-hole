@@ -380,6 +380,7 @@ export default function Hyfax() {
   const nodesRef = useRef([]);
   const selectedIdRef = useRef(null);
   const contentRef = useRef(null);
+  const heroRef = useRef(null);
   const articleTextRef = useRef(null);
   const childPreviewRevealRef = useRef(null);
 
@@ -533,6 +534,11 @@ export default function Hyfax() {
   const startTopic = async (raw, newsContext) => {
     const t = raw.trim();
     if (!t) return;
+    // Tapping a Trending/Today card can be well down the page — scroll
+    // straight back to the "Dig in" button so the spinner (the only
+    // visible sign anything's happening) is actually on screen instead
+    // of off the bottom of a small mobile viewport.
+    if (heroRef.current) heroRef.current.scrollTop = 0;
     setRootError(null);
     setRootLoading(true);
     setRootPreview("");
@@ -1100,7 +1106,7 @@ export default function Hyfax() {
       )}
 
       {!hasStarted && (
-        <div className="flex-1 flex flex-col items-center px-6 pt-10 md:pt-16 pb-10 overflow-y-auto">
+        <div ref={heroRef} className="flex-1 flex flex-col items-center px-6 pt-10 md:pt-16 pb-10 overflow-y-auto">
           <div className="max-w-md w-full text-center rh-fade-in">
             <h2 className="rh-display rh-hero-headline italic mb-8" style={{ color: "#F1E6D3" }}>
               Follow any thought
