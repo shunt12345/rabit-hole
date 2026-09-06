@@ -17,16 +17,16 @@ import { startCheckout, MIN_TOPUP_USD } from "./lib/billing.js";
 // these same toggle values, so it needs the single source of truth, not a
 // second copy that could drift out of sync with what's rendered there.
 //
-// "Email digest" is a placeholder — punch list Section E (the actual
-// digest cron job + sending integration) isn't built yet, so toggling
-// this doesn't send anything today. It's here so the preference is
-// already captured for whenever Section E ships, rather than needing a
-// second onboarding moment later. App.jsx does NOT gate anything on it.
+// "Email digest" (punch list Section E) is live — turning it off actually
+// stops the daily digest cron (send-daily-digest) from emailing this
+// account, not just a saved preference for later. Defaults on (migration
+// 0013). App.jsx doesn't gate anything on it since it's a server-side
+// send, not client-rendered content.
 const TOGGLES = [
   { key: "featureNews", label: "Trending" },
   { key: "featureToday", label: "Today" },
   { key: "featureDigDeeper", label: "Dig Deeper" },
-  { key: "featureEmail", label: "Email digest", placeholder: true },
+  { key: "featureEmail", label: "Email digest" },
 ];
 
 // Purely illustrative "how much is currently turned on" gauge — NOT the
@@ -421,8 +421,7 @@ export default function AccountMenu({
                   </div>
                 ))}
                 <span className="rh-mono rh-text-10" style={{ color: "#6B5B45" }}>
-                  Dig In is always on. Off features stop drawing on your balance. Email digest is coming soon —
-                  toggling it now just saves your preference for launch.
+                  Dig In is always on. Off features stop drawing on your balance.
                 </span>
               </div>
 
