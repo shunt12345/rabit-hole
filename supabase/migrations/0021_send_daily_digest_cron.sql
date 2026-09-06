@@ -18,6 +18,15 @@
 -- already reads (see 0003_generate_trending_topics_cron.sql) — one shared
 -- secret authenticates every cron-only function's own scheduled calls,
 -- rather than a separate secret per job.
+-- Includes the anon/publishable key as a bearer token, not just
+-- x-cron-secret — confirmed live that without it, Supabase's own gateway
+-- rejects the call with 401 UNAUTHORIZED_NO_AUTH_HEADER before this
+-- function's code (which checks x-cron-secret itself) ever runs, unless
+-- "Enforce JWT Verification" happens to be off for this specific function.
+-- Rather than depend on that per-function dashboard toggle being set
+-- correctly, this just always sends a valid key too. The anon/publishable
+-- key is meant to be public (it's already embedded in the shipped client
+-- bundle), so committing it here isn't a new exposure.
 select cron.schedule(
   'send-daily-digest',
   '0 9 * * *',
@@ -26,6 +35,7 @@ select cron.schedule(
     url := 'https://gflcioanuzrxgxxafnzl.supabase.co/functions/v1/send-daily-digest',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
+      'Authorization', 'Bearer sb_publishable_jBvdkmRyqjTStx85VNXikw_4ocLNZRf',
       'x-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret' limit 1)
     ),
     body := '{}'::jsonb
