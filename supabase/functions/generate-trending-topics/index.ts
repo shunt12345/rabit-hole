@@ -61,7 +61,12 @@ const NEWS_FIELDS = [...TRENDING_MAINSTREAM_FIELDS, TRENDING_WILDCARD_FIELD];
 // framing, excludeTopics keeps it from repeating.
 const SPECIAL_FIELDS = ["National Day", "This Day In History", "Word Of The Day"];
 const FIELDS = [...NEWS_FIELDS, ...SPECIAL_FIELDS];
-const MODEL = "claude-sonnet-5";
+// Overridable via `supabase secrets set MODEL=...` without a redeploy —
+// same reasoning as rabbit-hole-proxy's MODEL constant: lets a candidate
+// model get tried via a secret update instead of a code change, but
+// still wants a real side-by-side quality check before actually
+// switching for good, not an auto-upgrade to "whatever's newest."
+const MODEL = Deno.env.get("MODEL") ?? "claude-sonnet-5";
 
 // Overridable via `supabase secrets set` without a redeploy, same pattern as
 // DAILY_REQUEST_LIMIT in rabbit-hole-proxy — so a future Anthropic price
@@ -69,6 +74,9 @@ const MODEL = "claude-sonnet-5";
 // mis-cost rows logged before the change (each row keeps the rate that was
 // actually in effect when it was computed, since cost_usd is computed once
 // at insert time, not derived later from a rate that could have moved on).
+// Named for Sonnet specifically (this app's current model) — if MODEL
+// above ever gets switched to a different model family, update these two
+// alongside it, or every cost computed here keeps using the old rate.
 const INPUT_PRICE_PER_M = Number(Deno.env.get("SONNET_INPUT_PRICE_PER_M") ?? "2.00");
 const OUTPUT_PRICE_PER_M = Number(Deno.env.get("SONNET_OUTPUT_PRICE_PER_M") ?? "10.00");
 // How long a batch stays around before cleanup — just tidiness, not a

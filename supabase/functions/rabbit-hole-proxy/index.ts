@@ -164,11 +164,24 @@ function trialHeaders(searchesUsed: number, funded: boolean) {
 // Fixed server-side, deliberately not read from the client request — chosen
 // over Haiku 4.5 after a real side-by-side comparison, see the handoff
 // README. Don't let a client-supplied model override this.
-const MODEL = "claude-sonnet-5";
+//
+// Overridable via `supabase secrets set MODEL=...` without a code
+// change/redeploy, same pattern as INPUT_PRICE_PER_M/OUTPUT_PRICE_PER_M
+// below — swapping in a new model to try is a secret update, not a code
+// edit. Still requires a real side-by-side quality check before actually
+// switching for good: a newer/smarter model can still shift tone in ways
+// that fight the carefully-tuned "unhinged" voice prompt, so this is
+// meant for deliberate, eyeballed model changes, not auto-upgrading to
+// "whatever's newest."
+const MODEL = Deno.env.get("MODEL") ?? "claude-sonnet-5";
 
 // Same env var names generate-trending-topics uses for its own cost
 // calculation — Supabase secrets are project-wide, so one value covers
 // both functions. A future Anthropic price change only needs setting once.
+// Named for Sonnet specifically (this app's current model) rather than
+// generically — if MODEL above ever actually gets switched to a
+// different model family, update these two alongside it, or every
+// billed/logged cost silently keeps using the old model's per-token rate.
 const INPUT_PRICE_PER_M = Number(Deno.env.get("SONNET_INPUT_PRICE_PER_M") ?? "2.00");
 const OUTPUT_PRICE_PER_M = Number(Deno.env.get("SONNET_OUTPUT_PRICE_PER_M") ?? "10.00");
 // Anthropic's published multipliers for a 1h cache TTL (this app's
