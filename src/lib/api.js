@@ -91,6 +91,21 @@ async function authField() {
   return token ? { userAccessToken: token } : {};
 }
 
+// The visitor's own IANA timezone (e.g. "America/Los_Angeles"), so the
+// proxy's free-trial "reset at 3am" cutoff lands at 3am THEIR local time
+// instead of one fixed timezone for everyone — see rabbit-hole-proxy's
+// trialDayStartIso. Every modern browser exposes this; the try/catch is
+// only for the very rare environment that doesn't, in which case the
+// proxy falls back to America/New_York on its own.
+function timeZoneField() {
+  try {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return timeZone ? { timeZone } : {};
+  } catch {
+    return {};
+  }
+}
+
 // Shared fetch + timeout + error-surfacing logic, returning the raw text
 // content from Claude's response. callClaude (JSON mode) and article
 // fetching (plain prose) both build on this instead of duplicating it.
@@ -114,6 +129,7 @@ async function fetchClaudeText(system, prompt, maxTokens, endpoint) {
         endpoint,
         sessionId: getSessionId(),
         ...(await authField()),
+        ...timeZoneField(),
       }),
       signal: controller.signal,
     });
@@ -198,6 +214,7 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
         ...(newsCacheKey ? { newsCacheKey } : {}),
         ...(nodeType ? { nodeType } : {}),
         ...(await authField()),
+        ...timeZoneField(),
       }),
       signal: controller.signal,
     });

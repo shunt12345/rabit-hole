@@ -55,12 +55,21 @@
 // already-loaded node makes no new call at all (cached client-side), and
 // "dig deeper" (continuation) extends an existing page rather than
 // opening a fresh one, so it's correctly never counted either. Counted
-// per "trial day" — a hard reset at 3:00 AM America/New_York (see
-// trialDayStartIso below), not a rolling 24h window from each individual
-// search. A rolling window meant someone's count ticked back down
-// gradually all day as old searches aged out one by one, which read as
-// confusing/unpredictable; a single fixed overnight cutoff is one clean
-// number everyone resets to at the same moment. Once a non-funded
+// per "trial day" — a hard reset at 3:00 AM in the visitor's own local
+// timezone (see trialDayStartIso below), not a rolling 24h window from
+// each individual search. A rolling window meant someone's count ticked
+// back down gradually all day as old searches aged out one by one, which
+// read as confusing/unpredictable; a single fixed overnight cutoff is
+// one clean number to reset to. Local-timezone rather than one fixed
+// zone for everyone, since "3am" only reads as "overnight" if it's 3am
+// where the person actually is — the client sends its IANA timezone
+// (Intl.DateTimeFormat().resolvedOptions().timeZone, see api.js's
+// timeZoneField) with every call; an invalid or missing one falls back
+// to America/New_York (DEFAULT_TIME_ZONE below) rather than failing the
+// request. This is trivially spoofable (nothing stops a client from
+// lying about its timezone to reset early) — an accepted trade-off,
+// consistent with Section 14.2's existing "loosely gated, not
+// hard-walled" posture for the free tier. Once a non-funded
 // identity has made FREE_SEARCH_LIMIT of these since that cutoff, the
 // three "rich" functions — expand, article, and continuation —
 // are blocked (GATED_ENDPOINTS below), with one deliberate exception: a
@@ -398,43 +407,64 @@ async function resolveIdentity(userAccessToken: string | undefined) {
   }
 }
 
-// America/New_York's current UTC offset in minutes (negative), DST-aware
-// (-300 for EST, -240 for EDT) — read straight from ICU via
-// Intl.DateTimeFormat rather than hardcoding either offset, so this
-// stays correct across the DST transitions without a timezone library.
-function nyOffsetMinutesAt(utcMs: number): number {
+// Fallback when a request doesn't carry a usable client timezone (older
+// browser, or the field is missing/malformed) — keeps the trial-day
+// cutoff well-defined instead of erroring the request over it.
+const DEFAULT_TIME_ZONE = "America/New_York";
+
+// Whether Intl actually recognizes a string as a real IANA timezone name
+// — the cheapest way to validate a client-supplied value without a
+// hardcoded allowlist of ~400 zone names. Never trust it beyond that:
+// see the top-of-file note on why a spoofed timezone here is an accepted
+// risk, not something this guards against.
+function isValidTimeZone(tz: unknown): tz is string {
+  if (typeof tz !== "string" || !tz) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// A given timezone's UTC offset in minutes (negative west of Greenwich)
+// at a specific instant, DST-aware — read straight from ICU via
+// Intl.DateTimeFormat rather than hardcoding offsets, so this stays
+// correct across DST transitions for any zone without a timezone library.
+function offsetMinutesAt(timeZone: string, utcMs: number): number {
   const part =
     new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/New_York",
+      timeZone,
       timeZoneName: "shortOffset",
     })
       .formatToParts(new Date(utcMs))
-      .find((p) => p.type === "timeZoneName")?.value ?? "GMT-5";
+      .find((p) => p.type === "timeZoneName")?.value ?? "GMT+0";
   const m = part.match(/GMT([+-]\d+)(?::(\d+))?/);
-  const hours = m ? parseInt(m[1], 10) : -5;
+  const hours = m ? parseInt(m[1], 10) : 0;
   const minutes = m?.[2] ? parseInt(m[2], 10) : 0;
   return hours * 60 + (hours < 0 ? -minutes : minutes);
 }
 
-// Converts a wall-clock date/hour as experienced in America/New_York into
-// the real UTC instant it corresponds to. Two-pass correction: the first
-// guess treats the wall time as UTC to get a rough instant, then re-reads
-// NY's actual offset at that instant and corrects — enough to land
-// exactly right even right around a DST transition.
-function nyWallTimeToUtcMs(year: number, month: number, day: number, hour: number): number {
+// Converts a wall-clock date/hour as experienced in the given timezone
+// into the real UTC instant it corresponds to. Two-pass correction: the
+// first guess treats the wall time as UTC to get a rough instant, then
+// re-reads that zone's actual offset at that instant and corrects —
+// enough to land exactly right even right around a DST transition.
+function wallTimeToUtcMs(timeZone: string, year: number, month: number, day: number, hour: number): number {
   let ms = Date.UTC(year, month - 1, day, hour, 0, 0);
   for (let i = 0; i < 2; i++) {
-    ms = Date.UTC(year, month - 1, day, hour, 0, 0) - nyOffsetMinutesAt(ms) * 60 * 1000;
+    ms = Date.UTC(year, month - 1, day, hour, 0, 0) - offsetMinutesAt(timeZone, ms) * 60 * 1000;
   }
   return ms;
 }
 
-// Start of the current free-trial day: the most recent 3:00 AM
-// America/New_York boundary at or before `now` — a hard overnight reset
-// rather than a rolling window (see the top-of-file note on why).
-function trialDayStartIso(now: Date = new Date()): string {
+// Start of the current free-trial day: the most recent 3:00 AM boundary,
+// in the GIVEN timezone, at or before `now` — a hard overnight reset
+// rather than a rolling window (see the top-of-file note on why, and on
+// why this is per-visitor-timezone rather than one fixed zone).
+function trialDayStartIso(timeZone: string, now: Date = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
+    timeZone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -444,23 +474,23 @@ function trialDayStartIso(now: Date = new Date()): string {
   const month = get("month");
   const day = get("day");
 
-  let boundaryMs = nyWallTimeToUtcMs(year, month, day, 3);
+  let boundaryMs = wallTimeToUtcMs(timeZone, year, month, day, 3);
   if (now.getTime() < boundaryMs) {
     // Still before today's 3am cutoff — the current trial day actually
     // started yesterday at 3am.
     const prev = new Date(Date.UTC(year, month - 1, day - 1));
-    boundaryMs = nyWallTimeToUtcMs(prev.getUTCFullYear(), prev.getUTCMonth() + 1, prev.getUTCDate(), 3);
+    boundaryMs = wallTimeToUtcMs(timeZone, prev.getUTCFullYear(), prev.getUTCMonth() + 1, prev.getUTCDate(), 3);
   }
   return new Date(boundaryMs).toISOString();
 }
 
 // How many "root" (Dig In) calls this identity has made since the current
-// trial day's 3am ET cutoff — the free-trial search count from Section
-// 14.1. Signed-in callers count against their real account; anonymous
-// callers still count against their session_id (see the top-of-file note
-// on why that stays loose on purpose).
-async function countSearches(userId: string | null, sessionId: string) {
-  const since = trialDayStartIso();
+// trial day's 3am cutoff in their own timezone — the free-trial search
+// count from Section 14.1. Signed-in callers count against their real
+// account; anonymous callers still count against their session_id (see
+// the top-of-file note on why that stays loose on purpose).
+async function countSearches(userId: string | null, sessionId: string, timeZone: string) {
+  const since = trialDayStartIso(timeZone);
   let query = supabase
     .from("rabbit_hole_request_logs")
     .select("*", { count: "exact", head: true })
@@ -568,7 +598,8 @@ serve(async (req) => {
       });
     }
 
-    const { messages, max_tokens, stream, endpoint, sessionId, system, newsCacheKey, userAccessToken, nodeType } = body;
+    const { messages, max_tokens, stream, endpoint, sessionId, system, newsCacheKey, userAccessToken, nodeType, timeZone } = body;
+    const effectiveTimeZone = isValidTimeZone(timeZone) ? timeZone : DEFAULT_TIME_ZONE;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return new Response(JSON.stringify({ error: "messages is required" }), {
@@ -601,7 +632,7 @@ serve(async (req) => {
     // trial-status headers, letting the client proactively hide/disable
     // News/Today/Dig Deeper once the trial's used up instead of only
     // finding out from a failed request.
-    const searchCount = await countSearches(userId, sessionId);
+    const searchCount = await countSearches(userId, sessionId, effectiveTimeZone);
     // A root topic's OWN auto-loaded "read more" article is exempt from the
     // gate, same as root itself — otherwise a brand new "Dig In" search
     // after the trial's exhausted would generate its title/overview fine
@@ -634,7 +665,7 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({
           error: "trial_exhausted",
-          message: `Free trial searches used up for today (${FREE_SEARCH_LIMIT}) — resets at 3am ET. Dig In still works, upgrade for full access.`,
+          message: `Free trial searches used up for today (${FREE_SEARCH_LIMIT}) — resets at 3am your time. Dig In still works, upgrade for full access.`,
         }),
         { status: 402, headers: { ...responseHeaders, "Content-Type": "application/json" } }
       );
