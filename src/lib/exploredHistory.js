@@ -108,7 +108,16 @@ async function pruneAccountHistory(userId) {
 // Never throws — a failed save here should never interrupt someone
 // reading their article, so every failure is swallowed after logging,
 // same posture as the local tier's try/catch around localStorage.
-export async function saveAccountRoot(userId, { label, fullTopic, overview, children }) {
+//
+// `savedAt` is optional and only meant for migrateLocalHistoryToAccount
+// below — it lets a migrated row keep its ORIGINAL local save time as
+// `updated_at` instead of the moment it happened to get copied over.
+// Without this, migrating a list of local entries (already
+// most-recent-first) in a loop would stamp whichever one is migrated
+// LAST with the newest `updated_at`, silently reversing the order. A
+// normal fresh save (from startTopic/resumeExploredRoot) never passes
+// this, so it correctly defaults to right now.
+export async function saveAccountRoot(userId, { label, fullTopic, overview, children, savedAt }) {
   if (!label) return;
   try {
     const { error } = await supabase.from("explored_topics").upsert(
@@ -118,7 +127,7 @@ export async function saveAccountRoot(userId, { label, fullTopic, overview, chil
         full_topic: fullTopic || label,
         overview: overview || "",
         children: normalizeChildren(children),
-        updated_at: new Date().toISOString(),
+        updated_at: new Date(savedAt || Date.now()).toISOString(),
       },
       { onConflict: "user_id,label" }
     );
