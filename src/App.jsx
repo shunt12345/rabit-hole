@@ -1354,20 +1354,24 @@ export default function Hyfax() {
                     type="button"
                     onClick={() => handleShare(selected)}
                     disabled={shareStatus === "sharing"}
-                    className="flex items-center gap-1.5 rh-mono rh-text-10 uppercase tracking-wider transition-colors disabled:opacity-50"
-                    style={{ background: "none", border: "none", cursor: "pointer", color: shareStatus === "error" ? "#D98A6E" : "#A89478" }}
+                    className="flex items-center gap-1.5 rh-mono rh-text-10 uppercase tracking-wider transition-colors disabled:opacity-50 rounded-full px-3 py-1.5 border font-semibold"
+                    style={{
+                      borderColor: shareStatus === "error" ? "#D98A6E" : "#E3A73C",
+                      color: shareStatus === "error" ? "#D98A6E" : "#E3A73C",
+                      backgroundColor: shareStatus === "copied" ? "#E3A73C22" : "transparent",
+                    }}
                   >
                     {shareStatus === "copied" ? (
                       <>
-                        <Check size={12} /> Link copied
+                        <Check size={13} /> Link copied
                       </>
                     ) : shareStatus === "error" ? (
                       <>
-                        <AlertCircle size={12} /> Couldn't share
+                        <AlertCircle size={13} /> Couldn't share
                       </>
                     ) : (
                       <>
-                        <Share2 size={12} /> Share
+                        <Share2 size={13} /> Share
                       </>
                     )}
                   </button>
