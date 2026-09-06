@@ -1133,7 +1133,7 @@ export default function Hyfax() {
                 type="button"
                 onClick={handleStartClick}
                 disabled={rootLoading}
-                className="rh-body flex items-center gap-1.5 disabled:opacity-40 text-sm font-medium rounded-full px-5 py-3 transition-colors shrink-0 rh-btn-accent"
+                className="rh-body flex items-center gap-1.5 disabled:cursor-not-allowed text-sm font-medium rounded-full px-5 py-3 transition-colors shrink-0 rh-btn-accent"
                 style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
               >
                 {rootLoading ? (
