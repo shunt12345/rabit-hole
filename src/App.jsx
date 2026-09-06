@@ -1248,6 +1248,18 @@ export default function Hyfax() {
               </div>
             )}
 
+            {/* House ad (Section H) — between "Trending" and "Today".
+                Funded accounts don't see ads at all — this is specifically
+                aimed at engaging free/unsubscribed users, not a house ad
+                slot everyone gets. Seeded off the browser's own session
+                id, so it's stable for one visitor across a visit but
+                varies visitor to visitor. */}
+            {!funded && (
+              <div className="mt-10">
+                <AdCard ad={pickHouseAd(getSessionId(), adStage)} onClick={openAccountModal} />
+              </div>
+            )}
+
             {/* "Today" — National Day + This Day In History + Word Of The
                 Day, same source table and card treatment as "Trending"
                 but date-anchored/evergreen rather than searched-for-recency.
@@ -1312,18 +1324,6 @@ export default function Hyfax() {
                   Dig In still works — explore new topics any time. Branches, articles, and news reset in 24h, or{" "}
                   {user ? "add funds above for full access now." : "sign in above to add funds for full access now."}
                 </p>
-              </div>
-            )}
-
-            {/* House ad (Section H) — bottom of the landing hero, below "In
-                the news". Funded accounts don't see ads at all — this is
-                specifically aimed at engaging free/unsubscribed users, not
-                a house ad slot everyone gets. Seeded off the browser's own
-                session id, so it's stable for one visitor across a visit
-                but varies visitor to visitor. */}
-            {!funded && (
-              <div className="mt-8">
-                <AdCard ad={pickHouseAd(getSessionId(), adStage)} onClick={openAccountModal} />
               </div>
             )}
 
