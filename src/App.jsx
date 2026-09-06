@@ -1099,19 +1099,19 @@ export default function Hyfax() {
                 nothing (no network call, no trial-search count), so it
                 stays available exactly when everything else might not. */}
             {exploredHistory.length > 0 && (
-              <div className="mt-8 max-w-md mx-auto">
-                <div className="rh-mono rh-text-10 uppercase tracking-wider mb-3" style={{ color: "#A89478" }}>
+              <div className="mt-6 max-w-md mx-auto">
+                <div className="rh-mono uppercase tracking-wider mb-2" style={{ fontSize: "9px", color: "#8A7F6C" }}>
                   Continue exploring
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5">
                   {exploredHistory.map((entry) => (
                     <button
                       key={entry.label}
                       type="button"
                       onClick={() => resumeExploredRoot(entry)}
                       disabled={rootLoading}
-                      className={`rh-chip rh-body text-sm rounded-full px-4 py-2 border transition-colors ${rootLoading ? "opacity-40" : ""}`}
-                      style={{ borderColor: "#5A4C38", color: "#C9B896", backgroundColor: "transparent" }}
+                      className={`rh-chip rh-body text-xs rounded-full px-2.5 py-1 border transition-colors ${rootLoading ? "opacity-40" : ""}`}
+                      style={{ borderColor: "#3A2E20", color: "#8A7F6C", backgroundColor: "transparent" }}
                     >
                       {entry.label}
                     </button>
