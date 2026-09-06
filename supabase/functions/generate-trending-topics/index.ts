@@ -191,11 +191,11 @@ function thisDayInHistoryPrompt(excludeTopics: string[]): string {
     : "";
   return `Today's date is ${today.toISOString().slice(0, 10)}. You have live web search — use it now.
 
-Search for a real, verifiable, genuinely interesting event that happened specifically on ${monthDay} in history — any past year. Prefer something surprising or lesser-known over the single most obvious textbook event, but it must be historically accurate and confirmable via search, not misremembered trivia.${excludeBlock}
+Search for a real, verifiable, genuinely interesting event that happened specifically on ${monthDay} in history — any past year. Deliberately favor something local or regional in scale — a specific city, town, state/province, or community — over a globally famous, world-shaping event (a war, a treaty, a national election, and the like). The kind of thing a local newspaper archive or regional historical society would cover, not a world-history textbook chapter. It still needs to be surprising or genuinely interesting, not just obscure for its own sake, and it must be historically accurate and confirmable via search, not misremembered trivia.${excludeBlock}
 
 Once you've confirmed a real event via search, produce:
 - "topic": a short punchy 2-6 word label naming the event (title case, no trailing punctuation, no year)
-- "teaser": one enticing sentence (max 20 words) describing what happened — may include the year — written to make someone curious to click
+- "teaser": one enticing sentence (max 20 words) describing what happened — may include the year and place — written to make someone curious to click
 - "source_url": the URL of a real source confirming this event and date
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
