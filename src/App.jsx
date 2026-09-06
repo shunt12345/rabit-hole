@@ -20,7 +20,13 @@ import MiniGauge from "./MiniGauge.jsx";
 import AdCard from "./AdCard.jsx";
 import { pickHouseAd, engagementStage } from "./lib/houseAds.js";
 import { getSessionId } from "./lib/session.js";
-import { saveExploredRoot, getExploredHistory } from "./lib/exploredHistory.js";
+import {
+  getLocalHistory,
+  saveLocalRoot,
+  getAccountHistory,
+  saveAccountRoot,
+  migrateLocalHistoryToAccount,
+} from "./lib/exploredHistory.js";
 import { shareArticle } from "./lib/share.js";
 
 const TYPE_COLOR = {
@@ -215,10 +221,13 @@ export default function Hyfax() {
   // submitting a fresh topic does, instead of a bare loading spinner.
   const [childPreview, setChildPreview] = useState(null);
   const [trendingTopics, setTrendingTopics] = useState([]);
-  // Browser-local "continue exploring" history (see lib/exploredHistory.js)
-  // — loaded once on mount, refreshed after every save so the hero screen
-  // stays in sync without re-reading localStorage on every render.
-  const [exploredHistory, setExploredHistory] = useState(() => getExploredHistory());
+  // "Continue exploring" history (see lib/exploredHistory.js) — local
+  // (localStorage) by default, swapped for the signed-in account version
+  // by the effect below once `user` resolves. Starting from the local
+  // read means an anonymous visitor's history is on screen instantly,
+  // with no flash of empty state while the account fetch (if any) is
+  // still in flight.
+  const [exploredHistory, setExploredHistory] = useState(() => getLocalHistory());
   // Which "In the news" card was clicked, so only that one highlights
   // instead of all three dimming identically once rootLoading flips on.
   const [selectedNewsIdx, setSelectedNewsIdx] = useState(null);
@@ -243,14 +252,52 @@ export default function Hyfax() {
   };
 
   // Accounts (production punch list, Section A) — first pass: just knowing
-  // who's signed in. Nothing reads `user` to change behavior yet (no
-  // balance, no feature toggles, no re-pointed rate limiting) — those are
-  // separate, later builds. null = signed out, an object = signed in.
+  // who's signed in. null = signed out, an object = signed in.
   const [user, setUser] = useState(null);
   useEffect(() => {
     getCurrentUser().then(setUser);
     return onAuthStateChange(setUser);
   }, []);
+
+  // Swaps "continue exploring" over to the account tier once someone's
+  // signed in, so it follows them across devices instead of staying
+  // stuck on this one browser (see lib/exploredHistory.js). On the
+  // transition into a session (user goes from null to a real user), first
+  // migrates whatever local history already exists into the account —
+  // otherwise signing in would look like it wiped out history that was
+  // sitting right there a second ago. Signing back out falls back to
+  // local rather than clearing the row on screen.
+  useEffect(() => {
+    if (!user?.id) {
+      setExploredHistory(getLocalHistory());
+      return;
+    }
+    let cancelled = false;
+    migrateLocalHistoryToAccount(user.id)
+      .then(() => getAccountHistory(user.id))
+      .then((history) => {
+        if (!cancelled) setExploredHistory(history);
+      })
+      .catch((e) => console.error("Hyfax: failed to load account explored history", e));
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  // One place both startTopic and resumeExploredRoot call once a root's
+  // overview + children are in hand — picks local vs account storage
+  // based on whether anyone's signed in, then refreshes exploredHistory
+  // from that same tier so the hero screen reflects the real save
+  // (rather than optimistically assuming it worked).
+  const recordExploredRoot = async (entry) => {
+    if (user?.id) {
+      await saveAccountRoot(user.id, entry);
+      setExploredHistory(await getAccountHistory(user.id));
+    } else {
+      saveLocalRoot(entry);
+      setExploredHistory(getLocalHistory());
+    }
+  };
 
   // Production punch list, Section C (funded experience): the signed-in
   // user's own feature-toggle preferences (News/Today/Dig Deeper — Explore
@@ -532,8 +579,9 @@ export default function Hyfax() {
       nodesRef.current = newNodes;
       setNodes(newNodes);
       setSelectedId(root.id);
-      saveExploredRoot({ label: root.label, fullTopic: root.fullTopic, overview: root.overview, children });
-      setExploredHistory(getExploredHistory());
+      recordExploredRoot({ label: root.label, fullTopic: root.fullTopic, overview: root.overview, children }).catch(
+        (e) => console.error("Hyfax: failed to record explored topic", e)
+      );
     } catch (e) {
       console.error("Hyfax: startTopic failed", e);
       reveal.cancel();
@@ -547,11 +595,12 @@ export default function Hyfax() {
     }
   };
 
-  // Jumps back into a previously-explored topic from this browser's local
-  // history (see lib/exploredHistory.js) — rebuilds the exact root +
-  // children it had before straight from the stored snapshot, with no
-  // network call at all. Free in every sense: no Claude generation, no
-  // trial-search count, works even with the trial exhausted.
+  // Jumps back into a previously-explored topic (see lib/exploredHistory.js
+  // — local or account tier, whichever recordExploredRoot is currently
+  // using) — rebuilds the exact root + children it had before straight
+  // from the stored snapshot, with no network call at all. Free in every
+  // sense: no Claude generation, no trial-search count, works even with
+  // the trial exhausted.
   const resumeExploredRoot = (entry) => {
     idCounter = 0;
     const root = {
@@ -580,8 +629,9 @@ export default function Hyfax() {
     nodesRef.current = newNodes;
     setNodes(newNodes);
     setSelectedId(root.id);
-    saveExploredRoot({ label: root.label, fullTopic: root.fullTopic, overview: root.overview, children });
-    setExploredHistory(getExploredHistory());
+    recordExploredRoot({ label: root.label, fullTopic: root.fullTopic, overview: root.overview, children }).catch(
+      (e) => console.error("Hyfax: failed to record explored topic", e)
+    );
   };
 
   // Reads a starting topic straight from the URL on load, e.g.
