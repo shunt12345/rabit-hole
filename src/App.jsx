@@ -1099,28 +1099,21 @@ export default function Hyfax() {
                 nothing (no network call, no trial-search count), so it
                 stays available exactly when everything else might not. */}
             {exploredHistory.length > 0 && (
-              <div className="mt-10">
-                <div className="flex items-center justify-center gap-1.5 mb-6">
-                  <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
-                    Continue exploring
-                  </span>
+              <div className="mt-8 max-w-md mx-auto">
+                <div className="rh-mono rh-text-10 uppercase tracking-wider mb-3" style={{ color: "#A89478" }}>
+                  Continue exploring
                 </div>
-                <div className="flex flex-col gap-3 max-w-md mx-auto">
+                <div className="flex flex-wrap gap-2">
                   {exploredHistory.map((entry) => (
                     <button
                       key={entry.label}
                       type="button"
                       onClick={() => resumeExploredRoot(entry)}
                       disabled={rootLoading}
-                      className={`rh-chip text-left p-4 rounded-2xl border transition-colors ${rootLoading ? "opacity-40" : ""}`}
-                      style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}
+                      className={`rh-chip rh-body text-sm rounded-full px-4 py-2 border transition-colors ${rootLoading ? "opacity-40" : ""}`}
+                      style={{ borderColor: "#5A4C38", color: "#C9B896", backgroundColor: "transparent" }}
                     >
-                      <div className="rh-body text-lg font-semibold" style={{ color: "#F1E6D3" }}>
-                        {entry.label}
-                      </div>
-                      <p className="rh-body text-sm mt-1" style={{ color: "#B8A886" }}>
-                        {entry.overview}
-                      </p>
+                      {entry.label}
                     </button>
                   ))}
                 </div>
