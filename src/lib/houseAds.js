@@ -84,7 +84,7 @@ export const HOUSE_ADS = [
   },
   {
     id: "tiktok",
-    body: "**TikTok.** If I had a foot, I would be tapping it right now. Did you know there is a whole thing called 'fidgeting physiology' *(type that 5 times fast)?*",
+    body: "**Tick-Tock.** If I had a foot, I would be tapping it right now. Did you know there is a whole thing called 'fidgeting physiology' *(type that 5 times fast)?*",
     cta: "Let's go",
     stage: "late",
   },
