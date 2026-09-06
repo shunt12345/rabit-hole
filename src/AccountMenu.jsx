@@ -23,7 +23,7 @@ import { startCheckout, MIN_TOPUP_USD } from "./lib/billing.js";
 // already captured for whenever Section E ships, rather than needing a
 // second onboarding moment later. App.jsx does NOT gate anything on it.
 const TOGGLES = [
-  { key: "featureNews", label: "News" },
+  { key: "featureNews", label: "Trending" },
   { key: "featureToday", label: "Today" },
   { key: "featureDigDeeper", label: "Dig Deeper" },
   { key: "featureEmail", label: "Email digest", placeholder: true },

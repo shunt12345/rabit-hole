@@ -93,7 +93,7 @@ async function fetchArticleTextStreaming(topicLabel, path, childLabels, onChunk,
       ? `\n\nThis topic already branches into these related threads: ${childLabels.join(", ")}.`
       : "";
   const newsNote = newsContext
-    ? `\n\nThis topic was picked from a live "In the news" feed because of a specific current story: "${newsContext}".`
+    ? `\n\nThis topic was picked from a live "Trending" feed because of a specific current story: "${newsContext}".`
     : "";
   const userContent = `TASK: read-more article
 
@@ -146,7 +146,7 @@ function normalizeChildren(rawChildren) {
 
 function rootPrompt(topic, newsContext) {
   const newsNote = newsContext
-    ? `\n\nThis topic was picked from a live "In the news" feed because of a specific current story: "${newsContext}".`
+    ? `\n\nThis topic was picked from a live "Trending" feed because of a specific current story: "${newsContext}".`
     : "";
   return `TASK: root topic
 
@@ -172,16 +172,23 @@ function nextId() {
 
 // Real live topics now — see supabase/functions/generate-trending-topics.
 // A scheduled job (pg_cron, twice daily) does one Claude web-search call per
-// field — 3 news fields plus 3 date-anchored/evergreen ones ("National Day",
-// "This Day In History", "Word Of The Day") — and caches each result in
-// trending_topics_cache; this just reads a batch of recent rows with the
-// anon key. No live search happens on the client or per page load.
-// NEWS_FIELDS / SPECIAL_FIELDS below pick the latest row per named field out
-// of that batch, so a field that's been renamed or retired (like the old
-// "Culture & Arts") just stops rendering on its own instead of lingering
-// until its rows age out.
+// field — 2 mainstream-trending picks + 1 offbeat "wildcard" one, plus 3
+// date-anchored/evergreen fields ("National Day", "This Day In History",
+// "Word Of The Day") — and caches each result in trending_topics_cache;
+// this just reads a batch of recent rows with the anon key. No live search
+// happens on the client or per page load. NEWS_FIELDS / SPECIAL_FIELDS
+// below pick the latest row per named field out of that batch, so a field
+// that's been renamed or retired (like the old "World News"/"Science"/
+// "Technology" beats this replaced) just stops rendering on its own
+// instead of lingering until its rows age out.
 const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,generated_at&order=generated_at.desc,id.desc&limit=20`;
-const NEWS_FIELDS = ["World News", "Science", "Technology"];
+const NEWS_FIELDS = ["Trending 1", "Trending 2", "Trending Wildcard"];
+// What each internal field key actually displays as — kept separate from
+// the field key itself so latestByField (below) can still tell the two
+// mainstream picks apart for lookup purposes while both show the same
+// "Trending" badge on screen; a field with no entry here just falls back
+// to showing its raw key.
+const NEWS_FIELD_LABELS = { "Trending 1": "Trending", "Trending 2": "Trending", "Trending Wildcard": "Wildcard" };
 const SPECIAL_FIELDS = ["National Day", "This Day In History", "Word Of The Day"];
 
 // Picks the single most recent row for each field in `fields`, in that
@@ -228,7 +235,7 @@ export default function Hyfax() {
   // with no flash of empty state while the account fetch (if any) is
   // still in flight.
   const [exploredHistory, setExploredHistory] = useState(() => getLocalHistory());
-  // Which "In the news" card was clicked, so only that one highlights
+  // Which "Trending" card was clicked, so only that one highlights
   // instead of all three dimming identically once rootLoading flips on.
   const [selectedNewsIdx, setSelectedNewsIdx] = useState(null);
   // Same idea, for the separate "National Day" / "This Day In History" pair.
@@ -528,7 +535,7 @@ export default function Hyfax() {
     const reveal = createPacedReveal((revealed) => setRootPreview(revealed));
 
     try {
-      // A topic from the "In the news"/"Today" hero cards (newsContext set)
+      // A topic from the "Trending"/"Today" hero cards (newsContext set)
       // is identical for every visitor until the next trending-topics
       // refresh — hundreds of people can open the same card. Tag those
       // calls with the exact topic string as a cache key so the proxy can
@@ -656,7 +663,7 @@ export default function Hyfax() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fetches the latest cached batch of "In the news" topics — a plain read
+  // Fetches the latest cached batch of "Trending" topics — a plain read
   // against Supabase's REST API with the anon key (RLS allows public
   // SELECT on this table). Fails silently: if it's empty or the request
   // errors, the section just doesn't render rather than showing an error
@@ -1175,13 +1182,13 @@ export default function Hyfax() {
                 date reflects the actual cache timestamp now, not a
                 hand-maintained string that can silently go stale.
                 Hidden once the free trial's used up (production punch
-                list, Section B) — News is a funded-only feature per the
-                monetization outline's Section 14.1 feature matrix. */}
+                list, Section B) — Trending is a funded-only feature per
+                the monetization outline's Section 14.1 feature matrix. */}
             {newsTopics.length > 0 && !trialExhausted && newsVisible && (
               <div className="mt-10">
                 <div className="flex items-center justify-center gap-1.5 mb-1">
                   <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
-                    In the news
+                    Trending
                   </span>
                 </div>
                 <div className="rh-mono text-sm mb-6" style={{ color: "#A89478" }}>
@@ -1215,7 +1222,7 @@ export default function Hyfax() {
                         }}
                       >
                         <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
-                          {t.field}
+                          {NEWS_FIELD_LABELS[t.field] || t.field}
                         </span>
                         <div className="rh-body text-lg font-semibold mt-1" style={{ color: "#F1E6D3" }}>
                           {t.topic}
@@ -1231,10 +1238,10 @@ export default function Hyfax() {
             )}
 
             {/* "Today" — National Day + This Day In History + Word Of The
-                Day, same source table and card treatment as "In the news"
+                Day, same source table and card treatment as "Trending"
                 but date-anchored/evergreen rather than searched-for-recency.
                 See promptForField in supabase/functions/generate-trending-topics.
-                Same funded-only gate as "In the news" above. */}
+                Same funded-only gate as "Trending" above. */}
             {todayTopics.length > 0 && !trialExhausted && todayVisible && (
               <div className="mt-10">
                 <div className="flex items-center justify-center gap-1.5 mb-6">

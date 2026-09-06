@@ -1,14 +1,16 @@
 // Supabase Edge Function: generate-trending-topics
 //
 // Two scheduled jobs (see the pg_cron migrations), NOT called by the app
-// directly — the hero page's "In the news" + "Today" chips read the
+// directly — the hero page's "Trending" + "Today" chips read the
 // trending_topics_cache table this writes to, instead of hitting search
-// live on every visit. One cron job runs the news fields (World News /
-// Science / Technology) twice a day with a plain `{}` body; a second runs
-// once nightly with `{"fields": ["National Day", "This Day In History",
-// "Word Of The Day"]}` — those three only change once a day (or, for Word
-// Of The Day, aren't tied to the date at all), so there's no reason to
-// re-run them on the news cadence too. Uses Claude's
+// live on every visit. One cron job runs the trending fields (two
+// mainstream picks + one offbeat wildcard — see TRENDING_MAINSTREAM_FIELDS/
+// TRENDING_WILDCARD_FIELD below; this replaced the original fixed World
+// News/Science/Technology beats) twice a day with a plain `{}` body; a
+// second runs once nightly with `{"fields": ["National Day", "This Day In
+// History", "Word Of The Day"]}` — those three only change once a day (or,
+// for Word Of The Day, aren't tied to the date at all), so there's no
+// reason to re-run them on the trending cadence too. Uses Claude's
 // web_search server tool with the same ANTHROPIC_API_KEY already used by
 // rabbit-hole-proxy, so no new vendor is needed (unlike the dormant
 // SerpApi-based trending-topics function this intentionally does not
@@ -40,7 +42,16 @@
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const NEWS_FIELDS = ["World News", "Science", "Technology"];
+// Three picks per run, not three separate topical beats — two aimed at
+// whatever's genuinely trending/most-talked-about right now (mainstream),
+// one deliberately reaching for something more offbeat/under-the-radar
+// that's still real and actually trending today (see trendingWildcardPrompt
+// below). Kept as three distinct field keys (rather than one field with
+// three rows) because latestByField on the client picks exactly one row
+// per field name — three names is what gets three chips on screen.
+const TRENDING_MAINSTREAM_FIELDS = ["Trending 1", "Trending 2"];
+const TRENDING_WILDCARD_FIELD = "Trending Wildcard";
+const NEWS_FIELDS = [...TRENDING_MAINSTREAM_FIELDS, TRENDING_WILDCARD_FIELD];
 // Date-anchored, not news-search — same card treatment and cache table as
 // the news fields, but built from a different prompt (see promptForField)
 // since "recent development" doesn't apply to any of these. "Word Of The
@@ -66,6 +77,60 @@ const RETENTION_DAYS = 14;
 
 const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
+// The two "mainstream" trending picks — whatever's genuinely getting
+// widespread attention today, across any category (not scoped to a single
+// beat like the old World News/Science/Technology fields). Two independent
+// calls with the same prompt could converge on the same single biggest
+// story; the excludeTopics list is what keeps the second pick from just
+// repeating the first once that first result lands in the cache and the
+// next run (or, within a run, a differently-ordered field) sees it.
+function trendingMainstreamPrompt(excludeTopics: string[]): string {
+  const today = new Date().toISOString().slice(0, 10);
+  const excludeBlock = excludeTopics.length
+    ? `\n\nAlready shown recently — pick something genuinely different from all of these, not a rephrasing of any of them: ${excludeTopics.join("; ")}.`
+    : "";
+  return `Today's date is ${today}. You have live web search — use it now.
+
+Search for what's genuinely TRENDING right now — a story getting real, widespread attention today specifically, the kind of thing a lot of people are actually talking about, in any category (politics, business, entertainment, sports, culture, tech — whatever is actually trending, not a fixed beat). Use a specific, well-targeted query rather than a generic phrase like "trending today" — try a different angle or refine the query if the first search doesn't surface something with real current buzz behind it.${excludeBlock}
+
+Current, specific, and fresh — no historical background or context. The topic and teaser must be about a specific thing that happened or was announced recently, not general facts about the subject. A reader should immediately understand what's NEW, not get a primer on the subject.
+
+Once you've found a real, currently-trending story, produce:
+- "topic": a short, punchy 2-5 word label suitable as a one-tap starting point for someone exploring the topic (title case, no trailing punctuation) — name the current event/development, not just the subject's name
+- "teaser": one enticing sentence (max 20 words) describing the specific development, written to make someone curious to click it
+- "source_url": the URL of the real source you found via search, supporting the story
+
+Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
+{"topic": "...", "teaser": "...", "source_url": "..."}`;
+}
+
+// The one deliberately-offbeat pick — still real and actually trending
+// today, just not the single most obvious front-page story. This is what
+// gives the section its own personality instead of reading like a wire
+// feed (see the "In the news" -> "Trending" conversation this replaced).
+function trendingWildcardPrompt(excludeTopics: string[]): string {
+  const today = new Date().toISOString().slice(0, 10);
+  const excludeBlock = excludeTopics.length
+    ? `\n\nAlready shown recently — pick something genuinely different from all of these, not a rephrasing of any of them: ${excludeTopics.join("; ")}.`
+    : "";
+  return `Today's date is ${today}. You have live web search — use it now.
+
+Search for something genuinely trending right now that's a bit more offbeat or under-the-radar — still real and actually gaining attention today, just not the single most obvious headline everyone already knows. Think: a niche internet moment, an unusual story going viral in a specific community, a strange finding making the rounds, a quirky local story — something a curious person would be delighted to stumble onto rather than something they already saw on the front page. It still needs to be real, verifiable, and genuinely happening/trending today — not evergreen trivia dressed up as news.${excludeBlock}
+
+Current, specific, and fresh — no historical background or context. Lead with the actual current development, not a primer on the subject.
+
+Once you've found a real, currently-trending story, produce:
+- "topic": a short, punchy 2-5 word label suitable as a one-tap starting point for someone exploring the topic (title case, no trailing punctuation)
+- "teaser": one enticing sentence (max 20 words) describing the specific development, written to make someone curious to click it
+- "source_url": the URL of the real source you found via search, supporting the story
+
+Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
+{"topic": "...", "teaser": "...", "source_url": "..."}`;
+}
+
+// Kept as a fallback for any field name that isn't one of the special
+// date-anchored ones or the trending picks above — not exercised by
+// NEWS_FIELDS today, but harmless to leave in place for a future field.
 function fieldPrompt(field: string, excludeTopics: string[]): string {
   const today = new Date().toISOString().slice(0, 10);
   const excludeBlock = excludeTopics.length
@@ -145,6 +210,8 @@ function promptForField(field: string, excludeTopics: string[]): string {
   if (field === "National Day") return nationalDayPrompt(excludeTopics);
   if (field === "This Day In History") return thisDayInHistoryPrompt(excludeTopics);
   if (field === "Word Of The Day") return wordOfTheDayPrompt(excludeTopics);
+  if (field === TRENDING_WILDCARD_FIELD) return trendingWildcardPrompt(excludeTopics);
+  if (TRENDING_MAINSTREAM_FIELDS.includes(field)) return trendingMainstreamPrompt(excludeTopics);
   return fieldPrompt(field, excludeTopics);
 }
 
