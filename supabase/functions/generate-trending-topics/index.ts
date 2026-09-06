@@ -79,19 +79,32 @@ const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPAB
 
 // The two "mainstream" trending picks — whatever's genuinely getting
 // widespread attention today, across any category (not scoped to a single
-// beat like the old World News/Science/Technology fields). Two independent
-// calls with the same prompt could converge on the same single biggest
-// story; the excludeTopics list is what keeps the second pick from just
-// repeating the first once that first result lands in the cache and the
-// next run (or, within a run, a differently-ordered field) sees it.
-function trendingMainstreamPrompt(excludeTopics: string[]): string {
+// beat like the old World News/Science/Technology fields).
+//
+// Confirmed live in testing: two independent calls with the SAME prompt
+// converge on the same single biggest story far more often than you'd
+// expect (both picked "Iran Retaliation Threat" the first time this ran,
+// worded slightly differently — clearly two separate calls, not a cache
+// hit). excludeTopics alone doesn't prevent this: it only excludes each
+// field's own PAST picks, and the two fields run concurrently within the
+// same batch, so neither has any way to see what the other just found.
+// Fixed by giving them different jobs instead of the same one: "primary"
+// explicitly goes for the single biggest story, "secondary" is told to
+// find a genuinely different major story and specifically NOT the most
+// dominant one. Differently-framed prompts collide far less than
+// identically-framed ones searching independently for "the" top story.
+function trendingMainstreamPrompt(excludeTopics: string[], variant: "primary" | "secondary"): string {
   const today = new Date().toISOString().slice(0, 10);
   const excludeBlock = excludeTopics.length
     ? `\n\nAlready shown recently — pick something genuinely different from all of these, not a rephrasing of any of them: ${excludeTopics.join("; ")}.`
     : "";
+  const focusLine =
+    variant === "primary"
+      ? `Search for the single biggest, most dominant story trending right now — whatever is getting the most attention today, in any category (politics, business, entertainment, sports, culture, tech — whatever is actually trending, not a fixed beat).`
+      : `Search for a second, genuinely different major story trending right now — something else that's also getting real, widespread attention today, but NOT the single most dominant headline (assume that one's already covered elsewhere). Pick a different category if you can — if the biggest story is political, look at business, culture, sports, or tech instead.`;
   return `Today's date is ${today}. You have live web search — use it now.
 
-Search for what's genuinely TRENDING right now — a story getting real, widespread attention today specifically, the kind of thing a lot of people are actually talking about, in any category (politics, business, entertainment, sports, culture, tech — whatever is actually trending, not a fixed beat). Use a specific, well-targeted query rather than a generic phrase like "trending today" — try a different angle or refine the query if the first search doesn't surface something with real current buzz behind it.${excludeBlock}
+${focusLine} Use a specific, well-targeted query rather than a generic phrase like "trending today" — try a different angle or refine the query if the first search doesn't surface something with real current buzz behind it.${excludeBlock}
 
 Current, specific, and fresh — no historical background or context. The topic and teaser must be about a specific thing that happened or was announced recently, not general facts about the subject. A reader should immediately understand what's NEW, not get a primer on the subject.
 
@@ -211,7 +224,8 @@ function promptForField(field: string, excludeTopics: string[]): string {
   if (field === "This Day In History") return thisDayInHistoryPrompt(excludeTopics);
   if (field === "Word Of The Day") return wordOfTheDayPrompt(excludeTopics);
   if (field === TRENDING_WILDCARD_FIELD) return trendingWildcardPrompt(excludeTopics);
-  if (TRENDING_MAINSTREAM_FIELDS.includes(field)) return trendingMainstreamPrompt(excludeTopics);
+  if (field === TRENDING_MAINSTREAM_FIELDS[0]) return trendingMainstreamPrompt(excludeTopics, "primary");
+  if (field === TRENDING_MAINSTREAM_FIELDS[1]) return trendingMainstreamPrompt(excludeTopics, "secondary");
   return fieldPrompt(field, excludeTopics);
 }
 
