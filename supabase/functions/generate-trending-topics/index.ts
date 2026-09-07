@@ -114,6 +114,8 @@ function trendingMainstreamPrompt(excludeTopics: string[], variant: "primary" | 
 
 ${focusLine} Use a specific, well-targeted query rather than a generic phrase like "trending today" — try a different angle or refine the query if the first search doesn't surface something with real current buzz behind it.${excludeBlock}
 
+The underlying EVENT itself has to be genuinely fresh — something that actually happened or was announced within roughly the last 48 hours, not an older story that's merely being reposted, re-discussed, or resurfacing as an anniversary. Check the actual date of the event you find, not just the date of the page reporting it — a page published today about something that happened weeks or months ago does NOT count as trending. If what you find turns out to be old once you check, search again with a more time-boxed query (add "today," "this week," or today's actual date to it) until you land on something truly current.
+
 Current, specific, and fresh — no historical background or context. The topic and teaser must be about a specific thing that happened or was announced recently, not general facts about the subject. A reader should immediately understand what's NEW, not get a primer on the subject.
 
 Once you've found a real, currently-trending story, produce:
@@ -137,6 +139,8 @@ function trendingWildcardPrompt(excludeTopics: string[]): string {
   return `Today's date is ${today}. You have live web search — use it now.
 
 Search for something genuinely trending right now that's a bit more offbeat or under-the-radar — still real and actually gaining attention today, just not the single most obvious headline everyone already knows. Think: a niche internet moment, an unusual story going viral in a specific community, a strange finding making the rounds, a quirky local story — something a curious person would be delighted to stumble onto rather than something they already saw on the front page. It still needs to be real, verifiable, and genuinely happening/trending today — not evergreen trivia dressed up as news.${excludeBlock}
+
+The underlying EVENT itself has to be genuinely fresh — something that actually started gaining attention within roughly the last 48 hours, not an old story resurfacing or an evergreen "weird fact" being passed off as current. Check the actual date of the event/moment you find, not just the date of the page reporting it — a page published today about something from weeks or months ago does NOT count as trending. If what you find turns out to be old once you check, search again with a more time-boxed query until you land on something truly current.
 
 Current, specific, and fresh — no historical background or context. Lead with the actual current development, not a primer on the subject.
 
