@@ -82,26 +82,26 @@ const MODEL = Deno.env.get("MODEL") ?? "claude-sonnet-5";
 // a local paper or historical society site would never be on this list.
 // Bare domains with an optional path, no scheme (per Anthropic's
 // web_search allowed_domains format) — max 64 entries, well under that here.
+//
+// Confirmed live: several major outlets are NOT usable here even though
+// they're reputable — Anthropic validates every allowed_domains entry up
+// front and 400s the WHOLE request if any of them block/restrict its
+// search user agent, rather than just skipping that one domain. apnews.com,
+// reuters.com, bbc.com, nytimes.com, theguardian.com, wsj.com, politico.com,
+// theverge.com, and arstechnica.com all got rejected this way — pulled from
+// the list below. Don't add a domain back without firing this function
+// again to confirm it actually passes.
 const TRUSTED_MAINSTREAM_DOMAINS = [
-  "apnews.com",
-  "reuters.com",
-  "bbc.com",
   "npr.org",
   "axios.com",
-  "nytimes.com",
   "washingtonpost.com",
-  "theguardian.com",
-  "wsj.com",
   "cnn.com",
   "nbcnews.com",
   "abcnews.go.com",
   "cbsnews.com",
-  "politico.com",
   "thehill.com",
   "bloomberg.com",
   "techcrunch.com",
-  "theverge.com",
-  "arstechnica.com",
   "espn.com",
   "variety.com",
   "billboard.com",
