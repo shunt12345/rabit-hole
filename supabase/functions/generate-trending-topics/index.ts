@@ -123,6 +123,8 @@ Once you've found a real, currently-trending story, produce:
 - "teaser": one enticing sentence (max 20 words) describing the specific development, written to make someone curious to click it
 - "source_url": the URL of the real source you found via search, supporting the story — must be a specific page that actually discusses THIS exact story, not a homepage, an unrelated video, or a generic live-updates/liveblog page that merely happens to be from a relevant outlet
 
+${SOURCE_URL_CHECK}
+
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
 }
@@ -149,9 +151,20 @@ Once you've found a real, currently-trending story, produce:
 - "teaser": one enticing sentence (max 20 words) describing the specific development, written to make someone curious to click it
 - "source_url": the URL of the real source you found via search, supporting the story — must be a specific page that actually discusses THIS exact story, not a homepage, an unrelated video, or a generic live-updates/liveblog page that merely happens to be from a relevant outlet
 
+${SOURCE_URL_CHECK}
+
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
 }
+
+// Appended to every prompt's source_url instruction. Confirmed live that
+// just telling the model "must be specific, not a homepage" wasn't enough
+// on its own — a source still came back as a bare "cnn.com/business"
+// section front. This adds a concrete, checkable rule (what a generic URL
+// actually looks like) plus an explicit instruction to go back and fix it
+// rather than submit a URL that fails the check, instead of leaving
+// "specific" to the model's own judgment alone.
+const SOURCE_URL_CHECK = `Before finalizing, check your own source_url against this: a bare domain, a short generic section path (like ".../business", ".../news", ".../world"), or anything that looks like a homepage rather than one specific article/page, means you defaulted to a generic page instead of a real one. If that's what you have, don't submit it — go back and either pick a genuinely specific result from your search (a URL with a real headline-shaped path, not just a section name) or search again with a more targeted query until you have one.`;
 
 // Kept as a fallback for any field name that isn't one of the special
 // date-anchored ones or the trending picks above — not exercised by
@@ -172,6 +185,8 @@ Once you've found a real story, produce:
 - "teaser": one enticing sentence (max 20 words) describing the specific development, written to make someone curious to click it
 - "source_url": the URL of the real source you found via search, supporting the story — must be a specific page that actually discusses THIS exact story, not a homepage, an unrelated video, or a generic live-updates/liveblog page that merely happens to be from a relevant outlet
 
+${SOURCE_URL_CHECK}
+
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
 }
@@ -190,6 +205,8 @@ Once you've confirmed a real one via search, produce:
 - "topic": the exact name of the day, e.g. "National Coffee Day" (title case, no trailing punctuation, no year)
 - "teaser": one enticing sentence (max 20 words) that makes someone curious to click and learn about it
 - "source_url": the URL of a real source confirming this observance falls on this date — a specific page actually about it, not a homepage or unrelated page
+
+${SOURCE_URL_CHECK}
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
@@ -210,6 +227,8 @@ Once you've confirmed a real event via search, produce:
 - "teaser": one enticing sentence (max 20 words) describing what happened — may include the year and place — written to make someone curious to click
 - "source_url": the URL of a real source confirming this event and date — a specific page actually about it, not a homepage or unrelated page
 
+${SOURCE_URL_CHECK}
+
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
 }
@@ -226,6 +245,8 @@ Once you've confirmed a real one via search, produce:
 - "topic": the word itself, title case, no definition or extra text
 - "teaser": one enticing sentence (max 20 words) that reveals the surprising part of its origin, written to make someone curious to click and learn more
 - "source_url": the URL of a real source confirming this etymology — a specific page actually about it, not a homepage or unrelated page
+
+${SOURCE_URL_CHECK}
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
