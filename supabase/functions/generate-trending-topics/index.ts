@@ -164,7 +164,9 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 // actually looks like) plus an explicit instruction to go back and fix it
 // rather than submit a URL that fails the check, instead of leaving
 // "specific" to the model's own judgment alone.
-const SOURCE_URL_CHECK = `Before finalizing, check your own source_url against this: a bare domain, a short generic section path (like ".../business", ".../news", ".../world"), or anything that looks like a homepage rather than one specific article/page, means you defaulted to a generic page instead of a real one. If that's what you have, don't submit it — go back and either pick a genuinely specific result from your search (a URL with a real headline-shaped path, not just a section name) or search again with a more targeted query until you have one.`;
+const SOURCE_URL_CHECK = `Before finalizing, check your own source_url against this: a bare domain, a short generic section path (like ".../business", ".../news", ".../world"), or a rolling live-updates/liveblog page covering many unrelated stories — anything that isn't one page specifically about THIS story — means you defaulted to a generic page instead of a real one. If that's what you have, first try to fix it: pick a genuinely specific result from your search (a URL with a real headline-shaped path, not just a section or liveblog) or search again with a more targeted query.
+
+That said, you must still answer. Never respond by saying you couldn't find one, giving a meta-answer about your own search process, or leaving source_url empty/null — those responses are worse than an imperfect one and will break the app that reads this. If your best result after trying still isn't a perfectly specific page, use it anyway: a real story with an imperfect source beats no answer at all.`;
 
 // Kept as a fallback for any field name that isn't one of the special
 // date-anchored ones or the trending picks above — not exercised by
@@ -321,8 +323,16 @@ async function generateForField(apiKey: string, field: string, excludeTopics: st
   const parsed = JSON.parse(cleaned.slice(start, end + 1));
   const topic = (parsed.topic || "").trim();
   const teaser = (parsed.teaser || "").trim();
-  if (!topic || !teaser) {
-    throw new Error(`Missing topic/teaser: ${cleaned.slice(0, 300)}`);
+  const sourceUrl = (parsed.source_url || "").trim();
+  // source_url is required, not best-effort — confirmed live that without
+  // this, a model response that gave up (topic: "Search Inconclusive",
+  // source_url: null) passed validation and got published straight to
+  // trending_topics_cache as if it were a real pick. Rejecting it here
+  // means that field just fails for this run (Promise.allSettled already
+  // tolerates individual field failures) instead of shipping a broken
+  // card to real users.
+  if (!topic || !teaser || !sourceUrl) {
+    throw new Error(`Missing topic/teaser/source_url: ${cleaned.slice(0, 300)}`);
   }
 
   // Real usage, not the estimate in the pricing spreadsheet — every field
@@ -340,7 +350,7 @@ async function generateForField(apiKey: string, field: string, excludeTopics: st
     field,
     topic,
     teaser,
-    source_url: parsed.source_url || null,
+    source_url: sourceUrl,
     input_tokens: inputTokens,
     output_tokens: outputTokens,
     model: MODEL,
