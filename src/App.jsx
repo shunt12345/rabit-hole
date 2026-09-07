@@ -95,7 +95,7 @@ async function fetchArticleTextStreaming(topicLabel, path, childLabels, onChunk,
       ? `\n\nThis topic already branches into these related threads: ${childLabels.join(", ")}.`
       : "";
   const newsNote = newsContext
-    ? `\n\nThis topic was picked from a live "Trending" feed because of a specific current story: "${newsContext}".`
+    ? `\n\nThis topic was picked from a live "Trending" feed because of a specific current story: "${newsContext}". Don't spell out the exact calendar date this happened (e.g., "On August 8, 2025") unless the date itself is the actual point of the story — a "this day in history"/anniversary framing, or the date is what makes it notable. For an ordinary current pick, just write it as recent/current instead ("recently," "this week," etc.) — a hardcoded date reads as stale the moment it's read after the fact, which defeats the point of it being "trending."`
     : "";
   const userContent = `TASK: read-more article
 
@@ -148,7 +148,7 @@ function normalizeChildren(rawChildren) {
 
 function rootPrompt(topic, newsContext) {
   const newsNote = newsContext
-    ? `\n\nThis topic was picked from a live "Trending" feed because of a specific current story: "${newsContext}".`
+    ? `\n\nThis topic was picked from a live "Trending" feed because of a specific current story: "${newsContext}". Don't spell out the exact calendar date this happened (e.g., "On August 8, 2025") unless the date itself is the actual point of the story — a "this day in history"/anniversary framing, or the date is what makes it notable. For an ordinary current pick, just write it as recent/current instead ("recently," "this week," etc.) — a hardcoded date reads as stale the moment it's read after the fact, which defeats the point of it being "trending."`
     : "";
   return `TASK: root topic
 
