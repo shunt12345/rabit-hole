@@ -121,7 +121,7 @@ Current, specific, and fresh — no historical background or context. The topic 
 Once you've found a real, currently-trending story, produce:
 - "topic": a short, punchy 2-5 word label suitable as a one-tap starting point for someone exploring the topic (title case, no trailing punctuation) — name the current event/development, not just the subject's name
 - "teaser": one enticing sentence (max 20 words) describing the specific development, written to make someone curious to click it
-- "source_url": the URL of the real source you found via search, supporting the story
+- "source_url": the URL of the real source you found via search, supporting the story — must be a specific page that actually discusses THIS exact story, not a homepage, an unrelated video, or a generic live-updates/liveblog page that merely happens to be from a relevant outlet
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
@@ -147,7 +147,7 @@ Current, specific, and fresh — no historical background or context. Lead with 
 Once you've found a real, currently-trending story, produce:
 - "topic": a short, punchy 2-5 word label suitable as a one-tap starting point for someone exploring the topic (title case, no trailing punctuation)
 - "teaser": one enticing sentence (max 20 words) describing the specific development, written to make someone curious to click it
-- "source_url": the URL of the real source you found via search, supporting the story
+- "source_url": the URL of the real source you found via search, supporting the story — must be a specific page that actually discusses THIS exact story, not a homepage, an unrelated video, or a generic live-updates/liveblog page that merely happens to be from a relevant outlet
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
@@ -170,7 +170,7 @@ Current, specific, and fresh — no historical background or context. The topic 
 Once you've found a real story, produce:
 - "topic": a short, punchy 2-5 word label suitable as a one-tap starting point for someone exploring the topic (title case, no trailing punctuation) — name the current event/development, not just the subject's name
 - "teaser": one enticing sentence (max 20 words) describing the specific development, written to make someone curious to click it
-- "source_url": the URL of the real source you found via search, supporting the story
+- "source_url": the URL of the real source you found via search, supporting the story — must be a specific page that actually discusses THIS exact story, not a homepage, an unrelated video, or a generic live-updates/liveblog page that merely happens to be from a relevant outlet
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
@@ -189,7 +189,7 @@ Search for a real, verifiable "National ___ Day" (or similar unofficial U.S. obs
 Once you've confirmed a real one via search, produce:
 - "topic": the exact name of the day, e.g. "National Coffee Day" (title case, no trailing punctuation, no year)
 - "teaser": one enticing sentence (max 20 words) that makes someone curious to click and learn about it
-- "source_url": the URL of a real source confirming this observance falls on this date
+- "source_url": the URL of a real source confirming this observance falls on this date — a specific page actually about it, not a homepage or unrelated page
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
@@ -208,7 +208,7 @@ Search for a real, verifiable, genuinely interesting event that happened specifi
 Once you've confirmed a real event via search, produce:
 - "topic": a short punchy 2-6 word label naming the event (title case, no trailing punctuation, no year)
 - "teaser": one enticing sentence (max 20 words) describing what happened — may include the year and place — written to make someone curious to click
-- "source_url": the URL of a real source confirming this event and date
+- "source_url": the URL of a real source confirming this event and date — a specific page actually about it, not a homepage or unrelated page
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
@@ -225,7 +225,7 @@ Pick a single real English word — common enough that most readers will already
 Once you've confirmed a real one via search, produce:
 - "topic": the word itself, title case, no definition or extra text
 - "teaser": one enticing sentence (max 20 words) that reveals the surprising part of its origin, written to make someone curious to click and learn more
-- "source_url": the URL of a real source confirming this etymology
+- "source_url": the URL of a real source confirming this etymology — a specific page actually about it, not a homepage or unrelated page
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
@@ -380,9 +380,41 @@ serve(async (req) => {
   const fieldsToRun = requestedFields.length > 0 ? requestedFields : NEWS_FIELDS;
 
   const recentByField = await fetchRecentTopicsByField();
-  const results = await Promise.allSettled(
-    fieldsToRun.map((field) => generateForField(apiKey, field, recentByField[field] || []))
+
+  // Trending 1 and 2 specifically run SEQUENTIALLY, not concurrently with
+  // everything else — confirmed live that running them in parallel (each
+  // blind to what the other just found) let them converge on the same
+  // underlying story often enough to matter, even with the "secondary"
+  // prompt explicitly told to avoid the dominant headline. Running
+  // secondary after primary and handing it primary's REAL topic as an
+  // extra exclusion (on top of its own past-picks history) actually
+  // guarantees no overlap instead of just hoping the category-based
+  // framing keeps them apart. Costs a few extra seconds of wall time,
+  // irrelevant for a twice-daily background cron job.
+  const sequentialFields = fieldsToRun.filter((f) => TRENDING_MAINSTREAM_FIELDS.includes(f));
+  const otherFields = fieldsToRun.filter((f) => !TRENDING_MAINSTREAM_FIELDS.includes(f));
+
+  const orderedFields: string[] = [];
+  const results: any[] = [];
+
+  let justPicked: string[] = [];
+  for (const field of sequentialFields) {
+    orderedFields.push(field);
+    try {
+      const value = await generateForField(apiKey, field, [...(recentByField[field] || []), ...justPicked]);
+      results.push({ status: "fulfilled", value });
+      justPicked = [...justPicked, value.topic];
+    } catch (reason) {
+      results.push({ status: "rejected", reason });
+    }
+  }
+
+  const otherResults = await Promise.allSettled(
+    otherFields.map((field) => generateForField(apiKey, field, recentByField[field] || []))
   );
+  orderedFields.push(...otherFields);
+  results.push(...otherResults);
+
   const rows: any[] = [];
   const errors: string[] = [];
   const today = new Date().toISOString().slice(0, 10);
@@ -391,8 +423,8 @@ serve(async (req) => {
     if (r.status === "fulfilled") {
       rows.push({ batch_date: today, ...r.value });
     } else {
-      console.error(`generate-trending-topics: field "${fieldsToRun[i]}" failed`, r.reason);
-      errors.push(`${fieldsToRun[i]}: ${r.reason}`);
+      console.error(`generate-trending-topics: field "${orderedFields[i]}" failed`, r.reason);
+      errors.push(`${orderedFields[i]}: ${r.reason}`);
     }
   });
 
