@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { X, User as UserIcon } from "lucide-react";
+import { EmbeddedCheckout, EmbeddedCheckoutProvider } from "@stripe/react-stripe-js";
 import { sendMagicLink, signOut } from "./lib/auth.js";
 import { updateFeatureToggles } from "./lib/profile.js";
-import { startCheckout, MIN_TOPUP_USD } from "./lib/billing.js";
+import { fetchCheckoutClientSecret, stripePromise, MIN_TOPUP_USD } from "./lib/billing.js";
 
 // Production punch list, Section C (funded experience) UI pass: a single
 // avatar/account button in the header corner, opening a modal with
@@ -199,8 +200,40 @@ export default function AccountMenu({
   const [status, setStatus] = useState("idle"); // idle | sending | sent | error
   const [modalOpen, setModalOpen] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState(String(MIN_TOPUP_USD));
-  const [checkoutStatus, setCheckoutStatus] = useState("idle"); // idle | starting | error | success
+  const [checkoutStatus, setCheckoutStatus] = useState("idle"); // idle | error | success
+  // The embedded checkout panel replaces the rest of the modal's content
+  // while open (see the `checkoutOpen ? ... : ...` branch below) — set the
+  // instant "Add" is submitted, holding the exact amount that panel should
+  // charge (topUpAmount can keep changing underneath it once it's open).
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutAmount, setCheckoutAmount] = useState(null);
   const [toggleSaving, setToggleSaving] = useState(null); // which toggle key is mid-save, if any
+
+  // Stable across re-renders so EmbeddedCheckoutProvider doesn't tear down
+  // and remount Checkout (losing whatever the shopper already typed into
+  // Stripe's card fields) just because a parent re-render made a new
+  // closure — only actually changes if the charged amount itself changes.
+  const fetchClientSecret = useCallback(() => fetchCheckoutClientSecret(checkoutAmount), [checkoutAmount]);
+  const handleCheckoutComplete = useCallback(() => {
+    // Fires for a plain card payment (no redirect needed) — the rare
+    // redirect-based-method path instead lands back via the `?checkout=
+    // success` return_url handled in the effect below, which does the same
+    // wait-then-refresh. Balance crediting itself is 100% webhook-driven
+    // (see stripe-webhook) — this delay just gives that async webhook a
+    // moment to land before re-reading the profile, same assumption the
+    // pre-embedded flow already made.
+    setCheckoutOpen(false);
+    setCheckoutStatus("success");
+    setTimeout(() => {
+      onProfileRefresh();
+      onLifetimeFundedRefresh();
+    }, 1500);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const checkoutOptions = useMemo(
+    () => ({ fetchClientSecret, onComplete: handleCheckoutComplete }),
+    [fetchClientSecret, handleCheckoutComplete]
+  );
 
   // House ads (Section H) want their CTA to open this same account/funds
   // modal — App.jsx has no direct handle on this component's local
@@ -221,11 +254,13 @@ export default function AccountMenu({
     onOpenLegal(doc);
   };
 
-  // Stripe redirects back to `/?checkout=success` (or `?checkout=cancel`)
-  // after a top-up — see create-checkout-session's success_url/cancel_url.
-  // The webhook that actually credits the balance runs asynchronously on
-  // Stripe's side, so this waits a moment before re-reading it rather than
-  // assuming it's already landed the instant the browser redirects back.
+  // Embedded checkout resolves a plain card payment inline (see
+  // handleCheckoutComplete above) without ever touching this URL — this
+  // effect only matters for the rare case where a redirect-based payment
+  // method was used, which Stripe sends back to `/?checkout=success` (see
+  // create-checkout-session's return_url) since redirect_on_completion is
+  // "if_required". Same wait-then-refresh reasoning either way: the webhook
+  // that actually credits the balance runs asynchronously on Stripe's side.
   // Only runs once on mount; the query param is stripped either way so a
   // page refresh doesn't keep re-showing the message. Opens the modal
   // automatically so the updated balance is the first thing seen.
@@ -246,19 +281,13 @@ export default function AccountMenu({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleAddFunds = async (e) => {
+  const handleAddFunds = (e) => {
     e.preventDefault();
     const amount = Number(topUpAmount);
     if (!Number.isFinite(amount) || amount < MIN_TOPUP_USD) return;
-    setCheckoutStatus("starting");
-    try {
-      await startCheckout(amount);
-      // startCheckout redirects the browser away on success — nothing
-      // left to do here in that case.
-    } catch (err) {
-      console.error("Hyfax: failed to start checkout", err);
-      setCheckoutStatus("error");
-    }
+    setCheckoutStatus("idle");
+    setCheckoutAmount(amount);
+    setCheckoutOpen(true);
   };
 
   const handleToggle = async (key, value) => {
@@ -299,36 +328,66 @@ export default function AccountMenu({
         </button>
 
         {modalOpen && (
-          <Modal onClose={() => setModalOpen(false)}>
-            <div className="p-5 flex flex-col gap-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <Avatar email={user.email} />
-                  <div className="min-w-0">
-                    <div className="rh-body text-sm font-medium truncate" style={{ color: "#F1E6D3" }}>
-                      {user.email}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => signOut()}
-                      className="rh-mono rh-text-10 underline"
-                      style={{ color: "#A89478" }}
-                    >
-                      Sign out
-                    </button>
-                  </div>
+          <Modal
+            onClose={() => {
+              setModalOpen(false);
+              setCheckoutOpen(false);
+            }}
+          >
+            {checkoutOpen ? (
+              <div className="p-5 flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <span className="rh-body text-sm font-medium" style={{ color: "#F1E6D3" }}>
+                    Add ${checkoutAmount}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCheckoutOpen(false)}
+                    aria-label="Cancel"
+                    style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "#A89478" }}
+                  >
+                    <X size={18} />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setModalOpen(false)}
-                  aria-label="Close"
-                  style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "#A89478" }}
-                >
-                  <X size={18} />
-                </button>
+                {/* Fixed min-height so the modal doesn't jump around as
+                    Stripe's iframe loads its own content in — Checkout
+                    resizes itself within this box once it's ready. */}
+                <div style={{ minHeight: "420px" }}>
+                  <EmbeddedCheckoutProvider stripe={stripePromise} options={checkoutOptions}>
+                    <EmbeddedCheckout />
+                  </EmbeddedCheckoutProvider>
+                </div>
               </div>
+            ) : (
+              <div className="p-5 flex flex-col gap-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Avatar email={user.email} />
+                    <div className="min-w-0">
+                      <div className="rh-body text-sm font-medium truncate" style={{ color: "#F1E6D3" }}>
+                        {user.email}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => signOut()}
+                        className="rh-mono rh-text-10 underline"
+                        style={{ color: "#A89478" }}
+                      >
+                        Sign out
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setModalOpen(false)}
+                    aria-label="Close"
+                    style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "#A89478" }}
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
 
-              {/* Shown for a signed-in, never-funded account — this is the
+                {/* Shown for a signed-in, never-funded account — this is the
                   moment "account created" is actually true, and where the
                   next step (funding) is right below. Clears up the same
                   point of confusion the pre-signup form used to try to
@@ -375,11 +434,10 @@ export default function AccountMenu({
                   </div>
                   <button
                     type="submit"
-                    disabled={checkoutStatus === "starting"}
                     className="rh-body text-sm font-medium rounded-full px-3.5 py-1.5 disabled:opacity-50 shrink-0"
                     style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
                   >
-                    {checkoutStatus === "starting" ? "…" : "Add"}
+                    Add
                   </button>
                 </form>
               </div>
@@ -428,7 +486,8 @@ export default function AccountMenu({
               <div className="pt-3" style={{ borderTop: "1px solid #3A2E20" }}>
                 <LegalLinks onOpenLegal={openLegal} />
               </div>
-            </div>
+              </div>
+            )}
           </Modal>
         )}
       </>

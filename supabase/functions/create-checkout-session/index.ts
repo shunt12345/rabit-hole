@@ -8,6 +8,19 @@
 // saved payment method from this same Stripe customer in a later build —
 // not part of this first pass.
 //
+// ui_mode: "embedded_page" — mounted inline in the account modal
+// (AccountMenu.jsx) via @stripe/react-stripe-js's EmbeddedCheckout, instead
+// of redirecting the whole browser to a checkout.stripe.com page. Still
+// fully PCI-compliant (Stripe hosts the actual card fields in an iframe),
+// just doesn't visually leave the app for the common case. Returns
+// client_secret, not a redirect url — success_url/cancel_url are rejected
+// outright by Stripe when ui_mode is embedded_page, and redirect_on_completion:
+// "if_required" means the browser only ever navigates to return_url for a
+// redirect-based payment method (some wallets) — a plain card payment
+// resolves entirely inside the mounted iframe and fires the client's
+// onComplete callback instead. return_url is kept anyway since Stripe
+// requires it whenever a redirect-based method could be offered.
+//
 // Same auth convention as rabbit-hole-proxy: the gateway-level
 // Authorization header carries the anon key (so Supabase's own JWT check
 // passes), and the REAL signed-in user's access token travels inside the
@@ -122,6 +135,8 @@ serve(async (req) => {
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
+      ui_mode: "embedded_page",
+      redirect_on_completion: "if_required",
       customer: stripeCustomerId,
       line_items: [
         {
@@ -133,12 +148,15 @@ serve(async (req) => {
           quantity: 1,
         },
       ],
-      success_url: `${APP_ORIGIN}/?checkout=success`,
-      cancel_url: `${APP_ORIGIN}/?checkout=cancel`,
+      // Only actually visited for a redirect-based payment method — same
+      // query param the old hosted-checkout success_url used, so the
+      // existing "wait a moment, then refresh balance" handling in
+      // AccountMenu.jsx covers this path too with no separate code.
+      return_url: `${APP_ORIGIN}/?checkout=success`,
       metadata: { supabase_user_id: userId },
     });
 
-    return new Response(JSON.stringify({ url: session.url }), {
+    return new Response(JSON.stringify({ clientSecret: session.client_secret }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
