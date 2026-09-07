@@ -68,6 +68,45 @@ const FIELDS = [...NEWS_FIELDS, ...SPECIAL_FIELDS];
 // switching for good, not an auto-upgrade to "whatever's newest."
 const MODEL = Deno.env.get("MODEL") ?? "claude-sonnet-5";
 
+// Restricts web_search to a curated set of reputable, dedicated-article
+// outlets — ONLY for the two mainstream trending fields. Confirmed live
+// (repeatedly, across several rounds of prompt-only tightening) that
+// mainstream stories kept citing generic section fronts, liveblogs, and
+// roundup/digest posts even after multiple rewrites of the source_url
+// instructions — see SOURCE_URL_CHECK below. A domain allowlist fixes this
+// structurally instead of relying on the model to keep judging "specific
+// enough" correctly. Deliberately NOT applied to the wildcard field or the
+// special date-anchored fields: an offbeat/under-the-radar story often
+// hasn't been picked up by a major outlet yet (that's the point of it),
+// and "This Day In History" was tuned to prefer local/regional sources —
+// a local paper or historical society site would never be on this list.
+// Bare domains with an optional path, no scheme (per Anthropic's
+// web_search allowed_domains format) — max 64 entries, well under that here.
+const TRUSTED_MAINSTREAM_DOMAINS = [
+  "apnews.com",
+  "reuters.com",
+  "bbc.com",
+  "npr.org",
+  "axios.com",
+  "nytimes.com",
+  "washingtonpost.com",
+  "theguardian.com",
+  "wsj.com",
+  "cnn.com",
+  "nbcnews.com",
+  "abcnews.go.com",
+  "cbsnews.com",
+  "politico.com",
+  "thehill.com",
+  "bloomberg.com",
+  "techcrunch.com",
+  "theverge.com",
+  "arstechnica.com",
+  "espn.com",
+  "variety.com",
+  "billboard.com",
+];
+
 // Overridable via `supabase secrets set` without a redeploy, same pattern as
 // DAILY_REQUEST_LIMIT in rabbit-hole-proxy — so a future Anthropic price
 // change is a config update, not a code change, and doesn't silently
@@ -294,7 +333,16 @@ async function generateForField(apiKey: string, field: string, excludeTopics: st
         // code triggered retry loops that blew well past this function's
         // execution budget. The basic variant returns results directly with
         // no code-execution round trip, and one field took ~5s in testing.
-        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
+        // allowed_domains only for the mainstream fields — see
+        // TRUSTED_MAINSTREAM_DOMAINS above for why it's scoped that way.
+        tools: [
+          {
+            type: "web_search_20250305",
+            name: "web_search",
+            max_uses: 2,
+            ...(TRENDING_MAINSTREAM_FIELDS.includes(field) ? { allowed_domains: TRUSTED_MAINSTREAM_DOMAINS } : {}),
+          },
+        ],
         messages: [{ role: "user", content: promptForField(field, excludeTopics) }],
       }),
       signal: controller.signal,
