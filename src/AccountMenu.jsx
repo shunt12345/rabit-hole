@@ -428,7 +428,7 @@ export default function AccountMenu({
                       value={topUpAmount}
                       onChange={(e) => setTopUpAmount(e.target.value)}
                       aria-label="Amount to add"
-                      className="rh-body text-sm rounded-full pr-1 py-1.5 border outline-none"
+                      className="rh-body rh-no-spinner text-sm rounded-full pr-1 py-1.5 border outline-none"
                       style={{ backgroundColor: "#332617", borderColor: "#5A4630", color: "#F1E6D3", width: "68px", paddingLeft: "20px" }}
                     />
                   </div>

@@ -1059,6 +1059,12 @@ export default function Hyfax() {
         .rh-hero-headline { font-size: 2.6rem; line-height: 1.05; }
         @keyframes rh-blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
         .rh-cursor-blink { display: inline-block; animation: rh-blink 1s step-end infinite; margin-left: 1px; }
+        /* Hides the native up/down stepper on number inputs (e.g. the
+           account modal's top-up amount field) — cross-browser needs both
+           rules since Chrome/Safari/Edge and Firefox expose it differently. */
+        .rh-no-spinner::-webkit-outer-spin-button,
+        .rh-no-spinner::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        .rh-no-spinner { -moz-appearance: textfield; }
       `}</style>
 
       {/* header — always present, avatar always top-right. The thought
