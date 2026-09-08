@@ -84,7 +84,17 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const stripe = new Stripe(stripeSecretKey, { httpClient: Stripe.createFetchHttpClient() });
+    // apiVersion pinned explicitly — confirmed live that without this,
+    // stripe-node@17.5.0's own default (older) API version rejects
+    // ui_mode: "embedded_page" outright: "Invalid ui_mode: embedded_page.
+    // In order to use ui_mode: embedded_page, you must upgrade to Stripe
+    // API version 2026-03-25.dahlia." The npm package version and the
+    // Stripe API version are independent — bumping this string doesn't
+    // require a new stripe-node release.
+    const stripe = new Stripe(stripeSecretKey, {
+      apiVersion: "2026-03-25.dahlia",
+      httpClient: Stripe.createFetchHttpClient(),
+    });
 
     const body = await req.json();
     const { userAccessToken, amountUsd } = body;
