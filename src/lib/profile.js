@@ -63,14 +63,32 @@ export async function updateFeatureToggles(toggles) {
   }
 }
 
-// Sum of every successful top-up ever made — the denominator for the
-// "Usage" gas-gauge (balance remaining / lifetime funded), so the gauge
-// reflects a real number instead of an arbitrary made-up ceiling.
+// Sum of every dollar this account was ever given to spend, real top-ups
+// AND the launch promo credit alike — the denominator for the "Usage"
+// gas-gauge (balance remaining / lifetime funded).
+//
+// Deliberately includes promo_credits here even though billing_transactions
+// alone is the real-revenue ledger elsewhere (see 0020's own comment on
+// keeping those separate for accounting) — this isn't a revenue figure, it's
+// "how much could this account ever have spent," and promo dollars spend
+// exactly like paid ones. Confirmed live this matters: without it, someone
+// who tops up before their promo credit hits zero gets a balance that
+// exceeds billing_transactions alone, which pins the gauge at a clamped 0%
+// indefinitely — real spending that came out of the promo credit would
+// never show up in this ratio at all, forever, not just until it catches up.
 export async function getLifetimeFundedUsd() {
-  const { data, error } = await supabase.from("billing_transactions").select("amount_usd");
-  if (error) {
-    console.error("Hyfax: failed to read billing transactions", error);
+  const [billing, promo] = await Promise.all([
+    supabase.from("billing_transactions").select("amount_usd"),
+    supabase.from("promo_credits").select("amount_usd"),
+  ]);
+  if (billing.error) {
+    console.error("Hyfax: failed to read billing transactions", billing.error);
     return null;
   }
-  return data.reduce((sum, row) => sum + Number(row.amount_usd), 0);
+  if (promo.error) {
+    console.error("Hyfax: failed to read promo credits", promo.error);
+    return null;
+  }
+  const sum = (rows) => rows.reduce((total, row) => total + Number(row.amount_usd), 0);
+  return sum(billing.data) + sum(promo.data);
 }
