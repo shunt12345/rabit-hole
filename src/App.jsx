@@ -90,6 +90,7 @@ function linkifyText(text, children) {
 // with the accumulated text so far after every delta, so the screen can
 // render it growing in real time rather than sitting on a spinner.
 async function fetchArticleTextStreaming(topicLabel, path, childLabels, onChunk, newsContext, nodeType) {
+  const today = new Date().toISOString().slice(0, 10);
   const branchNote =
     childLabels && childLabels.length
       ? `\n\nThis topic already branches into these related threads: ${childLabels.join(", ")}.`
@@ -97,7 +98,16 @@ async function fetchArticleTextStreaming(topicLabel, path, childLabels, onChunk,
   const newsNote = newsContext
     ? `\n\nThis topic was picked from a live "Trending" feed because of a specific current story: "${newsContext}". Don't spell out the exact calendar date this happened (e.g., "On August 8, 2025") unless the date itself is the actual point of the story — a "this day in history"/anniversary framing, or the date is what makes it notable. For an ordinary current pick, just write it as recent/current instead ("recently," "this week," etc.) — a hardcoded date reads as stale the moment it's read after the fact, which defeats the point of it being "trending."`
     : "";
+  // Today's date is real grounding, not decoration — without it, "current"
+  // in the model's own training data can be a year or more stale by the
+  // time this actually runs (confirmed live: an ordinary, non-news topic
+  // wrote "Apple is expected to unveil its first foldable iPhone" framed
+  // as upcoming, dated September 2025 — a full year in the past by the
+  // time a reader actually saw it). See the shared system prompt's note on
+  // checking date-relative framing against this.
   const userContent = `TASK: read-more article
+
+Today's date is ${today}.
 
 Path so far: ${path.join(" → ")}
 Topic: "${topicLabel}"${newsNote}${branchNote}`;
@@ -113,7 +123,10 @@ Topic: "${topicLabel}"${newsNote}${branchNote}`;
 // satisfying next layer for someone who wants a little more, not a
 // dissertation.
 async function fetchArticleContinuationStreaming(topicLabel, path, existingArticle, onChunk, nodeType) {
+  const today = new Date().toISOString().slice(0, 10);
   const userContent = `TASK: continue article
+
+Today's date is ${today}.
 
 Path so far: ${path.join(" → ")}
 Topic: "${topicLabel}"
@@ -147,10 +160,13 @@ function normalizeChildren(rawChildren) {
 }
 
 function rootPrompt(topic, newsContext) {
+  const today = new Date().toISOString().slice(0, 10);
   const newsNote = newsContext
     ? `\n\nThis topic was picked from a live "Trending" feed because of a specific current story: "${newsContext}". Don't spell out the exact calendar date this happened (e.g., "On August 8, 2025") unless the date itself is the actual point of the story — a "this day in history"/anniversary framing, or the date is what makes it notable. For an ordinary current pick, just write it as recent/current instead ("recently," "this week," etc.) — a hardcoded date reads as stale the moment it's read after the fact, which defeats the point of it being "trending."`
     : "";
   return `TASK: root topic
+
+Today's date is ${today}.
 
 Starting topic: "${topic}"${newsNote}`;
 }

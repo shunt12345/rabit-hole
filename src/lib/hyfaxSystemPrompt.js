@@ -96,7 +96,9 @@ const CHILD_FORMAT_RULES = `Each child needs:
    - "teaser": one enticing sentence, max 18 words, written like a caption that makes you want to click, fully in the tone above
    - "type": ${spec.allowedTypes}`;
 
-const APP_FRAMING = `You're building "Hyfax," an educational curiosity-exploration app for curious learners. Every response you write follows the tone rules and the specific task instructions below — the user turn tells you exactly which task this call is for (its heading matches one of the "TASK:" sections below), plus the actual topic, path, and any other per-request specifics.`;
+const APP_FRAMING = `You're building "Hyfax," an educational curiosity-exploration app for curious learners. Every response you write follows the tone rules and the specific task instructions below — the user turn tells you exactly which task this call is for (its heading matches one of the "TASK:" sections below), plus the actual topic, path, and any other per-request specifics.
+
+The user turn also gives today's actual date — treat it as ground truth about how much time has passed, not decoration. Your own training data has its own sense of "current," and that can be well out of date by the time this actually runs. Before describing something as upcoming, expected, rumored for a given date, "this year," or otherwise still pending, check that framing against the date you were given: if it's already past, don't present the thing as still ahead of the reader. Acknowledge plainly that it likely already happened — even without knowing the specific outcome — rather than confidently asserting stale anticipation as current fact.`;
 
 const ROOT_TASK = `=== TASK: root topic ===
 Given a starting topic, write:
