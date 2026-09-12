@@ -97,7 +97,7 @@ async function fetchArticleTextStreaming(topicLabel, path, childLabels, onChunk,
       ? `\n\nThis topic already branches into these related threads: ${childLabels.join(", ")}.`
       : "";
   const newsNote = newsContext
-    ? `\n\nThis topic was picked from a live "Trending" feed because of a specific current story: "${newsContext}". Don't spell out the exact calendar date this happened (e.g., "On August 8, 2025") unless the date itself is the actual point of the story — a "this day in history"/anniversary framing, or the date is what makes it notable. For an ordinary current pick, just write it as recent/current instead ("recently," "this week," etc.) — a hardcoded date reads as stale the moment it's read after the fact, which defeats the point of it being "trending."`
+    ? `\n\nThis topic comes with specific context worth reflecting accurately, picked from one of the hero page's live feeds: "${newsContext}". Don't spell out the exact calendar date this happened (e.g., "On August 8, 2025") unless the date itself is the actual point of the story — a "this day in history"/anniversary framing, or the date is what makes it notable. For an ordinary current news pick, just write it as recent/current instead ("recently," "this week," etc.) — a hardcoded date reads as stale the moment it's read after the fact, which defeats the point of it being "trending." (This date guidance doesn't apply if the context above is a quote's attribution rather than a news event — just use it accurately as given.)`
     : "";
   // Today's date is real grounding, not decoration — without it, "current"
   // in the model's own training data can be a year or more stale by the
@@ -168,7 +168,7 @@ function normalizeChildren(rawChildren) {
 function rootPrompt(topic, newsContext) {
   const today = new Date().toISOString().slice(0, 10);
   const newsNote = newsContext
-    ? `\n\nThis topic was picked from a live "Trending" feed because of a specific current story: "${newsContext}". Don't spell out the exact calendar date this happened (e.g., "On August 8, 2025") unless the date itself is the actual point of the story — a "this day in history"/anniversary framing, or the date is what makes it notable. For an ordinary current pick, just write it as recent/current instead ("recently," "this week," etc.) — a hardcoded date reads as stale the moment it's read after the fact, which defeats the point of it being "trending."`
+    ? `\n\nThis topic comes with specific context worth reflecting accurately, picked from one of the hero page's live feeds: "${newsContext}". Don't spell out the exact calendar date this happened (e.g., "On August 8, 2025") unless the date itself is the actual point of the story — a "this day in history"/anniversary framing, or the date is what makes it notable. For an ordinary current news pick, just write it as recent/current instead ("recently," "this week," etc.) — a hardcoded date reads as stale the moment it's read after the fact, which defeats the point of it being "trending." (This date guidance doesn't apply if the context above is a quote's attribution rather than a news event — just use it accurately as given.)`
     : "";
   return `TASK: root topic
 
@@ -214,6 +214,12 @@ const NEWS_FIELDS = ["Trending 1", "Trending 2", "Trending Wildcard"];
 // to showing its raw key.
 const NEWS_FIELD_LABELS = { "Trending 1": "Trending", "Trending 2": "Trending", "Trending Wildcard": "Wildcard" };
 const SPECIAL_FIELDS = ["National Day", "This Day In History", "Word Of The Day"];
+// Same source table/cron cadence as SPECIAL_FIELDS (see promptForField in
+// generate-trending-topics), but rendered as its own dedicated section
+// above "Trending" instead of grouped into "Today" — deliberately kept OUT
+// of SPECIAL_FIELDS above so it doesn't also show up a second time in that
+// list.
+const QUOTE_FIELD = "Quote Of The Day";
 
 // Picks the single most recent row for each field in `fields`, in that
 // order — not just the first N rows in the batch, since stale rows from a
@@ -273,6 +279,9 @@ export default function Hyfax() {
   const [selectedNewsIdx, setSelectedNewsIdx] = useState(null);
   // Same idea, for the separate "National Day" / "This Day In History" pair.
   const [selectedTodayIdx, setSelectedTodayIdx] = useState(null);
+  // Same idea, for the single Quote Of The Day card — a plain boolean since
+  // there's only ever one of these on screen, unlike the indexed lists above.
+  const [selectedQuote, setSelectedQuote] = useState(false);
   // Raw action count from the proxy's X-Session-Actions-Today header —
   // kept for the existing 300/day safety-net visibility; the real
   // free-trial gate (below) is search-count-based, not this.
@@ -545,6 +554,7 @@ export default function Hyfax() {
       }
       setSelectedNewsIdx(null);
       setSelectedTodayIdx(null);
+      setSelectedQuote(false);
       startTopic(inputVal);
     } catch (syncErr) {
       console.error("Hyfax: synchronous error on click", syncErr);
@@ -633,6 +643,7 @@ export default function Hyfax() {
       reveal.cancel();
       setSelectedNewsIdx(null);
       setSelectedTodayIdx(null);
+      setSelectedQuote(false);
       setRootError(e.message || "Something went wrong. Try again.");
     } finally {
       setRootLoading(false);
@@ -1027,6 +1038,7 @@ export default function Hyfax() {
   const hasStarted = nodes.length > 0;
   const newsTopics = latestByField(trendingTopics, NEWS_FIELDS);
   const todayTopics = latestByField(trendingTopics, SPECIAL_FIELDS);
+  const quoteTopic = latestByField(trendingTopics, [QUOTE_FIELD])[0] || null;
   const selected = nodes.find((n) => n.id === selectedId) || null;
   const selectedChildren = selected ? nodes.filter((n) => n.parentId === selected.id) : [];
   // Once the trial's exhausted, Dig In still works for a fresh general
@@ -1222,6 +1234,54 @@ export default function Hyfax() {
               </div>
             )}
 
+            {/* Quote Of The Day — same source table/cron cadence as "Today"
+                (see promptForField in generate-trending-topics), but placed
+                above "Trending" as its own section rather than grouped into
+                the "Today" list, since a full quote needs more visual room
+                than a short topic label + teaser. Reuses the "Today"
+                feature toggle for gating (todayVisible) rather than adding
+                a whole new toggle for one field. Clickable the same way as
+                every other card — the quote text itself becomes the topic
+                dug into, with the author/context teaser passed through as
+                newsContext so the resulting article covers the quote's
+                real history, significance, and author (see ARTICLE_TASK's
+                dedicated Quote Of The Day guidance in hyfaxSystemPrompt.js). */}
+            {quoteTopic && !trialExhausted && todayVisible && (
+              <div className="mt-10">
+                <div className="flex items-center justify-center gap-1.5 mb-6">
+                  <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
+                    Quote of the Day
+                  </span>
+                </div>
+                <div className="max-w-md mx-auto">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedQuote(true);
+                      setSelectedNewsIdx(null);
+                      setSelectedTodayIdx(null);
+                      startTopic(quoteTopic.topic, quoteTopic.teaser);
+                    }}
+                    disabled={rootLoading}
+                    className={`rh-chip text-left p-5 rounded-2xl border transition-colors w-full ${
+                      rootLoading && !selectedQuote ? "opacity-40" : ""
+                    } ${rootLoading && selectedQuote ? "cursor-default" : ""}`}
+                    style={{
+                      borderColor: selectedQuote ? "#E3A73C" : "#3A2E20",
+                      backgroundColor: selectedQuote ? "#2A2015" : "#1F1811",
+                    }}
+                  >
+                    <div className="rh-display italic text-xl leading-snug" style={{ color: "#F1E6D3" }}>
+                      {quoteTopic.topic}
+                    </div>
+                    <p className="rh-body text-sm mt-3" style={{ color: "#B8A886" }}>
+                      {quoteTopic.teaser}
+                    </p>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* real, live-searched stories — see
                 supabase/functions/generate-trending-topics. The "as of"
                 date reflects the actual cache timestamp now, not a
@@ -1255,6 +1315,7 @@ export default function Hyfax() {
                         onClick={() => {
                           setSelectedNewsIdx(i);
                           setSelectedTodayIdx(null);
+                          setSelectedQuote(false);
                           startTopic(t.topic, t.teaser);
                         }}
                         disabled={rootLoading}
@@ -1316,6 +1377,7 @@ export default function Hyfax() {
                         onClick={() => {
                           setSelectedTodayIdx(i);
                           setSelectedNewsIdx(null);
+                          setSelectedQuote(false);
                           startTopic(t.topic, t.teaser);
                         }}
                         disabled={rootLoading}

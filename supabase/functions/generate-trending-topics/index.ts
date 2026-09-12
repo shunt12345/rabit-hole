@@ -59,7 +59,7 @@ const NEWS_FIELDS = [...TRENDING_MAINSTREAM_FIELDS, TRENDING_WILDCARD_FIELD];
 // are (a word doesn't have a calendar date) — it's here because it shares
 // their real mechanic: one nightly pick, no live-search "recent story"
 // framing, excludeTopics keeps it from repeating.
-const SPECIAL_FIELDS = ["National Day", "This Day In History", "Word Of The Day"];
+const SPECIAL_FIELDS = ["National Day", "This Day In History", "Word Of The Day", "Quote Of The Day"];
 const FIELDS = [...NEWS_FIELDS, ...SPECIAL_FIELDS];
 // Overridable via `supabase secrets set MODEL=...` without a redeploy —
 // same reasoning as rabbit-hole-proxy's MODEL constant: lets a candidate
@@ -297,10 +297,37 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
 }
 
+// The "topic" field doubles as the actual quote text here, not a punchy
+// short label like every other field — the client renders it as the full
+// quote itself (see App.jsx's dedicated Quote Of The Day card, placed above
+// Trending rather than grouped into "Today"). Misattributed quotes are
+// rampant online (a large share of "Einstein said"/"Twain said" quotes
+// circulating are fake), so this explicitly names that risk rather than
+// just asking for "a real quote" and trusting search results at face value.
+function quoteOfTheDayPrompt(excludeTopics: string[]): string {
+  const excludeBlock = excludeTopics.length
+    ? `\n\nAlready featured recently — pick a different quote this time, not a repeat of any of these: ${excludeTopics.join("; ")}.`
+    : "";
+  return `You have live web search — use it now.
+
+Pick a single real, genuinely well-known and quotable quote worth a reader pausing on — from a real historical or notable figure (a writer, scientist, leader, artist, philosopher, etc.), not an anonymous "inspirational quote" graphic. Search to confirm BOTH the exact wording AND the attribution are accurate — misattributed quotes are extremely common online (a large share of "Einstein said" or "Mark Twain said" quotes circulating online are fake or misattributed to them), so specifically check whether this one is a known fake before using it. If you can't confirm a real, correctly-attributed quote, pick a different one you can verify instead of using an unconfirmed one.${excludeBlock}
+
+Once you've confirmed a real, correctly-attributed quote via search, produce:
+- "topic": the quote itself, in quotation marks, exactly as verified — word for word, no paraphrasing. This can run longer than the usual short label; the whole point is showing the real quote.
+- "teaser": the author's name, and if it fits within 20 words, a brief note on who they were (e.g., "— Marie Curie, physicist and two-time Nobel laureate")
+- "source_url": the URL of a real source confirming this exact wording and attribution — a specific page actually about it, not a homepage or unrelated page
+
+${SOURCE_URL_CHECK}
+
+Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
+{"topic": "...", "teaser": "...", "source_url": "..."}`;
+}
+
 function promptForField(field: string, excludeTopics: string[]): string {
   if (field === "National Day") return nationalDayPrompt(excludeTopics);
   if (field === "This Day In History") return thisDayInHistoryPrompt(excludeTopics);
   if (field === "Word Of The Day") return wordOfTheDayPrompt(excludeTopics);
+  if (field === "Quote Of The Day") return quoteOfTheDayPrompt(excludeTopics);
   if (field === TRENDING_WILDCARD_FIELD) return trendingWildcardPrompt(excludeTopics);
   if (field === TRENDING_MAINSTREAM_FIELDS[0]) return trendingMainstreamPrompt(excludeTopics, "primary");
   if (field === TRENDING_MAINSTREAM_FIELDS[1]) return trendingMainstreamPrompt(excludeTopics, "secondary");
