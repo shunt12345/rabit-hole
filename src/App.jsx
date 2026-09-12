@@ -17,6 +17,7 @@ import AccountMenu from "./AccountMenu.jsx";
 import LegalModal from "./LegalModal.jsx";
 import WelcomeModal from "./WelcomeModal.jsx";
 import { hasSeenWelcome, markWelcomeSeen } from "./lib/welcome.js";
+import { nextOpenerShape } from "./lib/openerVariety.js";
 import UsageGauge from "./UsageGauge.jsx";
 import MiniGauge from "./MiniGauge.jsx";
 import AdCard from "./AdCard.jsx";
@@ -105,12 +106,17 @@ async function fetchArticleTextStreaming(topicLabel, path, childLabels, onChunk,
   // as upcoming, dated September 2025 — a full year in the past by the
   // time a reader actually saw it). See the shared system prompt's note on
   // checking date-relative framing against this.
+  // Assigns the second paragraph's opener a specific shape rather than
+  // leaving "vary it" to the model — see lib/openerVariety.js for why a
+  // stateless per-call instruction alone wasn't producing real variety
+  // across separate articles for one active user.
+  const openerNote = `\n\nFor the second paragraph's opening sentence specifically, use this exact approach: ${nextOpenerShape()}.`;
   const userContent = `TASK: read-more article
 
 Today's date is ${today}.
 
 Path so far: ${path.join(" → ")}
-Topic: "${topicLabel}"${newsNote}${branchNote}`;
+Topic: "${topicLabel}"${newsNote}${branchNote}${openerNote}`;
 
   return streamTextFromPrompt(HYFAX_SYSTEM, userContent, 700, 30000, "article", onChunk, nodeType);
 }
