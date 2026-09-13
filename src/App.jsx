@@ -68,18 +68,26 @@ function stripMarkdown(text) {
     .replace(/\*+/g, ""); // anything left over, including an unmatched opening asterisk mid-stream
 }
 
-// turns any exact-name mention of a child's label inside a block of text
-// into a clickable piece — used for both the short teaser/overview and the
-// full article, so a name only needs to be written once to become a link
-// wherever it shows up
+// turns any mention of a child's label inside a block of text into a
+// clickable piece — used for both the short teaser/overview and the full
+// article, so a name only needs to be written once to become a link
+// wherever it shows up. Case-insensitive on purpose: child labels are
+// stored Title Case (e.g. "Echo Chamber Radicalization"), but natural
+// prose mid-sentence writes them lowercase ("...tips into echo chamber
+// radicalization"). Confirmed live this was silently breaking links
+// whenever the model wrote a mention in normal sentence case instead of
+// matching the label's exact capitalization — the piece rendered as plain
+// text with no visible sign it was ever supposed to be a link. Keeps
+// whatever casing actually appears in the text (doesn't force Title Case
+// mid-sentence), just matches regardless of case.
 function linkifyText(text, children) {
   if (!children || !children.length || !text) return [text];
   const sorted = [...children].sort((a, b) => b.label.length - a.label.length);
-  const pattern = new RegExp(`(${sorted.map((c) => escapeRegExp(c.label)).join("|")})`, "g");
+  const pattern = new RegExp(`(${sorted.map((c) => escapeRegExp(c.label)).join("|")})`, "gi");
   const pieces = text.split(pattern);
-  const byLabel = new Map(children.map((c) => [c.label, c]));
+  const byLabel = new Map(children.map((c) => [c.label.toLowerCase(), c]));
   return pieces.map((piece) => {
-    const child = byLabel.get(piece);
+    const child = byLabel.get(piece.toLowerCase());
     return child ? { type: "link", label: piece, nodeId: child.id } : piece;
   });
 }
