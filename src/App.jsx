@@ -19,6 +19,7 @@ import LegalModal from "./LegalModal.jsx";
 import WelcomeModal from "./WelcomeModal.jsx";
 import { hasSeenWelcome, markWelcomeSeen } from "./lib/welcome.js";
 import { nextOpenerShape } from "./lib/openerVariety.js";
+import { nextInputPlaceholder } from "./lib/inputPlaceholders.js";
 import UsageGauge from "./UsageGauge.jsx";
 import MiniGauge from "./MiniGauge.jsx";
 import AdCard from "./AdCard.jsx";
@@ -279,6 +280,10 @@ const CHIP_AD = {
 export default function Hyfax() {
   const [topic, setTopic] = useState("");
   const [inputVal, setInputVal] = useState("");
+  // Rotates once per visit (lazy initializer — computed on mount, not on
+  // every render) rather than a live-animated carousel; see
+  // lib/inputPlaceholders.js for why this is a fixed list, not generated.
+  const [placeholderExample] = useState(nextInputPlaceholder);
   const [nodes, setNodes] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [rootLoading, setRootLoading] = useState(false);
@@ -1212,7 +1217,7 @@ export default function Hyfax() {
                     handleStartClick();
                   }
                 }}
-                placeholder="octopus cognition, silk road, fermentation…"
+                placeholder={placeholderExample}
                 disabled={rootLoading}
                 className="rh-body flex-1 border outline-none rh-placeholder rh-input text-sm rounded-full px-5 py-3 transition-colors"
                 style={{ backgroundColor: "#332617", borderColor: "#5A4630", color: "#F1E6D3" }}
