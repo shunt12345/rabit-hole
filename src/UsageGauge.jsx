@@ -15,7 +15,7 @@ export default function UsageGauge({ profile, lifetimeFunded }) {
 
   return (
     <div className="max-w-md mx-auto mt-3">
-      <MiniGauge label="Usage" valueText={`${Math.round(usageFraction * 100)}%`} fraction={usageFraction} />
+      <MiniGauge label="Usage" fraction={usageFraction} centered />
     </div>
   );
 }
