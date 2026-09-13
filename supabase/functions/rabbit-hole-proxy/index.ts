@@ -296,11 +296,59 @@ function background(promise: Promise<unknown>) {
 // time-to-first-byte, and not just an output-token-count proxy. It omits
 // only the last small hop from this function to the actual browser, which
 // isn't the variable cost driver anyway (generation time is).
+// Shared by both a real generation (extractUsageAndBill below) and a
+// cache-hit article read (see the newsCacheKey/"article" branch in serve())
+// — logs the real/attributed cost onto this request's log row and, for a
+// signed-in caller, deducts the marked-up amount from their balance via the
+// atomic deduct_balance function. Pulled out on its own specifically so a
+// cache hit can charge like a fresh search too, using the ORIGINAL
+// generation's stored usage (see news_root_cache's article_input_tokens/
+// article_output_tokens) — without this, every visitor after the first to
+// open a given Trending/Today/Quote card got that page for free, which
+// matters a lot given most traffic starts from the hero page.
+async function billAndLog(
+  usage: { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number },
+  logRowIdPromise: Promise<number | null>,
+  userId: string | null,
+  latencyMs: number | null
+) {
+  const costUsd = computeCostUsd(usage);
+
+  const rowId = await logRowIdPromise;
+  if (rowId != null) {
+    const { error } = await supabase
+      .from("rabbit_hole_request_logs")
+      .update({
+        model: MODEL,
+        input_tokens: usage.input_tokens ?? 0,
+        output_tokens: usage.output_tokens ?? 0,
+        cost_usd: costUsd,
+        latency_ms: latencyMs,
+      })
+      .eq("id", rowId);
+    if (error) console.error("rabbit-hole-proxy: failed to log real cost", error);
+  }
+
+  if (userId) {
+    const { error } = await supabase.rpc("deduct_balance", {
+      p_user_id: userId,
+      p_amount: costUsd * BILLING_MARKUP_MULTIPLIER,
+    });
+    if (error) console.error("rabbit-hole-proxy: failed to deduct balance", error);
+  }
+}
+
+// cacheContext is set only for a genuinely fresh (non-cached) article
+// generation tied to a newsCacheKey — when present, this also persists the
+// real usage onto news_root_cache (best-effort, first-write-wins via
+// .is(..., null)) so a LATER cache hit for the same topic can bill readers
+// the same real cost via billAndLog above, instead of serving it for free.
 async function extractUsageAndBill(
   meterRes: Response,
   logRowIdPromise: Promise<number | null>,
   userId: string | null,
-  anthropicCallStartedAt: number
+  anthropicCallStartedAt: number,
+  cacheContext?: { newsCacheKey: string; endpoint: string }
 ) {
   try {
     const contentType = meterRes.headers.get("Content-Type") || "";
@@ -313,30 +361,16 @@ async function extractUsageAndBill(
     }
     if (!usage) return;
 
-    const costUsd = computeCostUsd(usage);
     const latencyMs = Date.now() - anthropicCallStartedAt;
+    await billAndLog(usage, logRowIdPromise, userId, latencyMs);
 
-    const rowId = await logRowIdPromise;
-    if (rowId != null) {
+    if (cacheContext?.endpoint === "article" && cacheContext.newsCacheKey) {
       const { error } = await supabase
-        .from("rabbit_hole_request_logs")
-        .update({
-          model: MODEL,
-          input_tokens: usage.input_tokens,
-          output_tokens: usage.output_tokens,
-          cost_usd: costUsd,
-          latency_ms: latencyMs,
-        })
-        .eq("id", rowId);
-      if (error) console.error("rabbit-hole-proxy: failed to log real cost", error);
-    }
-
-    if (userId) {
-      const { error } = await supabase.rpc("deduct_balance", {
-        p_user_id: userId,
-        p_amount: costUsd * BILLING_MARKUP_MULTIPLIER,
-      });
-      if (error) console.error("rabbit-hole-proxy: failed to deduct balance", error);
+        .from("news_root_cache")
+        .update({ article_input_tokens: usage.input_tokens ?? 0, article_output_tokens: usage.output_tokens ?? 0 })
+        .eq("cache_key", cacheContext.newsCacheKey)
+        .is("article_input_tokens", null);
+      if (error) console.error("rabbit-hole-proxy: failed to persist article usage for caching", error);
     }
   } catch (e) {
     console.error("rabbit-hole-proxy: usage/billing extraction failed", e);
@@ -765,13 +799,31 @@ serve(async (req) => {
     if (newsCacheKey && endpoint === "article") {
       const { data: cached, error: cacheErr } = await supabase
         .from("news_root_cache")
-        .select("article")
+        .select("article, article_input_tokens, article_output_tokens")
         .eq("cache_key", newsCacheKey)
         .maybeSingle();
       if (cacheErr) {
         // fail open — fall through to a real generation rather than block
         console.error("rabbit-hole-proxy: news article cache lookup failed", cacheErr);
       } else if (cached?.article) {
+        // Bills this cache hit the SAME as the original real generation —
+        // most traffic starts from the hero page, so serving every reader
+        // after the first one for free would give away real revenue.
+        // Backgrounded like the real-generation billing path below rather
+        // than awaited, so a cache hit still returns instantly; usage may
+        // be null for a row cached before this billing existed, in which
+        // case this is a no-op and the read stays free (rare — this table
+        // was effectively empty of cached articles when this shipped).
+        if (cached.article_input_tokens != null || cached.article_output_tokens != null) {
+          background(
+            billAndLog(
+              { input_tokens: cached.article_input_tokens ?? 0, output_tokens: cached.article_output_tokens ?? 0 },
+              logRowIdPromise,
+              userId,
+              0
+            )
+          );
+        }
         return newsArticleCacheResponse(cached.article, responseHeaders);
       }
     } else if (newsCacheKey) {
@@ -823,7 +875,15 @@ serve(async (req) => {
     // change billing makes to this path; the client-facing pass-through
     // itself (anthropicRes.body below) is untouched, same as before.
     if (anthropicRes.ok) {
-      background(extractUsageAndBill(anthropicRes.clone(), logRowIdPromise, userId, anthropicCallStartedAt));
+      background(
+        extractUsageAndBill(
+          anthropicRes.clone(),
+          logRowIdPromise,
+          userId,
+          anthropicCallStartedAt,
+          newsCacheKey ? { newsCacheKey, endpoint } : undefined
+        )
+      );
     }
 
     // stream the response straight through unmodified — the client's own
