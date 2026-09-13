@@ -221,14 +221,39 @@ const SPECIAL_FIELDS = ["National Day", "This Day In History", "Word Of The Day"
 // list.
 const QUOTE_FIELD = "Quote Of The Day";
 
+// How old a row can be before it's treated as stale rather than shown as
+// today's pick — generous past the ~24h cron cadence (36h) to tolerate
+// normal timing jitter, but still short enough to catch a genuinely failed
+// run. Confirmed live this matters: generate-trending-topics silently
+// failed for one field one day (no error surfaced anywhere a visitor could
+// see), and with no staleness check at all, the PREVIOUS day's row for
+// that field just kept showing indefinitely as if it were current —
+// exactly the kind of thing "Trending" can't afford to get wrong.
+const MAX_STALE_HOURS = 36;
+function isFresh(row) {
+  return Date.now() - new Date(row.generated_at).getTime() <= MAX_STALE_HOURS * 60 * 60 * 1000;
+}
+
+// The "as of" badge's actual date — the max across all rows, not just
+// rows[0]. Confirmed live why this matters: when one field's generation
+// silently failed for a day, rows[0] (Trending 1, alphabetically/order
+// first) was the stale leftover while the other two fields were genuinely
+// fresh from today, so a naive rows[0] read showed yesterday's date even
+// though most of the section was current.
+function mostRecentDate(rows) {
+  return new Date(Math.max(...rows.map((r) => new Date(r.generated_at).getTime())));
+}
+
 // Picks the single most recent row for each field in `fields`, in that
 // order — not just the first N rows in the batch, since stale rows from a
 // retired field or a partially-failed cron run could otherwise crowd out a
-// field that's actually still active.
+// field that's actually still active. Drops anything past MAX_STALE_HOURS
+// outright — better to show fewer cards than a visibly-dated one.
 function latestByField(rows, fields) {
   return fields
     .map((field) => rows.find((r) => r.field === field))
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter(isFresh);
 }
 
 // UI-only mockup of the lightweight "Explore next" chip ad — hardcoded
@@ -1299,7 +1324,7 @@ export default function Hyfax() {
                 <div className="rh-mono text-sm mb-6" style={{ color: "#A89478" }}>
                   as of{" "}
                   <span className="font-semibold" style={{ color: "#E3A73C" }}>
-                    {new Date(newsTopics[0].generated_at).toLocaleDateString(undefined, {
+                    {mostRecentDate(newsTopics).toLocaleDateString(undefined, {
                       month: "long",
                       day: "numeric",
                     })}
