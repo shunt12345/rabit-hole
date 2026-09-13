@@ -599,6 +599,18 @@ async function handleNewsCacheWrite(write: any, corsHeaders: Record<string, stri
   const rootLabel = typeof write?.rootLabel === "string" ? write.rootLabel : "";
   const overview = typeof write?.overview === "string" ? write.overview : "";
   const children = Array.isArray(write?.children) ? write.children : null;
+  // Client-captured real usage for THIS root generation (see streamJSON's
+  // onUsage in src/lib/api.js) — travels in this same write since the row
+  // is created here, avoiding a race against the server's own background
+  // billing task trying to update a row that doesn't exist yet. Trusting a
+  // client-reported number is a real trade-off (same posture as this
+  // function's existing "no real request signing" one above): worst case
+  // someone under-reports it and future cache-hit readers of THAT one
+  // topic get under-billed — never affects the reporting client's own
+  // balance, and the blast radius is one topic's cache row, not the
+  // billing system generally.
+  const inputTokens = Number.isFinite(write?.inputTokens) ? write.inputTokens : null;
+  const outputTokens = Number.isFinite(write?.outputTokens) ? write.outputTokens : null;
 
   if (!cacheKey || !rootLabel || !overview || !children) {
     return new Response(JSON.stringify({ error: "invalid newsCacheWrite payload" }), {
@@ -616,7 +628,14 @@ async function handleNewsCacheWrite(write: any, corsHeaders: Record<string, stri
       .maybeSingle();
     if (realTopic) {
       await supabase.from("news_root_cache").upsert(
-        { cache_key: cacheKey, root_label: rootLabel, overview, children },
+        {
+          cache_key: cacheKey,
+          root_label: rootLabel,
+          overview,
+          children,
+          root_input_tokens: inputTokens,
+          root_output_tokens: outputTokens,
+        },
         { onConflict: "cache_key", ignoreDuplicates: true }
       );
     }
@@ -829,13 +848,29 @@ serve(async (req) => {
     } else if (newsCacheKey) {
       const { data: cached, error: cacheErr } = await supabase
         .from("news_root_cache")
-        .select("root_label, overview, children")
+        .select("root_label, overview, children, root_input_tokens, root_output_tokens")
         .eq("cache_key", newsCacheKey)
         .maybeSingle();
       if (cacheErr) {
         // fail open — fall through to a real generation rather than block
         console.error("rabbit-hole-proxy: news root cache lookup failed", cacheErr);
       } else if (cached) {
+        // Same reasoning as the article cache hit above — bills this read
+        // the same as the original generation instead of giving it away.
+        // root_input_tokens/output_tokens come from the CLIENT's own
+        // cache-write (see writeNewsRootCache) rather than a server-side
+        // background update, since this row is created by that same write
+        // — nothing to race against here.
+        if (cached.root_input_tokens != null || cached.root_output_tokens != null) {
+          background(
+            billAndLog(
+              { input_tokens: cached.root_input_tokens ?? 0, output_tokens: cached.root_output_tokens ?? 0 },
+              logRowIdPromise,
+              userId,
+              0
+            )
+          );
+        }
         return newsRootCacheResponse(cached, responseHeaders);
       }
     }

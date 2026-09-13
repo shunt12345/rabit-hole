@@ -632,15 +632,19 @@ export default function Hyfax() {
       // in). The write-through below replaces that: it happens as its own
       // request, after this one has already finished streaming.
       const newsCacheKey = newsContext ? t : undefined;
+      let rootUsage = null;
       const data = await streamJSON(
         HYFAX_SYSTEM,
         rootPrompt(t, newsContext),
         "root",
         (partialOverview) => reveal.push(partialOverview),
-        newsCacheKey
+        newsCacheKey,
+        (usage) => {
+          rootUsage = usage;
+        }
       );
       if (newsCacheKey) {
-        writeNewsRootCache(newsCacheKey, data.rootLabel, data.overview, data.children);
+        writeNewsRootCache(newsCacheKey, data.rootLabel, data.overview, data.children, rootUsage);
       }
       await reveal.finish(data.overview || "");
       const root = {

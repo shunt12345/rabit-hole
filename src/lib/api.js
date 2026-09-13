@@ -196,7 +196,7 @@ export async function callClaude(system, prompt, endpoint) {
 // API's server-sent-event chunks, and calls onChunk with the accumulated
 // text so far after every delta. Returns the final raw accumulated text —
 // callers apply their own cleanup/parsing on top (plain prose vs. JSON).
-async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey, nodeType) {
+async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey, nodeType, onUsage) {
   const controller = new AbortController();
   let timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   let res;
@@ -262,6 +262,11 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
     const data = await res.json();
     const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
     onChunk(text);
+    // A cache-hit response's usage is always zeroed (see rabbit-hole-proxy)
+    // — nothing to report, and onUsage only matters for a genuinely fresh
+    // generation anyway (see its callers for why: seeding the cache with
+    // real cost, not re-reporting a cache hit's already-known zero cost).
+    if (onUsage) onUsage(data.usage || null);
     return text;
   }
 
@@ -270,6 +275,15 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
   let buffer = "";
   let fullText = "";
   let gotAnyData = false;
+  // Mirrors rabbit-hole-proxy's own parseSSEUsage — input/cache tokens
+  // arrive on message_start, the true final output-token count arrives on
+  // the LAST message_delta before the stream ends (each one is a running
+  // total, not an increment). Only captured client-side so a root
+  // generation's real cost can travel along with its OWN cache write (see
+  // writeNewsRootCache's new usage args) — avoids a race against the
+  // server's background billing task, which can't reliably attach usage to
+  // a news_root_cache row the client hasn't created yet at that point.
+  let capturedUsage = null;
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -298,6 +312,10 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
         if (evt.type === "content_block_delta" && evt.delta && evt.delta.type === "text_delta") {
           fullText += evt.delta.text;
           onChunk(fullText);
+        } else if (evt.type === "message_start" && evt.message?.usage) {
+          capturedUsage = { input_tokens: evt.message.usage.input_tokens ?? 0, output_tokens: 0 };
+        } else if (evt.type === "message_delta" && evt.usage) {
+          capturedUsage = { ...(capturedUsage || { input_tokens: 0 }), output_tokens: evt.usage.output_tokens ?? 0 };
         } else if (evt.type === "error") {
           throw new Error(evt.error?.message || "The API reported a streaming error.");
         }
@@ -312,6 +330,7 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
     clearTimeout(timeoutId);
   }
 
+  if (onUsage) onUsage(capturedUsage);
   return fullText;
 }
 
@@ -346,7 +365,7 @@ function unescapeJSONStringFragment(s) {
 // response), plus an optional onOverviewChunk callback fired with the
 // "overview" field's text as it streams in — the one field worth showing
 // live while the rest of the JSON (children, etc.) is still generating.
-export async function streamJSON(system, prompt, endpoint, onOverviewChunk, newsCacheKey) {
+export async function streamJSON(system, prompt, endpoint, onOverviewChunk, newsCacheKey, onUsage) {
   const fullText = await streamRaw(
     system,
     prompt,
@@ -358,7 +377,9 @@ export async function streamJSON(system, prompt, endpoint, onOverviewChunk, news
       const match = partial.match(OVERVIEW_PATTERN);
       if (match) onOverviewChunk(unescapeJSONStringFragment(match[1]));
     },
-    newsCacheKey
+    newsCacheKey,
+    undefined,
+    onUsage
   );
   const cleaned = fullText.replace(/```json|```/g, "").trim();
   const start = cleaned.indexOf("{");
@@ -385,11 +406,27 @@ export async function streamJSON(system, prompt, endpoint, onOverviewChunk, news
 // swallowed: a failed cache write just means the next visitor generates
 // fresh too, never worth surfacing to the person who already got their
 // answer.
-export function writeNewsRootCache(cacheKey, rootLabel, overview, children) {
+// `usage` (optional, {input_tokens, output_tokens}) is this root
+// generation's real cost, captured client-side via streamJSON's onUsage —
+// travels in the SAME write that creates this cache row, deliberately,
+// rather than a later server-side update. The row doesn't exist until THIS
+// call creates it, so a separate update attempt from the server's own
+// background billing task would race against it and could easily miss
+// (article usage doesn't have this problem — that row always already
+// exists by the time anyone can read an article at all).
+export function writeNewsRootCache(cacheKey, rootLabel, overview, children, usage) {
   fetch(PROXY_URL, {
     method: "POST",
     headers: proxyHeaders(),
-    body: JSON.stringify({ newsCacheWrite: { cacheKey, rootLabel, overview, children } }),
+    body: JSON.stringify({
+      newsCacheWrite: {
+        cacheKey,
+        rootLabel,
+        overview,
+        children,
+        ...(usage ? { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens } : {}),
+      },
+    }),
   }).catch((e) => console.error("Hyfax: failed to write news root cache", e));
 }
 
