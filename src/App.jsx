@@ -7,6 +7,7 @@ import {
   getLastActionsToday,
   getLastTrialStatus,
   writeNewsRootCache,
+  writeNewsArticleCache,
   TrialExhaustedError,
 } from "./lib/api.js";
 import { HYFAX_SYSTEM, OBSCURITY_LEVELS, FIXED_OBSCURITY } from "./lib/hyfaxSystemPrompt.js";
@@ -98,7 +99,7 @@ function linkifyText(text, children) {
 // parses the API's server-sent-event chunks directly and calls onChunk
 // with the accumulated text so far after every delta, so the screen can
 // render it growing in real time rather than sitting on a spinner.
-async function fetchArticleTextStreaming(topicLabel, path, childLabels, onChunk, newsContext, nodeType) {
+async function fetchArticleTextStreaming(topicLabel, path, childLabels, onChunk, newsContext, nodeType, articleCacheKey) {
   const today = new Date().toISOString().slice(0, 10);
   const branchNote =
     childLabels && childLabels.length
@@ -126,7 +127,7 @@ Today's date is ${today}.
 Path so far: ${path.join(" → ")}
 Topic: "${topicLabel}"${newsNote}${branchNote}${openerNote}`;
 
-  return streamTextFromPrompt(HYFAX_SYSTEM, userContent, 700, 30000, "article", onChunk, nodeType);
+  return streamTextFromPrompt(HYFAX_SYSTEM, userContent, 700, 30000, "article", onChunk, nodeType, articleCacheKey);
 }
 
 // "Dig deeper" — this app is entertainment, not a research tool, so this is
@@ -847,6 +848,14 @@ export default function Hyfax() {
 
     const path = pathToNode(node);
     const childLabels = nodesRef.current.filter((n) => n.parentId === node.id).map((n) => n.label);
+    // Only the ROOT of a news/today/quote-sourced topic caches its article
+    // — same scoping as newsCacheKey itself (see startTopic), since a
+    // child's article depends on the specific path taken to reach it and
+    // isn't shared the way a hero-card root's own page is. Confirmed live
+    // this was missing entirely: every visitor who dug into the same
+    // Trending/Today/Quote root got a fresh, differently-worded article
+    // every time, duplicating real Anthropic cost for identical content.
+    const articleCacheKey = node.type === "root" && node.newsContext ? node.fullTopic : undefined;
     const reveal = createPacedReveal((revealed) => {
       node.article = stripMarkdown(revealed);
       setNodes([...nodesRef.current]);
@@ -867,12 +876,14 @@ export default function Hyfax() {
           reveal.push(partial);
         },
         node.newsContext,
-        node.type
+        node.type,
+        articleCacheKey
       );
       await reveal.finish(finalText);
       node.article = stripMarkdown(finalText);
       node.articleStreaming = false;
       node.articleLoading = false;
+      if (articleCacheKey) writeNewsArticleCache(articleCacheKey, finalText);
     } catch (e) {
       console.error("Hyfax: loadArticle failed", e);
       reveal.cancel();

@@ -536,6 +536,20 @@ function newsRootCacheResponse(
   );
 }
 
+// Same synthetic-response trick as newsRootCacheResponse, but for a cached
+// article — plain prose instead of a JSON blob, since streamRaw's cache-hit
+// path (src/lib/api.js) just extracts `content[].text` verbatim regardless
+// of endpoint.
+function newsArticleCacheResponse(articleText: string, headers: Record<string, string>) {
+  return new Response(
+    JSON.stringify({
+      content: [{ type: "text", text: articleText }],
+      usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    }),
+    { status: 200, headers: { ...headers, "Content-Type": "application/json" } }
+  );
+}
+
 // Handles `newsCacheWrite` requests — sent by the client after it has
 // already streamed and parsed a root response for a news/today topic. This
 // is a client-writable path (unlike the rest of this table, which the
@@ -587,6 +601,44 @@ async function handleNewsCacheWrite(write: any, corsHeaders: Record<string, stri
   });
 }
 
+// Handles `newsArticleCacheWrite` — sent by the client after it has
+// finished streaming a ROOT node's own article (see loadArticle's
+// articleCacheKey in App.jsx; never sent for a child node's article, only
+// the root's, matching the existing isRootArticle scoping elsewhere in
+// this app). A plain UPDATE, not an upsert: the row already exists from
+// the root's own newsCacheWrite moments earlier in the same visitor's
+// flow, this just fills in the one column that was still null. The
+// .is("article", null) condition is what gives "first write wins" here —
+// an upsert's ignoreDuplicates wouldn't touch an existing row's other
+// columns at all, so a plain conditional update is the right tool, not a
+// second upsert.
+async function handleNewsArticleCacheWrite(write: any, corsHeaders: Record<string, string>) {
+  const cacheKey = typeof write?.cacheKey === "string" ? write.cacheKey.trim() : "";
+  const article = typeof write?.article === "string" ? write.article : "";
+
+  if (!cacheKey || !article) {
+    return new Response(JSON.stringify({ error: "invalid newsArticleCacheWrite payload" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    // No row to update means this cacheKey was never legitimately created
+    // by a real newsCacheWrite in the first place — the update is simply a
+    // no-op then, no separate trending_topics_cache check needed the way
+    // handleNewsCacheWrite has one.
+    await supabase.from("news_root_cache").update({ article }).eq("cache_key", cacheKey).is("article", null);
+  } catch (e) {
+    console.error("rabbit-hole-proxy: failed to write news article cache", e);
+  }
+
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
 serve(async (req) => {
   const corsHeaders = corsHeadersFor(req);
   if (req.method === "OPTIONS") {
@@ -601,6 +653,9 @@ serve(async (req) => {
     // checks below.
     if (body.newsCacheWrite) {
       return handleNewsCacheWrite(body.newsCacheWrite, corsHeaders);
+    }
+    if (body.newsArticleCacheWrite) {
+      return handleNewsArticleCacheWrite(body.newsArticleCacheWrite, corsHeaders);
     }
 
     const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
@@ -707,7 +762,19 @@ serve(async (req) => {
     // billing task below, once the real cost is known.
     const logRowIdPromise = logRequest(sessionId, endpoint, userId, nodeType);
 
-    if (newsCacheKey) {
+    if (newsCacheKey && endpoint === "article") {
+      const { data: cached, error: cacheErr } = await supabase
+        .from("news_root_cache")
+        .select("article")
+        .eq("cache_key", newsCacheKey)
+        .maybeSingle();
+      if (cacheErr) {
+        // fail open — fall through to a real generation rather than block
+        console.error("rabbit-hole-proxy: news article cache lookup failed", cacheErr);
+      } else if (cached?.article) {
+        return newsArticleCacheResponse(cached.article, responseHeaders);
+      }
+    } else if (newsCacheKey) {
       const { data: cached, error: cacheErr } = await supabase
         .from("news_root_cache")
         .select("root_label, overview, children")

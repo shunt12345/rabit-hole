@@ -322,8 +322,8 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
 // request purely for analysis — which branch types people actually choose
 // to read, so the obscurity mix (hyfaxSystemPrompt.js's OBSCURITY_LEVELS)
 // can eventually be tuned toward what resonates instead of a guess.
-export async function streamTextFromPrompt(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, nodeType) {
-  const fullText = await streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, undefined, nodeType);
+export async function streamTextFromPrompt(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, nodeType, newsCacheKey) {
+  const fullText = await streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey, nodeType);
   return fullText.replace(/```/g, "").trim();
 }
 
@@ -391,4 +391,19 @@ export function writeNewsRootCache(cacheKey, rootLabel, overview, children) {
     headers: proxyHeaders(),
     body: JSON.stringify({ newsCacheWrite: { cacheKey, rootLabel, overview, children } }),
   }).catch((e) => console.error("Hyfax: failed to write news root cache", e));
+}
+
+// Same idea as writeNewsRootCache, but for the root's own full article text
+// — called from loadArticle in App.jsx only for a news-context ROOT node
+// (never a child), once its article has finished streaming. The row this
+// updates already exists (created by writeNewsRootCache moments earlier in
+// the same visitor's flow); the server-side handler only fills in the
+// article column if it's still null, so this is safe to fire even if two
+// visitors finish generating around the same time.
+export function writeNewsArticleCache(cacheKey, article) {
+  fetch(PROXY_URL, {
+    method: "POST",
+    headers: proxyHeaders(),
+    body: JSON.stringify({ newsArticleCacheWrite: { cacheKey, article } }),
+  }).catch((e) => console.error("Hyfax: failed to write news article cache", e));
 }
