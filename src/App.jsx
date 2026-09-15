@@ -1293,7 +1293,10 @@ export default function Hyfax() {
                 gated by trialExhausted/funded at all: resuming costs
                 nothing (no network call, no trial-search count), so it
                 stays available exactly when everything else might not. */}
-            {exploredHistory.length > 0 && (
+            {/* Temporarily hidden to make hero-page room for the Surprise
+                Me redesign — data/logic (exploredHistory, resumeExploredRoot)
+                left fully intact, this is a display-only toggle. */}
+            {false && exploredHistory.length > 0 && (
               <div className="mt-6 max-w-md mx-auto">
                 <div className="rh-mono uppercase tracking-wider mb-2" style={{ fontSize: "9px", color: "#8A7F6C" }}>
                   Continue exploring
