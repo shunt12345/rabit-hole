@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, Fragment } from "react";
-import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, ChevronDown, Share2, Check } from "lucide-react";
+import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, ChevronDown, Share2, Check, Shuffle } from "lucide-react";
 import {
   callClaude,
   streamJSON,
@@ -20,6 +20,7 @@ import WelcomeModal from "./WelcomeModal.jsx";
 import { hasSeenWelcome, markWelcomeSeen } from "./lib/welcome.js";
 import { nextOpenerShape } from "./lib/openerVariety.js";
 import { nextInputPlaceholder } from "./lib/inputPlaceholders.js";
+import { nextSurpriseTopic } from "./lib/surpriseTopics.js";
 import UsageGauge from "./UsageGauge.jsx";
 import MiniGauge from "./MiniGauge.jsx";
 import AdCard from "./AdCard.jsx";
@@ -284,6 +285,11 @@ export default function Hyfax() {
   // every render) rather than a live-animated carousel; see
   // lib/inputPlaceholders.js for why this is a fixed list, not generated.
   const [placeholderExample] = useState(nextInputPlaceholder);
+  // The "Surprise me" spin — null means the plain trigger is showing; a
+  // string is a candidate topic the reader can accept (Dig In) or reroll
+  // (Spin again) before it costs anything. See lib/surpriseTopics.js for
+  // why spinning itself is free/instant rather than a live generation.
+  const [surpriseTopic, setSurpriseTopic] = useState(null);
   const [nodes, setNodes] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [rootLoading, setRootLoading] = useState(false);
@@ -600,6 +606,20 @@ export default function Hyfax() {
       setRootError(`Unexpected error: ${syncErr.message || syncErr}`);
       setRootLoading(false);
     }
+  };
+
+  // Accepting a "Surprise me" candidate — same reset-selection pattern as
+  // every other hero-page entry point, then a plain startTopic (no
+  // newsContext: this comes from a fixed curated list, not a live feed, so
+  // there's no "why is this trending" context to pass through).
+  const handleSurpriseAccept = () => {
+    const topic = surpriseTopic;
+    if (!topic) return;
+    setSurpriseTopic(null);
+    setSelectedNewsIdx(null);
+    setSelectedTodayIdx(null);
+    setSelectedQuote(false);
+    startTopic(topic);
   };
 
   const startTopic = async (raw, newsContext) => {
@@ -1240,6 +1260,53 @@ export default function Hyfax() {
                 )}
               </button>
             </div>
+
+            {/* "Surprise me" — a free, instant reroll through a fixed
+                curated list (see lib/surpriseTopics.js) with nothing
+                committed until "Dig In" is actually tapped. The reader can
+                skip past as many boring picks as they want for free; only
+                the one they accept ever costs a real generation or counts
+                as a search. Hidden once a real Dig In is in flight, same
+                as every other hero-page entry point. */}
+            {!rootLoading &&
+              (surpriseTopic ? (
+                <div
+                  className="mt-3 p-3 rounded-2xl border flex items-center justify-between gap-2"
+                  style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}
+                >
+                  <span className="rh-body text-sm font-medium text-left" style={{ color: "#F1E6D3" }}>
+                    {surpriseTopic}
+                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setSurpriseTopic(nextSurpriseTopic())}
+                      aria-label="Spin again"
+                      className="rh-mono rh-text-10 uppercase tracking-wider rounded-full px-2.5 py-1.5 border transition-colors"
+                      style={{ borderColor: "#5A4630", color: "#A89478" }}
+                    >
+                      <Shuffle size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSurpriseAccept}
+                      className="rh-body text-xs font-medium rounded-full px-3 py-1.5"
+                      style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
+                    >
+                      Dig in
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setSurpriseTopic(nextSurpriseTopic())}
+                  className="rh-mono rh-text-10 uppercase tracking-wider mt-3 flex items-center gap-1.5 mx-auto transition-colors rh-link-accent"
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#A89478" }}
+                >
+                  <Shuffle size={11} /> Surprise me
+                </button>
+              ))}
 
             <UsageGauge profile={profile} lifetimeFunded={lifetimeFunded} />
 
