@@ -19,7 +19,6 @@ import LegalModal from "./LegalModal.jsx";
 import WelcomeModal from "./WelcomeModal.jsx";
 import { hasSeenWelcome, markWelcomeSeen } from "./lib/welcome.js";
 import { nextOpenerShape } from "./lib/openerVariety.js";
-import { nextInputPlaceholder } from "./lib/inputPlaceholders.js";
 import { nextSurpriseTopic } from "./lib/surpriseTopics.js";
 import UsageGauge from "./UsageGauge.jsx";
 import MiniGauge from "./MiniGauge.jsx";
@@ -281,10 +280,6 @@ const CHIP_AD = {
 export default function Hyfax() {
   const [topic, setTopic] = useState("");
   const [inputVal, setInputVal] = useState("");
-  // Rotates once per visit (lazy initializer — computed on mount, not on
-  // every render) rather than a live-animated carousel; see
-  // lib/inputPlaceholders.js for why this is a fixed list, not generated.
-  const [placeholderExample] = useState(nextInputPlaceholder);
   // Whether inputVal currently holds a "Surprise me" pick rather than
   // something the reader typed themselves — just swaps the little link
   // below the input between "Surprise me" and "Spin again"; the actual
@@ -1228,7 +1223,7 @@ export default function Hyfax() {
                     handleStartClick();
                   }
                 }}
-                placeholder={placeholderExample}
+                placeholder="What's on your mind?"
                 disabled={rootLoading}
                 className="rh-body flex-1 border outline-none rh-placeholder rh-input text-sm rounded-full px-5 py-3 transition-colors"
                 style={{ backgroundColor: "#332617", borderColor: "#5A4630", color: "#F1E6D3" }}
@@ -1267,10 +1262,10 @@ export default function Hyfax() {
                   setInputVal(nextSurpriseTopic());
                   setIsSurprise(true);
                 }}
-                className="rh-mono rh-text-10 uppercase tracking-wider mt-3 flex items-center gap-1.5 mx-auto transition-colors rh-link-accent"
-                style={{ background: "none", border: "none", cursor: "pointer", color: "#A89478" }}
+                className="rh-mono rh-text-10 uppercase tracking-wider mt-3 flex items-center gap-1.5 mx-auto rounded-full border px-3.5 py-1.5 transition-colors"
+                style={{ backgroundColor: "#1F1811", borderColor: "#5A4630", color: "#C9B896" }}
               >
-                <Shuffle size={11} /> {isSurprise ? "Spin again" : "Surprise me"}
+                <Shuffle size={13} /> {isSurprise ? "Spin again" : "Surprise me"}
               </button>
             )}
 
