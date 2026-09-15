@@ -1,11 +1,13 @@
 // Supabase Edge Function: send-daily-digest
 //
 // Punch list Section E, finally built — a daily email, styled like a small
-// slice of the hero page, listing today's Trending + Today topics as
-// clickable links. Clicking one drops the reader straight into the app on
-// that exact topic via the existing `?topic=` URL handler in App.jsx (no
-// client changes needed for this at all — that handler already exists for
-// any external link/bookmarklet wanting to hand a topic to the app).
+// slice of the hero page, mirroring its actual section structure (Quote of
+// the Day, then Trending, then Today — same order and headings as App.jsx)
+// rather than one flat list. Clicking any topic drops the reader straight
+// into the app on that exact topic via the existing `?topic=` URL handler
+// in App.jsx (no client changes needed for this at all — that handler
+// already exists for any external link/bookmarklet wanting to hand a topic
+// to the app).
 //
 // Cron-only, NOT reachable from a browser — same shared-secret pattern as
 // generate-trending-topics (checked against CRON_SECRET), not the anon key,
@@ -41,11 +43,14 @@ const APP_ORIGIN = Deno.env.get("APP_ORIGIN") ?? "https://hyfax.app";
 // secret without a code change if you want a different from-name/address.
 const DIGEST_FROM = Deno.env.get("DIGEST_FROM_EMAIL") ?? "Hyfax <hello@hyfax.app>";
 
-// Same three trending fields + three date-anchored fields the hero page
-// itself reads (see App.jsx's NEWS_FIELDS/SPECIAL_FIELDS) — kept as a
-// literal copy here rather than a shared import, since edge functions in
-// this project don't share code across function directories (each one is
-// deployed independently by pasting its own file).
+// Same fields the hero page itself reads, in the SAME section order it
+// renders them (see App.jsx's QUOTE_FIELD/NEWS_FIELDS/SPECIAL_FIELDS) —
+// kept as a literal copy here rather than a shared import, since edge
+// functions in this project don't share code across function directories
+// (each one is deployed independently by pasting its own file). Quote Of
+// The Day was added to the hero page after this function was first built
+// and had been missing from the digest entirely until this pass.
+const QUOTE_FIELD = "Quote Of The Day";
 const TRENDING_FIELDS = ["Trending 1", "Trending 2", "Trending Wildcard"];
 const TODAY_FIELDS = ["National Day", "This Day In History", "Word Of The Day"];
 const FIELD_LABELS: Record<string, string> = {
@@ -115,10 +120,56 @@ function topicRowHtml(row: { field: string; topic: string; teaser: string }): st
   </tr>`;
 }
 
+// Quote Of The Day gets its own visual treatment rather than the generic
+// topic card — same idea as the hero page's dedicated section (App.jsx),
+// where the full quote and author are the whole point, not a label +
+// teaser. `topic` is already the full quote text in quotation marks,
+// `teaser` the author/attribution — see generate-trending-topics'
+// quoteOfTheDayPrompt.
+function quoteRowHtml(row: { topic: string; teaser: string }): string {
+  const url = `${APP_ORIGIN}/?topic=${encodeURIComponent(row.topic)}`;
+  return `
+  <tr>
+    <td style="padding:0 40px 16px;">
+      <a href="${url}" style="display:block; text-decoration:none; border:1px solid #EDE6D6; border-radius:12px; padding:20px;">
+        <span style="display:block; font-family:Georgia,'Times New Roman',serif; font-style:italic; font-size:17px; line-height:1.5; color:#14100C; margin-bottom:8px;">${escapeHtml(row.topic)}</span>
+        <span style="display:block; font-size:13px; color:#6B5B45;">${escapeHtml(row.teaser)}</span>
+      </a>
+    </td>
+  </tr>`;
+}
+
+// One heading per hero-page section (Quote of the Day / Trending / Today)
+// instead of a single flat list under one generic title — same section
+// names and order the hero page itself uses.
+function sectionHeadingHtml(title: string): string {
+  return `
+  <tr>
+    <td style="padding:0 40px 12px;">
+      <span style="display:block; font-family:'Courier New',monospace; font-size:11px; letter-spacing:2px; text-transform:uppercase; color:#A89478;">${escapeHtml(title)}</span>
+    </td>
+  </tr>`;
+}
+
 // Same visual language as the magic-link email template (dark header,
 // logo, tagline) so this reads as the same product, not a different
 // "marketing email" voice.
-function digestHtml(topics: { field: string; topic: string; teaser: string }[], unsubscribeUrl: string): string {
+function digestHtml(
+  sections: {
+    quote: { topic: string; teaser: string } | null;
+    trending: { field: string; topic: string; teaser: string }[];
+    today: { field: string; topic: string; teaser: string }[];
+  },
+  unsubscribeUrl: string
+): string {
+  const { quote, trending, today } = sections;
+  const sectionsHtml = [
+    quote ? sectionHeadingHtml("Quote of the Day") + quoteRowHtml(quote) : "",
+    trending.length ? sectionHeadingHtml("Trending") + trending.map(topicRowHtml).join("\n") : "",
+    today.length ? sectionHeadingHtml("Today") + today.map(topicRowHtml).join("\n") : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F4EFE6;">
   <tr>
     <td align="center" style="padding:40px 16px;">
@@ -137,7 +188,7 @@ function digestHtml(topics: { field: string; topic: string; teaser: string }[], 
             <p style="margin:0 0 24px; font-size:14px; line-height:1.6; color:#4A4038;">Pick one — it drops you straight into the app.</p>
           </td>
         </tr>
-        ${topics.map(topicRowHtml).join("\n")}
+        ${sectionsHtml}
         <tr>
           <td style="padding:8px 40px 32px;">
             <table role="presentation" cellpadding="0" cellspacing="0">
@@ -188,7 +239,7 @@ serve(async (req) => {
   const { data: topicRows, error: topicsError } = await supabase
     .from("trending_topics_cache")
     .select("field, topic, teaser, generated_at")
-    .in("field", [...TRENDING_FIELDS, ...TODAY_FIELDS])
+    .in("field", [QUOTE_FIELD, ...TRENDING_FIELDS, ...TODAY_FIELDS])
     .order("generated_at", { ascending: false });
   if (topicsError) {
     return new Response(JSON.stringify({ error: `Failed to read topics: ${topicsError.message}` }), {
@@ -200,12 +251,12 @@ serve(async (req) => {
   for (const row of topicRows || []) {
     if (!latestByField.has(row.field)) latestByField.set(row.field, row);
   }
-  const topics = [...TRENDING_FIELDS, ...TODAY_FIELDS].map((f) => latestByField.get(f)).filter(Boolean) as {
-    field: string;
-    topic: string;
-    teaser: string;
-  }[];
-  if (topics.length === 0) {
+  type Topic = { field: string; topic: string; teaser: string };
+  const quote = latestByField.get(QUOTE_FIELD) ?? null;
+  const trending = TRENDING_FIELDS.map((f) => latestByField.get(f)).filter(Boolean) as Topic[];
+  const today = TODAY_FIELDS.map((f) => latestByField.get(f)).filter(Boolean) as Topic[];
+  const allTopics = [...(quote ? [quote] : []), ...trending, ...today];
+  if (allTopics.length === 0) {
     return new Response(JSON.stringify({ error: "No topics available to send" }), {
       status: 502,
       headers: { "Content-Type": "application/json" },
@@ -230,7 +281,12 @@ serve(async (req) => {
     try {
       const token = await unsubscribeToken(unsubSecret, recipient.id);
       const unsubscribeUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/unsubscribe-email?uid=${recipient.id}&token=${token}&apikey=${Deno.env.get("SUPABASE_ANON_KEY")}`;
-      await sendResendEmail(resendApiKey, recipient.email, "Today's threads on Hyfax", digestHtml(topics, unsubscribeUrl));
+      await sendResendEmail(
+        resendApiKey,
+        recipient.email,
+        "Today's threads on Hyfax",
+        digestHtml({ quote, trending, today }, unsubscribeUrl)
+      );
       sent++;
       // Resend's rate limit is generous but not infinite — a small pause
       // between sequential sends costs nothing at today's scale and
@@ -242,7 +298,8 @@ serve(async (req) => {
     }
   }
 
-  return new Response(JSON.stringify({ sent, failed: errors.length, errors, topics: topics.map((t) => t.topic) }), {
-    headers: { "Content-Type": "application/json" },
-  });
+  return new Response(
+    JSON.stringify({ sent, failed: errors.length, errors, topics: allTopics.map((t) => t.topic) }),
+    { headers: { "Content-Type": "application/json" } }
+  );
 });
