@@ -1373,6 +1373,21 @@ export default function Hyfax() {
                 dedicated Quote Of The Day guidance in hyfaxSystemPrompt.js). */}
             {quoteTopic && !trialExhausted && todayVisible && (
               <div className="mt-10">
+                {/* "As of" badge — moved here from the top of "Trending" so
+                    the whole hero batch's freshness reads once, up front,
+                    rather than being tucked under one specific section.
+                    Uses the max generated_at across the whole fetched
+                    batch (trendingTopics), not just newsTopics, since every
+                    field now refreshes together on the same once-daily cron. */}
+                <div className="rh-mono text-sm mb-2" style={{ color: "#A89478" }}>
+                  as of{" "}
+                  <span className="font-semibold" style={{ color: "#E3A73C" }}>
+                    {mostRecentDate(trendingTopics).toLocaleDateString(undefined, {
+                      month: "long",
+                      day: "numeric",
+                    })}
+                  </span>
+                </div>
                 <div className="flex items-center justify-center gap-1.5 mb-6">
                   <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
                     Quote of the Day
@@ -1537,25 +1552,16 @@ export default function Hyfax() {
 
             {/* real, live-searched stories — see
                 supabase/functions/generate-trending-topics. The "as of"
-                date reflects the actual cache timestamp now, not a
-                hand-maintained string that can silently go stale.
+                date that used to live here moved to the top of the hero
+                page, above "Quote of the Day" — see that section below.
                 Hidden once the free trial's used up (production punch
                 list, Section B) — Trending is a funded-only feature per
                 the monetization outline's Section 14.1 feature matrix. */}
             {newsTopics.length > 0 && !trialExhausted && newsVisible && (
               <div className="mt-10">
-                <div className="flex items-center justify-center gap-1.5 mb-1">
+                <div className="flex items-center justify-center gap-1.5 mb-6">
                   <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
                     Trending
-                  </span>
-                </div>
-                <div className="rh-mono text-sm mb-6" style={{ color: "#A89478" }}>
-                  as of{" "}
-                  <span className="font-semibold" style={{ color: "#E3A73C" }}>
-                    {mostRecentDate(newsTopics).toLocaleDateString(undefined, {
-                      month: "long",
-                      day: "numeric",
-                    })}
                   </span>
                 </div>
                 <div className="flex flex-col gap-3 max-w-md mx-auto">
