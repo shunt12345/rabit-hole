@@ -1408,8 +1408,8 @@ export default function Hyfax() {
                       rootLoading && !selectedQuote ? "opacity-40" : ""
                     } ${rootLoading && selectedQuote ? "cursor-default" : ""}`}
                     style={{
-                      borderColor: selectedQuote ? "#E3A73C" : "#3A2E20",
-                      backgroundColor: selectedQuote ? "#2A2015" : "#1F1811",
+                      borderColor: selectedQuote ? "#E3A73C" : "#4A3826",
+                      backgroundColor: selectedQuote ? "#2A2015" : "#241B12",
                     }}
                   >
                     <div className="rh-display italic text-xl leading-snug" style={{ color: "#F1E6D3" }}>
@@ -1453,8 +1453,8 @@ export default function Hyfax() {
                           rootLoading && !isSelected ? "opacity-40" : ""
                         } ${rootLoading && isSelected ? "cursor-default" : ""}`}
                         style={{
-                          borderColor: isSelected ? "#E3A73C" : "#3A2E20",
-                          backgroundColor: isSelected ? "#2A2015" : "#1F1811",
+                          borderColor: isSelected ? "#E3A73C" : "#4A3826",
+                          backgroundColor: isSelected ? "#2A2015" : "#241B12",
                         }}
                       >
                         <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
@@ -1494,7 +1494,7 @@ export default function Hyfax() {
                 </div>
                 <div
                   className="max-w-md mx-auto p-5 rounded-2xl border"
-                  style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}
+                  style={{ borderColor: "#4A3826", backgroundColor: "#241B12" }}
                 >
                   <p className="rh-display italic text-lg leading-relaxed" style={{ color: "#F1E6D3" }}>
                     {riddleTopic.teaser}
@@ -1583,8 +1583,8 @@ export default function Hyfax() {
                           rootLoading && !isSelected ? "opacity-40" : ""
                         } ${rootLoading && isSelected ? "cursor-default" : ""}`}
                         style={{
-                          borderColor: isSelected ? "#E3A73C" : "#3A2E20",
-                          backgroundColor: isSelected ? "#2A2015" : "#1F1811",
+                          borderColor: isSelected ? "#E3A73C" : "#4A3826",
+                          backgroundColor: isSelected ? "#2A2015" : "#241B12",
                         }}
                       >
                         <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
