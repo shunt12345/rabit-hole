@@ -15,7 +15,7 @@ import { supabase } from "./supabaseClient.js";
 export async function getProfile() {
   const { data, error } = await supabase
     .from("profiles")
-    .select("balance_usd, feature_news, feature_today, feature_dig_deeper, feature_email")
+    .select("balance_usd, feature_news, feature_today, feature_dig_deeper, feature_email, feature_riddle")
     .maybeSingle();
   if (error) {
     console.error("Hyfax: failed to read profile", error);
@@ -28,12 +28,13 @@ export async function getProfile() {
         featureToday: data.feature_today,
         featureDigDeeper: data.feature_dig_deeper,
         featureEmail: data.feature_email,
+        featureRiddle: data.feature_riddle,
       }
     : null;
 }
 
 // `toggles` is a partial { featureNews?, featureToday?, featureDigDeeper?,
-// featureEmail? }. RLS's "Users can update own profile" policy already
+// featureEmail?, featureRiddle? }. RLS's "Users can update own profile" policy already
 // restricts this to exactly the caller's own row regardless of what filter
 // is sent — but Supabase's PostgREST layer separately refuses to run an
 // UPDATE with NO filter at all in the request itself (a distinct safety
@@ -49,6 +50,7 @@ export async function updateFeatureToggles(toggles) {
   if ("featureToday" in toggles) patch.feature_today = !!toggles.featureToday;
   if ("featureDigDeeper" in toggles) patch.feature_dig_deeper = !!toggles.featureDigDeeper;
   if ("featureEmail" in toggles) patch.feature_email = !!toggles.featureEmail;
+  if ("featureRiddle" in toggles) patch.feature_riddle = !!toggles.featureRiddle;
 
   const {
     data: { session },

@@ -14,9 +14,10 @@ import { fetchCheckoutClientSecret, stripePromise, MIN_TOPUP_USD } from "./lib/b
 // mechanics are still an open decision (punch list Section G).
 //
 // `profile`/`onProfileChange`/`onProfileRefresh` are owned by App.jsx, not
-// this component — App.jsx is what actually gates News/Today/Dig Deeper on
-// these same toggle values, so it needs the single source of truth, not a
-// second copy that could drift out of sync with what's rendered there.
+// this component — App.jsx is what actually gates News/Today/Riddle/Dig
+// Deeper on these same toggle values, so it needs the single source of
+// truth, not a second copy that could drift out of sync with what's
+// rendered there.
 //
 // "Email digest" (punch list Section E) is live — turning it off actually
 // stops the daily digest cron (send-daily-digest) from emailing this
@@ -26,6 +27,7 @@ import { fetchCheckoutClientSecret, stripePromise, MIN_TOPUP_USD } from "./lib/b
 const TOGGLES = [
   { key: "featureNews", label: "Trending" },
   { key: "featureToday", label: "Today" },
+  { key: "featureRiddle", label: "Riddle" },
   { key: "featureDigDeeper", label: "Dig Deeper" },
   { key: "featureEmail", label: "Email digest" },
 ];

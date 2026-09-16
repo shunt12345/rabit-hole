@@ -461,6 +461,7 @@ export default function Hyfax() {
   const adStage = engagementStage(trialStatus);
   const newsVisible = !funded || !!profile?.featureNews;
   const todayVisible = !funded || !!profile?.featureToday;
+  const riddleVisible = !funded || !!profile?.featureRiddle;
   const digDeeperVisible = !funded || !!profile?.featureDigDeeper;
 
   const nodesRef = useRef([]);
@@ -1472,18 +1473,18 @@ export default function Hyfax() {
               </div>
             )}
 
-            {/* "Reverse Hyfax" — the branching mechanic run backwards:
+            {/* "Riddle me this...." — the branching mechanic run backwards:
                 instead of a topic branching OUT into surprising tangents,
                 this weaves the tangents into one withheld-register riddle
                 first and asks the reader to guess the topic tying them
                 together (see riddlePrompt in generate-trending-topics).
                 A correct guess launches the exact same Dig In flow as
-                every other hero card; a wrong guess just greys that
-                option out so they can try again — this isn't a scored
-                quiz, just a different way in. Reuses the "Today" feature
-                toggle (todayVisible) rather than adding a dedicated one,
-                same reasoning as the Quote Of The Day card above. */}
-            {riddleTopic && !trialExhausted && todayVisible && (
+                every other hero card — a real billable search, same as
+                Trending/Today — a wrong guess just greys that option out
+                so they can try again. Has its own toggle (featureRiddle)
+                rather than reusing "Today"'s, so a funded user can turn it
+                off independently, same as every other à la carte feature. */}
+            {riddleTopic && !trialExhausted && riddleVisible && (
               <div className="mt-10">
                 <div className="flex items-center justify-center gap-1.5 mb-6">
                   <HelpCircle size={14} style={{ color: "#C9B896" }} />
