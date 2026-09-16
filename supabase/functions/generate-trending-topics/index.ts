@@ -351,9 +351,9 @@ function riddlePrompt(excludeTopics: string[]): string {
 
 Pick a single real, genuinely interesting topic — anything: an animal, a place, a historical event, a scientific phenomenon, an invention, a substance, whatever's actually fascinating. Wide open, not tied to today's date or current events. Search to confirm every concrete detail you use about it is accurate.${excludeBlock}
 
-Now write ONE paragraph — a riddle — that describes this topic WITHOUT ever naming it, in a specific voice: withheld and a little poetic, inverted sentence openings rather than plain statements, the subject's identity never spelled out directly. But it must still be SOLVABLE — anchor it with 2-3 real, concrete, verifiable details about the topic (not just abstract mood), so a reader who knows the subject can actually place it. Do not over-abstract into pure metaphor with no verifiable facts left in it — that stops being a riddle and becomes unsolvable.
+Now write exactly ONE SENTENCE — a riddle — that describes this topic WITHOUT ever naming it, in a specific voice: withheld and a little poetic, an inverted opening rather than a plain statement, the subject's identity never spelled out directly. One sentence only — use dashes or a semicolon to string clauses together the way the examples below do, not periods to split it into several. But it must still be SOLVABLE — anchor it with 2-3 real, concrete, verifiable details about the topic (not just abstract mood), so a reader who knows the subject can actually place it. Do not over-abstract into pure metaphor with no verifiable facts left in it — that stops being a riddle and becomes unsolvable.
 
-Match this exact register — three worked examples:
+Match this exact register AND length — three worked examples, each one single sentence:
 
 "Something without bones to give its shape away tastes the world through its own skin — and thinks in pieces that don't always agree with each other." (answer: octopus cognition)
 
@@ -361,7 +361,7 @@ Match this exact register — three worked examples:
 
 "A light with no wiring, no bulb, no plan — switched on by life itself, over and over, in the coldest, darkest places it could find." (answer: bioluminescence)
 
-Notice each one: opens with the situation, not the subject; withholds the name entirely; but still contains real, checkable specifics (no bones, plague and paper, no wiring) — that's the balance to hit.
+Notice each one: exactly one sentence, stitched together with dashes rather than broken into several; opens with the situation, not the subject; withholds the name entirely; but still contains real, checkable specifics (no bones, plague and paper, no wiring) — that's the balance to hit. A response that runs two or three sentences instead of one is too long, even if the content is good.
 
 Once you've written it, produce exactly 2 decoy topics — other real, plausible subjects that each share at least one concrete detail from your riddle (so someone recalling only part of it could wrongly guess one), but clearly don't fit ALL of the details once you consider the whole thing. Format them the same short way as the real answer (title case, 2-5 words).
 
