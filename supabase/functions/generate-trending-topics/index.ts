@@ -60,7 +60,14 @@ const NEWS_FIELDS = [...TRENDING_MAINSTREAM_FIELDS, TRENDING_WILDCARD_FIELD];
 // their real mechanic: one nightly pick, no live-search "recent story"
 // framing, excludeTopics keeps it from repeating.
 const SPECIAL_FIELDS = ["National Day", "This Day In History", "Word Of The Day", "Quote Of The Day"];
-const FIELDS = [...NEWS_FIELDS, ...SPECIAL_FIELDS];
+// "Reverse Hyfax" — a withheld-register riddle paragraph describing a real
+// topic without naming it, plus 2 decoy topics for a multiple-choice guess
+// (see riddlePrompt). Kept as its own field name rather than folded into
+// SPECIAL_FIELDS so the client can give it a dedicated card instead of
+// grouping it into the plain "Today" list — same reasoning as QUOTE_FIELD
+// on the client side.
+const RIDDLE_FIELD = "Riddle";
+const FIELDS = [...NEWS_FIELDS, ...SPECIAL_FIELDS, RIDDLE_FIELD];
 // Overridable via `supabase secrets set MODEL=...` without a redeploy —
 // same reasoning as rabbit-hole-proxy's MODEL constant: lets a candidate
 // model get tried via a secret update instead of a code change, but
@@ -323,11 +330,59 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
 }
 
+// "Reverse Hyfax" — normally a Hyfax topic branches OUT into surprising
+// tangents; this flips it, showing the tangents first and asking the
+// reader to guess the topic that ties them together (see the client's
+// dedicated Riddle card). "topic" doubles as both the real answer AND the
+// excludeTopics history key, same pattern as every other field.
+//
+// The riddle register itself was hand-tuned through several live rounds
+// with the person building this app before landing here — too plain and
+// it's just a fact blurb with no puzzle in it; too abstract (withholding
+// EVERY concrete noun) and it stops being solvable at all and reads as a
+// koan instead of a clue. The three worked examples below are the
+// calibrated target, not just illustrations — matching their register is
+// the actual instruction.
+function riddlePrompt(excludeTopics: string[]): string {
+  const excludeBlock = excludeTopics.length
+    ? `\n\nAlready featured recently — pick a different topic this time, not a repeat of any of these: ${excludeTopics.join("; ")}.`
+    : "";
+  return `You have live web search — use it now.
+
+Pick a single real, genuinely interesting topic — anything: an animal, a place, a historical event, a scientific phenomenon, an invention, a substance, whatever's actually fascinating. Wide open, not tied to today's date or current events. Search to confirm every concrete detail you use about it is accurate.${excludeBlock}
+
+Now write ONE paragraph — a riddle — that describes this topic WITHOUT ever naming it, in a specific voice: withheld and a little poetic, inverted sentence openings rather than plain statements, the subject's identity never spelled out directly. But it must still be SOLVABLE — anchor it with 2-3 real, concrete, verifiable details about the topic (not just abstract mood), so a reader who knows the subject can actually place it. Do not over-abstract into pure metaphor with no verifiable facts left in it — that stops being a riddle and becomes unsolvable.
+
+Match this exact register — three worked examples:
+
+"Something without bones to give its shape away tastes the world through its own skin — and thinks in pieces that don't always agree with each other." (answer: octopus cognition)
+
+"A route walked so many times it wore itself into the map — carrying plague in one direction, paper in the other, and never much caring who it belonged to." (answer: the Silk Road)
+
+"A light with no wiring, no bulb, no plan — switched on by life itself, over and over, in the coldest, darkest places it could find." (answer: bioluminescence)
+
+Notice each one: opens with the situation, not the subject; withholds the name entirely; but still contains real, checkable specifics (no bones, plague and paper, no wiring) — that's the balance to hit.
+
+Once you've written it, produce exactly 2 decoy topics — other real, plausible subjects that each share at least one concrete detail from your riddle (so someone recalling only part of it could wrongly guess one), but clearly don't fit ALL of the details once you consider the whole thing. Format them the same short way as the real answer (title case, 2-5 words).
+
+Produce:
+- "topic": the real answer — a short, punchy 2-5 word label (title case, no trailing punctuation)
+- "teaser": the riddle paragraph itself, written to the register above
+- "options": an array of exactly 2 decoy topics as described above
+- "source_url": the URL of a real source confirming the concrete details you used in the riddle — a specific page actually about the topic, not a homepage or unrelated page
+
+${SOURCE_URL_CHECK}
+
+Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
+{"topic": "...", "teaser": "...", "options": ["...", "..."], "source_url": "..."}`;
+}
+
 function promptForField(field: string, excludeTopics: string[]): string {
   if (field === "National Day") return nationalDayPrompt(excludeTopics);
   if (field === "This Day In History") return thisDayInHistoryPrompt(excludeTopics);
   if (field === "Word Of The Day") return wordOfTheDayPrompt(excludeTopics);
   if (field === "Quote Of The Day") return quoteOfTheDayPrompt(excludeTopics);
+  if (field === RIDDLE_FIELD) return riddlePrompt(excludeTopics);
   if (field === TRENDING_WILDCARD_FIELD) return trendingWildcardPrompt(excludeTopics);
   if (field === TRENDING_MAINSTREAM_FIELDS[0]) return trendingMainstreamPrompt(excludeTopics, "primary");
   if (field === TRENDING_MAINSTREAM_FIELDS[1]) return trendingMainstreamPrompt(excludeTopics, "secondary");
@@ -414,6 +469,18 @@ async function generateForField(apiKey: string, field: string, excludeTopics: st
     throw new Error(`Missing topic/teaser/source_url: ${cleaned.slice(0, 300)}`);
   }
 
+  // Only the Riddle field's multiple-choice decoys — every other field
+  // just omits this key entirely, leaving the DB column null for their rows.
+  let options: string[] | undefined;
+  if (field === RIDDLE_FIELD) {
+    options = Array.isArray(parsed.options)
+      ? parsed.options.map((o: unknown) => String(o).trim()).filter(Boolean)
+      : [];
+    if (options.length !== 2 || options.some((o) => o.toLowerCase() === topic.toLowerCase())) {
+      throw new Error(`Riddle needs exactly 2 valid decoys distinct from the answer: ${cleaned.slice(0, 300)}`);
+    }
+  }
+
   // Real usage, not the estimate in the pricing spreadsheet — every field
   // call is non-streaming, so it's a single JSON response with usage
   // already attached, no SSE parsing needed (contrast rabbit-hole-proxy,
@@ -429,6 +496,7 @@ async function generateForField(apiKey: string, field: string, excludeTopics: st
     field,
     topic,
     teaser,
+    ...(options ? { options } : {}),
     source_url: sourceUrl,
     input_tokens: inputTokens,
     output_tokens: outputTokens,

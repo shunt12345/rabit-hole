@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, Fragment } from "react";
-import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, ChevronDown, Share2, Check, Shuffle } from "lucide-react";
+import { useState, useRef, useEffect, useMemo, Fragment } from "react";
+import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, ChevronDown, Share2, Check, Shuffle, HelpCircle } from "lucide-react";
 import {
   callClaude,
   streamJSON,
@@ -215,7 +215,7 @@ function nextId() {
 // that's been renamed or retired (like the old "World News"/"Science"/
 // "Technology" beats this replaced) just stops rendering on its own
 // instead of lingering until its rows age out.
-const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,generated_at&order=generated_at.desc,id.desc&limit=20`;
+const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,options,generated_at&order=generated_at.desc,id.desc&limit=20`;
 const NEWS_FIELDS = ["Trending 1", "Trending 2", "Trending Wildcard"];
 // What each internal field key actually displays as — kept separate from
 // the field key itself so latestByField (below) can still tell the two
@@ -230,6 +230,12 @@ const SPECIAL_FIELDS = ["National Day", "This Day In History", "Word Of The Day"
 // of SPECIAL_FIELDS above so it doesn't also show up a second time in that
 // list.
 const QUOTE_FIELD = "Quote Of The Day";
+// "Reverse Hyfax" — a withheld-register riddle describing a topic without
+// naming it, plus a multiple-choice guess (the real topic + 2 decoys from
+// `options`). Same source table/cadence as SPECIAL_FIELDS but kept out of
+// that list for the same reason QUOTE_FIELD is: it needs its own card
+// treatment (the guess UI), not the plain topic+teaser list layout.
+const RIDDLE_FIELD = "Riddle";
 
 // How old a row can be before it's treated as stale rather than shown as
 // today's pick — generous past the ~24h cron cadence (36h) to tolerate
@@ -324,6 +330,13 @@ export default function Hyfax() {
   // Same idea, for the single Quote Of The Day card — a plain boolean since
   // there's only ever one of these on screen, unlike the indexed lists above.
   const [selectedQuote, setSelectedQuote] = useState(false);
+  // Riddle card: which decoy(s) the reader has already guessed wrong, so
+  // that option can grey out and stay wrong instead of being re-clickable
+  // (not a scored quiz — just stops a reader from immediately re-tapping
+  // the same wrong answer). Reset below whenever the riddle's real answer
+  // changes (a new day's pick), so yesterday's wrong guesses don't linger.
+  const [riddleWrongPicks, setRiddleWrongPicks] = useState([]);
+  const [selectedRiddle, setSelectedRiddle] = useState(false);
   // Raw action count from the proxy's X-Session-Actions-Today header —
   // kept for the existing 300/day safety-net visibility; the real
   // free-trial gate (below) is search-count-based, not this.
@@ -1095,6 +1108,27 @@ export default function Hyfax() {
   const newsTopics = latestByField(trendingTopics, NEWS_FIELDS);
   const todayTopics = latestByField(trendingTopics, SPECIAL_FIELDS);
   const quoteTopic = latestByField(trendingTopics, [QUOTE_FIELD])[0] || null;
+  const riddleTopic = latestByField(trendingTopics, [RIDDLE_FIELD])[0] || null;
+  // Shuffled once per riddle (not per render) so the answer isn't always
+  // in the same slot but also doesn't jump around while someone's staring
+  // at it deciding.
+  const riddleChoices = useMemo(() => {
+    if (!riddleTopic) return [];
+    const decoys = Array.isArray(riddleTopic.options) ? riddleTopic.options : [];
+    const all = [riddleTopic.topic, ...decoys];
+    for (let i = all.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [all[i], all[j]] = [all[j], all[i]];
+    }
+    return all;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [riddleTopic?.topic, riddleTopic?.options?.join("|")]);
+  // A fresh riddle (new day) should start with a clean slate, not carry
+  // over yesterday's wrong guesses or highlight state.
+  useEffect(() => {
+    setRiddleWrongPicks([]);
+    setSelectedRiddle(false);
+  }, [riddleTopic?.topic]);
   const selected = nodes.find((n) => n.id === selectedId) || null;
   const selectedChildren = selected ? nodes.filter((n) => n.parentId === selected.id) : [];
   // Once the trial's exhausted, Dig In still works for a fresh general
@@ -1369,6 +1403,71 @@ export default function Hyfax() {
                       {quoteTopic.teaser}
                     </p>
                   </button>
+                </div>
+              </div>
+            )}
+
+            {/* "Reverse Hyfax" — the branching mechanic run backwards:
+                instead of a topic branching OUT into surprising tangents,
+                this weaves the tangents into one withheld-register riddle
+                first and asks the reader to guess the topic tying them
+                together (see riddlePrompt in generate-trending-topics).
+                A correct guess launches the exact same Dig In flow as
+                every other hero card; a wrong guess just greys that
+                option out so they can try again — this isn't a scored
+                quiz, just a different way in. Reuses the "Today" feature
+                toggle (todayVisible) rather than adding a dedicated one,
+                same reasoning as the Quote Of The Day card above. */}
+            {riddleTopic && !trialExhausted && todayVisible && (
+              <div className="mt-10">
+                <div className="flex items-center justify-center gap-1.5 mb-6">
+                  <HelpCircle size={14} style={{ color: "#C9B896" }} />
+                  <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
+                    Reverse Hyfax
+                  </span>
+                </div>
+                <div
+                  className="max-w-md mx-auto p-5 rounded-2xl border"
+                  style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}
+                >
+                  <p className="rh-display italic text-lg leading-relaxed" style={{ color: "#F1E6D3" }}>
+                    {riddleTopic.teaser}
+                  </p>
+                  <div className="flex flex-col gap-2 mt-4">
+                    {riddleChoices.map((choice) => {
+                      const isCorrectPick = selectedRiddle && choice === riddleTopic.topic;
+                      const isWrong = riddleWrongPicks.includes(choice);
+                      return (
+                        <button
+                          key={choice}
+                          type="button"
+                          onClick={() => {
+                            if (choice === riddleTopic.topic) {
+                              setSelectedRiddle(true);
+                              setSelectedNewsIdx(null);
+                              setSelectedTodayIdx(null);
+                              setSelectedQuote(false);
+                              startTopic(riddleTopic.topic, riddleTopic.teaser);
+                            } else {
+                              setRiddleWrongPicks((prev) => (prev.includes(choice) ? prev : [...prev, choice]));
+                            }
+                          }}
+                          disabled={rootLoading || isWrong}
+                          className={`rh-chip rh-body text-sm text-left rounded-xl px-4 py-2.5 border transition-colors ${
+                            rootLoading && !isCorrectPick ? "opacity-40" : ""
+                          } ${rootLoading && isCorrectPick ? "cursor-default" : ""}`}
+                          style={{
+                            borderColor: isCorrectPick ? "#E3A73C" : "#5A4630",
+                            backgroundColor: isCorrectPick ? "#2A2015" : "transparent",
+                            color: isWrong ? "#6B5B45" : "#F1E6D3",
+                            textDecoration: isWrong ? "line-through" : "none",
+                          }}
+                        >
+                          {choice}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}
