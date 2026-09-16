@@ -342,7 +342,10 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 // EVERY concrete noun) and it stops being solvable at all and reads as a
 // koan instead of a clue. The three worked examples below are the
 // calibrated target, not just illustrations — matching their register is
-// the actual instruction.
+// the actual instruction. A later live round added the "keep details
+// general" rule below after a real riddle named its country outright
+// ("off Belize") — the concrete-but-vague line needed its own tuning pass
+// separate from the withheld-but-solvable one above.
 function riddlePrompt(excludeTopics: string[]): string {
   const excludeBlock = excludeTopics.length
     ? `\n\nAlready featured recently — pick a different topic this time, not a repeat of any of these: ${excludeTopics.join("; ")}.`
@@ -352,6 +355,10 @@ function riddlePrompt(excludeTopics: string[]): string {
 Pick a single real, genuinely interesting topic — anything: an animal, a place, a historical event, a scientific phenomenon, an invention, a substance, whatever's actually fascinating. Wide open, not tied to today's date or current events. Search to confirm every concrete detail you use about it is accurate.${excludeBlock}
 
 Now write exactly ONE SENTENCE — a riddle — that describes this topic WITHOUT ever naming it, in a specific voice: withheld and a little poetic, an inverted opening rather than a plain statement, the subject's identity never spelled out directly. One sentence only — use dashes or a semicolon to string clauses together the way the examples below do, not periods to split it into several. But it must still be SOLVABLE — anchor it with 2-3 real, concrete, verifiable details about the topic (not just abstract mood), so a reader who knows the subject can actually place it. Do not over-abstract into pure metaphor with no verifiable facts left in it — that stops being a riddle and becomes unsolvable.
+
+Keep those concrete details GENERAL rather than pinpoint-specific. Default to vague: "many," "several," "dozens," "centuries," "a hemisphere," "a stretch of coastline," "a continent away" instead of an exact number, a named country, a named city, or a specific date/year. Only reach for something that specific if the riddle genuinely cannot be solved without it — most of the time it can be. A named place or an exact figure tends to hand over the answer outright instead of pointing at it, which flattens the puzzle into a fact card. Vagueness on this axis is what keeps it a riddle rather than a trivia sentence with the noun blanked out.
+
+A real example that ran too specific: a riddle about a giant marine sinkhole named the exact country it's in ("off Belize") and gave near-exact measurements ("roughly a thousand feet wide and over four hundred deep") — the other details (a drowned limestone cave, an ice age, a famous diver charting it) were already plenty to solve it, so the named country and precise numbers weren't earning their place; "a stretch of tropical coastline" and "vast" would have kept the same puzzle intact without just announcing the answer's location.
 
 Match this exact register AND length — three worked examples, each one single sentence:
 
