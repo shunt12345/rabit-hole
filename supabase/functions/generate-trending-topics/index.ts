@@ -452,14 +452,19 @@ async function generateForField(apiKey: string, field: string, excludeTopics: st
 // field on its own guarantees a real lookback regardless of how much volume
 // the other fields produce.
 //
-// RECENT_EXCLUDE_COUNT is 30 (roughly a month, since every field now runs
+// RECENT_EXCLUDE_COUNT is 365 (a full year, since every field now runs
 // once/day) rather than the original 8 — Word Of The Day / Quote Of The Day
-// / Trending all draw from an effectively unlimited pool, so an 8-day memory
-// meant a daily visitor would see the same pick again within two weeks. The
-// query limit is padded above that count to still land on 30 uniques even
-// if a field got more than one row on the same calendar day (a manual test
-// run, a retry).
-const RECENT_EXCLUDE_COUNT = 30;
+// / Trending all draw from an effectively unlimited pool, so a short memory
+// meant a daily visitor would see the same pick resurface within weeks. A
+// full year also specifically covers National Day / This Day In History,
+// which are anchored to the real calendar date: their only realistic repeat
+// risk is the SAME date rolling back around next year, which a 30-day
+// window couldn't guard against at all. The query limit is padded above
+// this count to still land on 365 uniques even if a field got more than one
+// row on the same calendar day (a manual test run, a retry). The list is
+// plain text in the prompt, so the extra length only costs a modest amount
+// of input tokens — negligible next to what a repeat would cost in trust.
+const RECENT_EXCLUDE_COUNT = 365;
 
 async function fetchRecentTopicsByField(): Promise<Record<string, string[]>> {
   const entries = await Promise.all(
@@ -469,7 +474,7 @@ async function fetchRecentTopicsByField(): Promise<Record<string, string[]>> {
         .select("topic")
         .eq("field", field)
         .order("generated_at", { ascending: false })
-        .limit(RECENT_EXCLUDE_COUNT + 15);
+        .limit(RECENT_EXCLUDE_COUNT + 30);
       if (error || !data) {
         console.error(`generate-trending-topics: failed to fetch recent topics for field "${field}"`, error);
         return [field, []];
