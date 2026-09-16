@@ -440,22 +440,38 @@ async function generateForField(apiKey: string, field: string, excludeTopics: st
 // Recent topics per field, most-recent-first, so each run can be told what
 // NOT to repeat — without this, an independent search per field tends to
 // converge on the same single most-prominent story every time it runs.
+//
+// Queried ONE FIELD AT A TIME rather than a single globally-limited query.
+// A shared `.limit(60)` across all 7 fields looked fine but actually starved
+// the once-daily fields (National Day, This Day In History, Word Of The Day,
+// Quote Of The Day): the 3 news fields alone contribute 6 rows/day, so the
+// 60-row window only reached back ~6 days, and any extra invocation that day
+// (a manual test run, a retry) ate into that budget too. Confirmed live —
+// "Avocado" as Word Of The Day repeated after only 8 days because the 8th
+// occurrence had already scrolled out of the shared window. Querying each
+// field on its own guarantees a real 8-pick lookback regardless of how much
+// volume the other fields produce.
 async function fetchRecentTopicsByField(): Promise<Record<string, string[]>> {
-  const { data, error } = await supabase
-    .from("trending_topics_cache")
-    .select("field, topic")
-    .order("generated_at", { ascending: false })
-    .limit(60);
-  if (error || !data) {
-    console.error("generate-trending-topics: failed to fetch recent topics for exclusion", error);
-    return {};
-  }
-  const byField: Record<string, string[]> = {};
-  for (const row of data) {
-    const list = (byField[row.field] ??= []);
-    if (list.length < 8 && !list.includes(row.topic)) list.push(row.topic);
-  }
-  return byField;
+  const entries = await Promise.all(
+    FIELDS.map(async (field): Promise<[string, string[]]> => {
+      const { data, error } = await supabase
+        .from("trending_topics_cache")
+        .select("topic")
+        .eq("field", field)
+        .order("generated_at", { ascending: false })
+        .limit(20);
+      if (error || !data) {
+        console.error(`generate-trending-topics: failed to fetch recent topics for field "${field}"`, error);
+        return [field, []];
+      }
+      const unique: string[] = [];
+      for (const row of data) {
+        if (unique.length < 8 && !unique.includes(row.topic)) unique.push(row.topic);
+      }
+      return [field, unique];
+    })
+  );
+  return Object.fromEntries(entries);
 }
 
 serve(async (req) => {
