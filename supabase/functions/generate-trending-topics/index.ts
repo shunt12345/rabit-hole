@@ -449,8 +449,18 @@ async function generateForField(apiKey: string, field: string, excludeTopics: st
 // (a manual test run, a retry) ate into that budget too. Confirmed live —
 // "Avocado" as Word Of The Day repeated after only 8 days because the 8th
 // occurrence had already scrolled out of the shared window. Querying each
-// field on its own guarantees a real 8-pick lookback regardless of how much
-// volume the other fields produce.
+// field on its own guarantees a real lookback regardless of how much volume
+// the other fields produce.
+//
+// RECENT_EXCLUDE_COUNT is 30 (roughly a month, since every field now runs
+// once/day) rather than the original 8 — Word Of The Day / Quote Of The Day
+// / Trending all draw from an effectively unlimited pool, so an 8-day memory
+// meant a daily visitor would see the same pick again within two weeks. The
+// query limit is padded above that count to still land on 30 uniques even
+// if a field got more than one row on the same calendar day (a manual test
+// run, a retry).
+const RECENT_EXCLUDE_COUNT = 30;
+
 async function fetchRecentTopicsByField(): Promise<Record<string, string[]>> {
   const entries = await Promise.all(
     FIELDS.map(async (field): Promise<[string, string[]]> => {
@@ -459,14 +469,14 @@ async function fetchRecentTopicsByField(): Promise<Record<string, string[]>> {
         .select("topic")
         .eq("field", field)
         .order("generated_at", { ascending: false })
-        .limit(20);
+        .limit(RECENT_EXCLUDE_COUNT + 15);
       if (error || !data) {
         console.error(`generate-trending-topics: failed to fetch recent topics for field "${field}"`, error);
         return [field, []];
       }
       const unique: string[] = [];
       for (const row of data) {
-        if (unique.length < 8 && !unique.includes(row.topic)) unique.push(row.topic);
+        if (unique.length < RECENT_EXCLUDE_COUNT && !unique.includes(row.topic)) unique.push(row.topic);
       }
       return [field, unique];
     })
