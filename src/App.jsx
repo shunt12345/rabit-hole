@@ -1122,6 +1122,7 @@ export default function Hyfax() {
         .rh-input:focus { border-color: #E3A73C !important; }
         .rh-btn-dark:hover { background-color: #2A2018 !important; }
         .rh-btn-accent:hover { background-color: #EDB94F !important; }
+        .rh-btn-outline:hover { border-color: #E3A73C !important; color: #F1E6D3 !important; }
         .rh-link-accent:hover { color: #EDB94F !important; }
         .rh-logo-btn { transition: opacity 0.15s; }
         .rh-logo-btn:hover { opacity: 0.8; }
@@ -1210,7 +1211,7 @@ export default function Hyfax() {
               as far as it goes.
             </h2>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-center gap-2">
               <input
                 value={inputVal}
                 onChange={(e) => {
@@ -1225,49 +1226,55 @@ export default function Hyfax() {
                 }}
                 placeholder="What's on your mind?"
                 disabled={rootLoading}
-                className="rh-body flex-1 border outline-none rh-placeholder rh-input text-sm rounded-full px-5 py-3 transition-colors"
+                className="rh-body flex-1 min-w-[180px] border outline-none rh-placeholder rh-input text-sm rounded-full px-5 py-3 transition-colors"
                 style={{ backgroundColor: "#332617", borderColor: "#5A4630", color: "#F1E6D3" }}
               />
-              <button
-                type="button"
-                onClick={handleStartClick}
-                disabled={rootLoading}
-                className="rh-body flex items-center gap-1.5 disabled:cursor-not-allowed text-sm font-medium rounded-full px-5 py-3 transition-colors shrink-0 rh-btn-accent"
-                style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
-              >
-                {rootLoading ? (
-                  <>
-                    <Loader2 size={15} className="animate-spin" /> Digging in…
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={15} /> Dig in
-                  </>
+              <div className="flex items-center gap-2 shrink-0">
+                {/* "Spin a thread" — a free, instant reroll through a fixed
+                    curated list (see lib/surpriseTopics.js), populating the
+                    SAME input above rather than a separate lookalike box.
+                    Nothing committed until "Dig In" is actually tapped, so
+                    the reader can skip past as many boring picks as they
+                    want for free; only the one they accept ever costs a
+                    real generation or counts as a search. Given equal
+                    visual footing with Dig In (same height, right next to
+                    it) since it's a real second way in, not an afterthought
+                    — outlined rather than filled to stay clearly secondary
+                    to the gold Dig In commit action. Hidden once a real Dig
+                    In is in flight, same as every other hero-page entry
+                    point. */}
+                {!rootLoading && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInputVal(nextSurpriseTopic());
+                      setIsSurprise(true);
+                    }}
+                    className="rh-body flex items-center gap-1.5 text-sm font-medium rounded-full px-4 py-3 border transition-colors rh-btn-outline"
+                    style={{ backgroundColor: "transparent", borderColor: "#5A4630", color: "#C9B896" }}
+                  >
+                    <Shuffle size={15} /> {isSurprise ? "Spin again" : "Spin a thread"}
+                  </button>
                 )}
-              </button>
+                <button
+                  type="button"
+                  onClick={handleStartClick}
+                  disabled={rootLoading}
+                  className="rh-body flex items-center gap-1.5 disabled:cursor-not-allowed text-sm font-medium rounded-full px-5 py-3 transition-colors shrink-0 rh-btn-accent"
+                  style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
+                >
+                  {rootLoading ? (
+                    <>
+                      <Loader2 size={15} className="animate-spin" /> Digging in…
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={15} /> Dig in
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
-
-            {/* "Surprise me" — a free, instant reroll through a fixed
-                curated list (see lib/surpriseTopics.js), populating the
-                SAME input above rather than a separate lookalike box.
-                Nothing committed until "Dig In" is actually tapped, so the
-                reader can skip past as many boring picks as they want for
-                free; only the one they accept ever costs a real generation
-                or counts as a search. Hidden once a real Dig In is in
-                flight, same as every other hero-page entry point. */}
-            {!rootLoading && (
-              <button
-                type="button"
-                onClick={() => {
-                  setInputVal(nextSurpriseTopic());
-                  setIsSurprise(true);
-                }}
-                className="rh-mono rh-text-10 uppercase tracking-wider mt-3 flex items-center gap-1.5 mx-auto rounded-full border px-3.5 py-1.5 transition-colors"
-                style={{ backgroundColor: "#1F1811", borderColor: "#5A4630", color: "#C9B896" }}
-              >
-                <Shuffle size={13} /> {isSurprise ? "Spin again" : "Surprise me"}
-              </button>
-            )}
 
             <UsageGauge profile={profile} lifetimeFunded={lifetimeFunded} />
 
