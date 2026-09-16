@@ -1488,7 +1488,7 @@ export default function Hyfax() {
                 <div className="flex items-center justify-center gap-1.5 mb-6">
                   <HelpCircle size={14} style={{ color: "#C9B896" }} />
                   <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
-                    Reverse Hyfax
+                    Riddle me this....
                   </span>
                 </div>
                 <div
