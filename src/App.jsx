@@ -1407,6 +1407,56 @@ export default function Hyfax() {
               </div>
             )}
 
+            {/* "Today" — National Day + This Day In History + Word Of The
+                Day, same source table and card treatment as "Trending"
+                but date-anchored/evergreen rather than searched-for-recency.
+                See promptForField in supabase/functions/generate-trending-topics.
+                Same funded-only gate as "Trending" below. */}
+            {todayTopics.length > 0 && !trialExhausted && todayVisible && (
+              <div className="mt-10">
+                <div className="flex items-center justify-center gap-1.5 mb-6">
+                  <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
+                    Today
+                  </span>
+                </div>
+                <div className="flex flex-col gap-3 max-w-md mx-auto">
+                  {todayTopics.map((t, i) => {
+                    const isSelected = selectedTodayIdx === i;
+                    return (
+                      <button
+                        key={`${t.field}-${i}`}
+                        type="button"
+                        onClick={() => {
+                          setSelectedTodayIdx(i);
+                          setSelectedNewsIdx(null);
+                          setSelectedQuote(false);
+                          startTopic(t.topic, t.teaser);
+                        }}
+                        disabled={rootLoading}
+                        className={`rh-chip text-left p-4 rounded-2xl border transition-colors ${
+                          rootLoading && !isSelected ? "opacity-40" : ""
+                        } ${rootLoading && isSelected ? "cursor-default" : ""}`}
+                        style={{
+                          borderColor: isSelected ? "#E3A73C" : "#3A2E20",
+                          backgroundColor: isSelected ? "#2A2015" : "#1F1811",
+                        }}
+                      >
+                        <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
+                          {t.field}
+                        </span>
+                        <div className="rh-body text-lg font-semibold mt-1" style={{ color: "#F1E6D3" }}>
+                          {t.topic}
+                        </div>
+                        <p className="rh-body text-sm mt-1" style={{ color: "#B8A886" }}>
+                          {t.teaser}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* "Reverse Hyfax" — the branching mechanic run backwards:
                 instead of a topic branching OUT into surprising tangents,
                 this weaves the tangents into one withheld-register riddle
@@ -1472,6 +1522,19 @@ export default function Hyfax() {
               </div>
             )}
 
+            {/* House ad (Section H) — between "Reverse Hyfax" and
+                "Trending", the same "not first, not last" depth it held in
+                the previous section order. Funded accounts don't see ads at
+                all — this is specifically aimed at engaging free/
+                unsubscribed users, not a house ad slot everyone gets.
+                Seeded off the browser's own session id, so it's stable for
+                one visitor across a visit but varies visitor to visitor. */}
+            {!funded && (
+              <div className="mt-10">
+                <AdCard ad={pickHouseAd(getSessionId(), adStage)} onClick={openAccountModal} />
+              </div>
+            )}
+
             {/* real, live-searched stories — see
                 supabase/functions/generate-trending-topics. The "as of"
                 date reflects the actual cache timestamp now, not a
@@ -1519,68 +1582,6 @@ export default function Hyfax() {
                       >
                         <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
                           {NEWS_FIELD_LABELS[t.field] || t.field}
-                        </span>
-                        <div className="rh-body text-lg font-semibold mt-1" style={{ color: "#F1E6D3" }}>
-                          {t.topic}
-                        </div>
-                        <p className="rh-body text-sm mt-1" style={{ color: "#B8A886" }}>
-                          {t.teaser}
-                        </p>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* House ad (Section H) — between "Trending" and "Today".
-                Funded accounts don't see ads at all — this is specifically
-                aimed at engaging free/unsubscribed users, not a house ad
-                slot everyone gets. Seeded off the browser's own session
-                id, so it's stable for one visitor across a visit but
-                varies visitor to visitor. */}
-            {!funded && (
-              <div className="mt-10">
-                <AdCard ad={pickHouseAd(getSessionId(), adStage)} onClick={openAccountModal} />
-              </div>
-            )}
-
-            {/* "Today" — National Day + This Day In History + Word Of The
-                Day, same source table and card treatment as "Trending"
-                but date-anchored/evergreen rather than searched-for-recency.
-                See promptForField in supabase/functions/generate-trending-topics.
-                Same funded-only gate as "Trending" above. */}
-            {todayTopics.length > 0 && !trialExhausted && todayVisible && (
-              <div className="mt-10">
-                <div className="flex items-center justify-center gap-1.5 mb-6">
-                  <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
-                    Today
-                  </span>
-                </div>
-                <div className="flex flex-col gap-3 max-w-md mx-auto">
-                  {todayTopics.map((t, i) => {
-                    const isSelected = selectedTodayIdx === i;
-                    return (
-                      <button
-                        key={`${t.field}-${i}`}
-                        type="button"
-                        onClick={() => {
-                          setSelectedTodayIdx(i);
-                          setSelectedNewsIdx(null);
-                          setSelectedQuote(false);
-                          startTopic(t.topic, t.teaser);
-                        }}
-                        disabled={rootLoading}
-                        className={`rh-chip text-left p-4 rounded-2xl border transition-colors ${
-                          rootLoading && !isSelected ? "opacity-40" : ""
-                        } ${rootLoading && isSelected ? "cursor-default" : ""}`}
-                        style={{
-                          borderColor: isSelected ? "#E3A73C" : "#3A2E20",
-                          backgroundColor: isSelected ? "#2A2015" : "#1F1811",
-                        }}
-                      >
-                        <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
-                          {t.field}
                         </span>
                         <div className="rh-body text-lg font-semibold mt-1" style={{ color: "#F1E6D3" }}>
                           {t.topic}
