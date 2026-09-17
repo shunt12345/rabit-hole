@@ -1476,14 +1476,15 @@ export default function Hyfax() {
             {/* "Riddle me this...." — the branching mechanic run backwards:
                 instead of a topic branching OUT into surprising tangents,
                 this weaves the tangents into one withheld-register riddle
-                first and asks the reader to guess the topic tying them
-                together (see riddlePrompt in generate-trending-topics).
-                A correct guess launches the exact same Dig In flow as
-                every other hero card — a real billable search, same as
-                Trending/Today — a wrong guess just greys that option out
-                so they can try again. Has its own toggle (featureRiddle)
-                rather than reusing "Today"'s, so a funded user can turn it
-                off independently, same as every other à la carte feature. */}
+                first. Was a multiple-choice guess (real answer + 2 decoys)
+                — that UI is hidden below, not deleted, per feedback that
+                the guessing element wasn't landing — replaced with a plain
+                "click to find out" reveal: the whole card IS the answer
+                button now, same one-tap pattern as Quote Of The Day. Still
+                a real billable Dig In on click, same as every other hero
+                card. Has its own toggle (featureRiddle) rather than reusing
+                "Today"'s, so a funded user can turn it off independently,
+                same as every other à la carte feature. */}
             {riddleTopic && !trialExhausted && riddleVisible && (
               <div className="mt-10">
                 <div className="flex items-center justify-center gap-1.5 mb-6">
@@ -1492,49 +1493,75 @@ export default function Hyfax() {
                     Riddle me this....
                   </span>
                 </div>
-                <div
-                  className="max-w-md mx-auto p-5 rounded-2xl border"
-                  style={{ borderColor: "#4A3826", backgroundColor: "#241B12" }}
-                >
-                  <p className="rh-display italic text-lg leading-relaxed" style={{ color: "#F1E6D3" }}>
-                    {riddleTopic.teaser}
-                  </p>
-                  <div className="flex flex-col gap-2 mt-4">
-                    {riddleChoices.map((choice) => {
-                      const isCorrectPick = selectedRiddle && choice === riddleTopic.topic;
-                      const isWrong = riddleWrongPicks.includes(choice);
-                      return (
-                        <button
-                          key={choice}
-                          type="button"
-                          onClick={() => {
-                            if (choice === riddleTopic.topic) {
-                              setSelectedRiddle(true);
-                              setSelectedNewsIdx(null);
-                              setSelectedTodayIdx(null);
-                              setSelectedQuote(false);
-                              startTopic(riddleTopic.topic, riddleTopic.teaser);
-                            } else {
-                              setRiddleWrongPicks((prev) => (prev.includes(choice) ? prev : [...prev, choice]));
-                            }
-                          }}
-                          disabled={rootLoading || isWrong}
-                          className={`rh-chip rh-body text-sm text-left rounded-xl px-4 py-2.5 border transition-colors ${
-                            rootLoading && !isCorrectPick ? "opacity-40" : ""
-                          } ${rootLoading && isCorrectPick ? "cursor-default" : ""}`}
-                          style={{
-                            borderColor: isCorrectPick ? "#E3A73C" : "#5A4630",
-                            backgroundColor: isCorrectPick ? "#2A2015" : "transparent",
-                            color: isWrong ? "#6B5B45" : "#F1E6D3",
-                            textDecoration: isWrong ? "line-through" : "none",
-                          }}
-                        >
-                          {choice}
-                        </button>
-                      );
-                    })}
-                  </div>
+                <div className="max-w-md mx-auto">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedRiddle(true);
+                      setSelectedNewsIdx(null);
+                      setSelectedTodayIdx(null);
+                      setSelectedQuote(false);
+                      startTopic(riddleTopic.topic, riddleTopic.teaser);
+                    }}
+                    disabled={rootLoading}
+                    className={`rh-chip text-left p-5 rounded-2xl border transition-colors w-full ${
+                      rootLoading && !selectedRiddle ? "opacity-40" : ""
+                    } ${rootLoading && selectedRiddle ? "cursor-default" : ""}`}
+                    style={{
+                      borderColor: selectedRiddle ? "#E3A73C" : "#4A3826",
+                      backgroundColor: selectedRiddle ? "#2A2015" : "#241B12",
+                    }}
+                  >
+                    <p className="rh-display italic text-lg leading-relaxed" style={{ color: "#F1E6D3" }}>
+                      {riddleTopic.teaser.replace(/\.+\s*$/, "")}....
+                    </p>
+                  </button>
                 </div>
+
+                {/* Multiple-choice guess UI — hidden, not erased, in case
+                    this comes back in a different form. */}
+                {false && (
+                  <div
+                    className="max-w-md mx-auto mt-2 p-5 rounded-2xl border"
+                    style={{ borderColor: "#4A3826", backgroundColor: "#241B12" }}
+                  >
+                    <div className="flex flex-col gap-2">
+                      {riddleChoices.map((choice) => {
+                        const isCorrectPick = selectedRiddle && choice === riddleTopic.topic;
+                        const isWrong = riddleWrongPicks.includes(choice);
+                        return (
+                          <button
+                            key={choice}
+                            type="button"
+                            onClick={() => {
+                              if (choice === riddleTopic.topic) {
+                                setSelectedRiddle(true);
+                                setSelectedNewsIdx(null);
+                                setSelectedTodayIdx(null);
+                                setSelectedQuote(false);
+                                startTopic(riddleTopic.topic, riddleTopic.teaser);
+                              } else {
+                                setRiddleWrongPicks((prev) => (prev.includes(choice) ? prev : [...prev, choice]));
+                              }
+                            }}
+                            disabled={rootLoading || isWrong}
+                            className={`rh-chip rh-body text-sm text-left rounded-xl px-4 py-2.5 border transition-colors ${
+                              rootLoading && !isCorrectPick ? "opacity-40" : ""
+                            } ${rootLoading && isCorrectPick ? "cursor-default" : ""}`}
+                            style={{
+                              borderColor: isCorrectPick ? "#E3A73C" : "#5A4630",
+                              backgroundColor: isCorrectPick ? "#2A2015" : "transparent",
+                              color: isWrong ? "#6B5B45" : "#F1E6D3",
+                              textDecoration: isWrong ? "line-through" : "none",
+                            }}
+                          >
+                            {choice}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
