@@ -345,7 +345,13 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 // the actual instruction. A later live round added the "keep details
 // general" rule below after a real riddle named its country outright
 // ("off Belize") — the concrete-but-vague line needed its own tuning pass
-// separate from the withheld-but-solvable one above.
+// separate from the withheld-but-solvable one above. A third round added
+// the hard 2-3-details cap after a real riddle (corpse flower) stayed
+// vague on numbers/places but still stacked five or six separate
+// observations into one sentence — a distinct failure mode (density, not
+// specificity) from the Belize one, needing its own instruction and
+// example rather than assuming the existing "2-3 details" line alone
+// would be enough to stop it.
 function riddlePrompt(excludeTopics: string[]): string {
   const excludeBlock = excludeTopics.length
     ? `\n\nAlready featured recently — pick a different topic this time, not a repeat of any of these: ${excludeTopics.join("; ")}.`
@@ -359,6 +365,8 @@ Now write exactly ONE SENTENCE — a riddle — that describes this topic WITHOU
 Keep those concrete details GENERAL rather than pinpoint-specific. Default to vague: "many," "several," "dozens," "centuries," "a hemisphere," "a stretch of coastline," "a continent away" instead of an exact number, a named country, a named city, or a specific date/year. Only reach for something that specific if the riddle genuinely cannot be solved without it — most of the time it can be. A named place or an exact figure tends to hand over the answer outright instead of pointing at it, which flattens the puzzle into a fact card. Vagueness on this axis is what keeps it a riddle rather than a trivia sentence with the noun blanked out.
 
 A real example that ran too specific: a riddle about a giant marine sinkhole named the exact country it's in ("off Belize") and gave near-exact measurements ("roughly a thousand feet wide and over four hundred deep") — the other details (a drowned limestone cave, an ice age, a famous diver charting it) were already plenty to solve it, so the named country and precise numbers weren't earning their place; "a stretch of tropical coastline" and "vast" would have kept the same puzzle intact without just announcing the answer's location.
+
+Separately, the 2-3 details limit above is a HARD cap, not a floor — stop as soon as you hit it. A real example that went over: "A giant that spends the better part of a decade hoarding energy underground just to throw one wild, fleeting party — unfurling in a matter of hours, warming itself to something close to body heat, and perfuming the air like rotting meat so that flies and beetles arrive expecting a carcass." (answer: corpse flower) — that's five or six separate observations stacked into one sentence (the long wait, the party, how fast it opens, the heat, the smell, the insects it fools), which reads as an inventory instead of a riddle even though every clause is accurate and even though it stayed vague on numbers/places. Keeping only two or three of those — say, the long wait, the one party, and how quickly it's over — would have hit just as hard at half the length. Once you've picked your 2-3 details, resist the urge to add "one more good one."
 
 Match this exact register AND length — three worked examples, each one single sentence:
 
