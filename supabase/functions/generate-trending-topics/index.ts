@@ -476,6 +476,19 @@ async function generateForField(apiKey: string, field: string, excludeTopics: st
     throw new Error(`Missing topic/teaser/source_url: ${cleaned.slice(0, 300)}`);
   }
 
+  // The excludeTopics instruction in the prompt is just that — an
+  // instruction, not a guarantee. Confirmed live: "Clue" repeated as Word
+  // Of The Day after only 6 days even with the full exclusion history
+  // (fetchRecentTopicsByField below) correctly reaching back and almost
+  // certainly listing it. Rather than trust prompt compliance alone,
+  // reject an exact repeat outright here — same posture as the missing-
+  // field check above, this field just fails for this run (Promise.
+  // allSettled tolerates it, and the client's staleness window keeps
+  // showing yesterday's real pick instead of today's exact repeat).
+  if (excludeTopics.some((t) => t.toLowerCase() === topic.toLowerCase())) {
+    throw new Error(`Picked a topic already in its own exclude list: "${topic}"`);
+  }
+
   // Only the Riddle field's multiple-choice decoys — every other field
   // just omits this key entirely, leaving the DB column null for their rows.
   let options: string[] | undefined;
