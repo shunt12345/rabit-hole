@@ -20,8 +20,28 @@
 // that exists): each anonymous session is capped at DAILY_REQUEST_LIMIT
 // requests per rolling 24h, counted straight off the log table below. Fails
 // OPEN if the count query itself errors — a monitoring hiccup should never
-// block a real person's request — and never blocks on session ids that
-// aren't in active use, since the cap is per-session, not global.
+// block a real person's request.
+//
+// Pre-public-launch hardening added two more layers on top of the
+// session-only cap above, since session_id lives in localStorage and is
+// trivially reset (incognito, cleared storage, or a script minting a fresh
+// one per batch) — it alone can't bound total cost once traffic is public:
+//   - DAILY_REQUEST_LIMIT_PER_IP: the same kind of rolling-24h request-count
+//     ceiling, keyed on the client's IP (getClientIp below) instead of the
+//     client-controlled session id. Higher than the per-session limit on
+//     purpose — a shared office/campus/carrier-NAT IP can legitimately be
+//     many real people, and this is a backstop against a script, not a
+//     precise per-person quota.
+//   - GLOBAL_DAILY_SPEND_LIMIT_USD: the real one. Sums actual measured
+//     Anthropic cost (rabbit_hole_request_logs.cost_usd, via the
+//     get_recent_spend_usd DB function) across ALL free/unfunded traffic in
+//     the last 24h, and stops serving new free-tier requests once it's
+//     crossed — many distinct sessions/IPs each staying under their own
+//     ceiling can still add up to real money, which neither cap above
+//     catches on its own. Funded callers are exempt: their spend is
+//     already self-limiting (deduct_balance can't take more than their own
+//     balance holds), so this is specifically a free-tier backstop, not a
+//     "the whole app is down" switch.
 //
 // News/Today root caching: a topic from the "In the news"/"Today" hero
 // cards is identical for every visitor until the next
@@ -382,6 +402,36 @@ async function extractUsageAndBill(
 // for genuinely heavy single-day use while still catching a runaway loop
 // or a link forwarded well past the "friends" scale this key is sized for.
 const DAILY_REQUEST_LIMIT = Number(Deno.env.get("DAILY_REQUEST_LIMIT") ?? "300");
+// Same idea, keyed on client IP instead of session id — see the top-of-file
+// note on why session_id alone isn't a safe enough identity once traffic is
+// public. Deliberately higher than DAILY_REQUEST_LIMIT: a shared IP (office,
+// campus, mobile carrier NAT) can be many real people, so this needs to be
+// loose enough not to collide with real-but-heavy legitimate traffic while
+// still catching a script that mints a fresh session_id per batch from one
+// machine/IP.
+const DAILY_REQUEST_LIMIT_PER_IP = Number(Deno.env.get("DAILY_REQUEST_LIMIT_PER_IP") ?? "900");
+// The real backstop — total measured Anthropic spend (not request count)
+// across all free/unfunded traffic in the last 24h. Set this to whatever
+// dollar figure you're actually comfortable risking on the free tier in a
+// worst case; $50 is a placeholder starting point, not a researched number.
+// Overridable via `supabase secrets set GLOBAL_DAILY_SPEND_LIMIT_USD=...`.
+const GLOBAL_DAILY_SPEND_LIMIT_USD = Number(Deno.env.get("GLOBAL_DAILY_SPEND_LIMIT_USD") ?? "50");
+
+// Client IP from the platform's forwarded-for header — Deno Deploy (what
+// Supabase Edge Functions run on) sets this to a comma-separated list with
+// the real originating client first and any intermediate proxies after;
+// x-real-ip is the fallback some edge/CDN layers use instead. Null (not
+// "unknown") when neither header is present, same "don't fabricate an
+// identity" posture as sessionId's own "unknown" fallback being an explicit
+// choice rather than this needing to match it.
+function getClientIp(req: Request): string | null {
+  const forwardedFor = req.headers.get("x-forwarded-for");
+  if (forwardedFor) {
+    const first = forwardedFor.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  return req.headers.get("x-real-ip");
+}
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -405,7 +455,8 @@ async function logRequest(
   sessionId: string,
   endpoint: string,
   userId: string | null,
-  nodeType?: string
+  nodeType?: string,
+  ipAddress?: string | null
 ): Promise<number | null> {
   try {
     const { data, error } = await supabase
@@ -415,6 +466,7 @@ async function logRequest(
         endpoint: endpoint || "unknown",
         user_id: userId,
         node_type: nodeType && VALID_NODE_TYPES.has(nodeType) ? nodeType : null,
+        ip_address: ipAddress ?? null,
       })
       .select("id")
       .single();
@@ -730,6 +782,7 @@ serve(async (req) => {
     }
 
     const { userId, funded, featureDigDeeper } = await resolveIdentity(userAccessToken);
+    const clientIp = getClientIp(req);
 
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { count, error: countError } = await supabase
@@ -746,6 +799,50 @@ serve(async (req) => {
         "Daily limit reached for this browser — try again tomorrow. (This app runs on a shared demo key with a safety cap to prevent runaway costs.)",
         { status: 429, headers: { ...corsHeaders, ...usageHeaders(count), "Content-Type": "text/plain" } }
       );
+    }
+
+    // Same ceiling, keyed on IP instead of session_id — see the top-of-file
+    // note on why a public launch needs a harder-to-reset identity backing
+    // this up. Skipped entirely when the platform hands back no IP at all
+    // (fail open, same posture as the session check's countError branch)
+    // rather than grouping every such request under one fake "unknown" IP,
+    // which would let one blocked bucket lock out everyone else with a
+    // missing header.
+    if (clientIp) {
+      const { count: ipCount, error: ipCountError } = await supabase
+        .from("rabbit_hole_request_logs")
+        .select("*", { count: "exact", head: true })
+        .eq("ip_address", clientIp)
+        .gte("created_at", since);
+      if (ipCountError) {
+        console.error("rabbit-hole-proxy: IP usage count check failed, allowing request", ipCountError);
+      } else if ((ipCount ?? 0) >= DAILY_REQUEST_LIMIT_PER_IP) {
+        return new Response(
+          "Daily limit reached for this network — try again tomorrow. (This app runs on a shared demo key with a safety cap to prevent runaway costs.)",
+          { status: 429, headers: { ...corsHeaders, ...usageHeaders(count), "Content-Type": "text/plain" } }
+        );
+      }
+    }
+
+    // The real backstop — see the top-of-file note. Total measured spend
+    // across ALL free/unfunded traffic, not one session or IP's request
+    // count, so many distinct abusers each staying under their own ceiling
+    // still can't add up to unbounded real cost. Funded callers are exempt:
+    // their own balance already bounds what they can spend.
+    if (!funded) {
+      const { data: recentSpend, error: spendError } = await supabase.rpc("get_recent_spend_usd", { since });
+      if (spendError) {
+        // fail open — same posture as every other check here
+        console.error("rabbit-hole-proxy: global spend check failed, allowing request", spendError);
+      } else if (Number(recentSpend ?? 0) >= GLOBAL_DAILY_SPEND_LIMIT_USD) {
+        return new Response(
+          JSON.stringify({
+            error: "free_tier_paused",
+            message: "Free access is temporarily paused for today due to unusually high demand — add funds to keep going, or try again tomorrow.",
+          }),
+          { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
     }
 
     // Free-trial search count — see the top-of-file note. Computed for
@@ -813,7 +910,7 @@ serve(async (req) => {
     // fire-and-forget — never block the actual Claude call on this. The
     // returned promise is only awaited later, inside the background
     // billing task below, once the real cost is known.
-    const logRowIdPromise = logRequest(sessionId, endpoint, userId, nodeType);
+    const logRowIdPromise = logRequest(sessionId, endpoint, userId, nodeType, clientIp);
 
     if (newsCacheKey && endpoint === "article") {
       const { data: cached, error: cacheErr } = await supabase

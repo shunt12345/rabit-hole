@@ -156,11 +156,13 @@ async function fetchClaudeText(system, prompt, maxTokens, endpoint) {
 
   if (!res.ok) {
     let bodySnippet = "";
+    let friendlyMessage = null;
     try {
       bodySnippet = (await res.text()).slice(0, 200);
+      friendlyMessage = JSON.parse(bodySnippet)?.message || null;
     } catch (_) {}
     console.error("Hyfax: API returned non-OK status", res.status, bodySnippet);
-    throw new Error(`API returned ${res.status}${bodySnippet ? `: ${bodySnippet}` : ""}`);
+    throw new Error(friendlyMessage || `API returned ${res.status}${bodySnippet ? `: ${bodySnippet}` : ""}`);
   }
 
   const data = await res.json();
@@ -242,11 +244,13 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
   if (!res.ok) {
     clearTimeout(timeoutId);
     let bodySnippet = "";
+    let friendlyMessage = null;
     try {
       bodySnippet = (await res.text()).slice(0, 200);
+      friendlyMessage = JSON.parse(bodySnippet)?.message || null;
     } catch (_) {}
     console.error("Hyfax: stream returned non-OK status", res.status, bodySnippet);
-    throw new Error(`API returned ${res.status}${bodySnippet ? `: ${bodySnippet}` : ""}`);
+    throw new Error(friendlyMessage || `API returned ${res.status}${bodySnippet ? `: ${bodySnippet}` : ""}`);
   }
 
   // A `newsCacheKey` cache HIT comes back as one complete JSON object
