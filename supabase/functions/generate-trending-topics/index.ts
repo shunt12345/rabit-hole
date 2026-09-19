@@ -60,6 +60,15 @@ const NEWS_FIELDS = [...TRENDING_MAINSTREAM_FIELDS, TRENDING_WILDCARD_FIELD];
 // their real mechanic: one nightly pick, no live-search "recent story"
 // framing, excludeTopics keeps it from repeating.
 const SPECIAL_FIELDS = ["National Day", "This Day In History", "Word Of The Day", "Quote Of The Day"];
+// National Day and This Day In History are both anchored to the SAME
+// calendar date, and confirmed live that's enough to converge them on the
+// exact same real-world fact — September 19th's most famous anecdote
+// (Talk Like a Pirate Day's origin story) got picked as both the "day"
+// AND the "history" entry the same run, reading as one story told twice.
+// Runs sequentially with This Day In History getting National Day's real
+// pick as an extra exclusion (see DATE_ANCHORED_SEQUENTIAL_FIELDS below),
+// same fix already proven for Trending 1/2 converging on one headline.
+const DATE_ANCHORED_SEQUENTIAL_FIELDS = ["National Day", "This Day In History"];
 // "Reverse Hyfax" — a withheld-register riddle paragraph describing a real
 // topic without naming it, plus 2 decoy topics for a multiple-choice guess
 // (see riddlePrompt). Kept as its own field name rather than folded into
@@ -627,9 +636,20 @@ serve(async (req) => {
   // extra exclusion (on top of its own past-picks history) actually
   // guarantees no overlap instead of just hoping the category-based
   // framing keeps them apart. Costs a few extra seconds of wall time,
-  // irrelevant for a twice-daily background cron job.
-  const sequentialFields = fieldsToRun.filter((f) => TRENDING_MAINSTREAM_FIELDS.includes(f));
-  const otherFields = fieldsToRun.filter((f) => !TRENDING_MAINSTREAM_FIELDS.includes(f));
+  // irrelevant for a once-daily background cron job.
+  //
+  // National Day / This Day In History join the same sequential-plus-
+  // cross-exclusion treatment for the identical reason — confirmed live
+  // they converged on the exact same real-world fact (Talk Like a Pirate
+  // Day's origin, as both the "day" and the "history" pick) since both are
+  // anchored to the same calendar date and neither knew what the other had
+  // already found. TRENDING_MAINSTREAM_FIELDS and DATE_ANCHORED_SEQUENTIAL_
+  // FIELDS never actually co-occur in the same run (separate cron jobs
+  // request NEWS_FIELDS vs SPECIAL_FIELDS), so sharing one `justPicked`
+  // list across both groups is harmless either way.
+  const SEQUENTIAL_FIELDS = [...TRENDING_MAINSTREAM_FIELDS, ...DATE_ANCHORED_SEQUENTIAL_FIELDS];
+  const sequentialFields = fieldsToRun.filter((f) => SEQUENTIAL_FIELDS.includes(f));
+  const otherFields = fieldsToRun.filter((f) => !SEQUENTIAL_FIELDS.includes(f));
 
   const orderedFields: string[] = [];
   const results: any[] = [];
