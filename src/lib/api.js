@@ -10,7 +10,14 @@ import { getAccessToken } from "./auth.js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const PROXY_URL = `${SUPABASE_URL}/functions/v1/rabbit-hole-proxy`;
+// Points at "rabbit-hole-proxy-v2", not the original "rabbit-hole-proxy" —
+// the original function's registration on Supabase's edge network got
+// stuck rejecting every single request (even an unauthenticated CORS
+// preflight OPTIONS) with a platform-level 401, regardless of code changes
+// or the function's own JWT-enforcement setting. A fresh function under a
+// new name, same code, sidesteps whatever's wrong with that specific slug
+// without waiting on Supabase support to un-stick it.
+const PROXY_URL = `${SUPABASE_URL}/functions/v1/rabbit-hole-proxy-v2`;
 
 function proxyHeaders() {
   return {
