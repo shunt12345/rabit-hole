@@ -361,13 +361,38 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 // specificity) from the Belize one, needing its own instruction and
 // example rather than assuming the existing "2-3 details" line alone
 // would be enough to stop it.
-function riddlePrompt(excludeTopics: string[]): string {
+// Fixed vocabulary rather than free text — keeps fetchRecentRiddleCategories'
+// history actually comparable call to call (freeform labels like "sea
+// creature" vs "marine animal" wouldn't reliably match each other), and
+// keeps the steering instruction below groundable in real, recent values
+// instead of vague "vary it more" language.
+const RIDDLE_CATEGORIES = [
+  "animal",
+  "plant-or-fungus",
+  "place",
+  "historical-event",
+  "invention-or-technology",
+  "natural-phenomenon",
+  "substance-or-material",
+  "idea-or-concept",
+];
+
+function riddlePrompt(excludeTopics: string[], recentCategories: string[]): string {
   const excludeBlock = excludeTopics.length
     ? `\n\nAlready featured recently — pick a different topic this time, not a repeat of any of these: ${excludeTopics.join("; ")}.`
     : "";
+  // Confirmed live: left to its own devices, this defaulted to animals
+  // pick after pick (octopus cognition, immortal jellyfish, tardigrades...)
+  // with no variety — a stateless call has no way to notice it's about to
+  // repeat itself without something concrete to check against. Naming the
+  // actual recent categories (not just "add variety") is what makes this
+  // checkable rather than a vibe.
+  const categoryBlock = recentCategories.length
+    ? `\n\nThe last few picks' categories, most recent first: ${recentCategories.join(", ")}. Do not pick from that same category again this time, especially if it's "animal" — actively favor whichever of these categories AREN'T in that recent list: ${RIDDLE_CATEGORIES.join(", ")}.`
+    : "";
   return `You have live web search — use it now.
 
-Pick a single real, genuinely interesting topic — anything: an animal, a place, a historical event, a scientific phenomenon, an invention, a substance, whatever's actually fascinating. Wide open, not tied to today's date or current events. Search to confirm every concrete detail you use about it is accurate.${excludeBlock}
+Pick a single real, genuinely interesting topic. It does NOT have to be an animal or living thing — deliberately range across ALL of these categories over time, not just the ones that come to mind first: ${RIDDLE_CATEGORIES.join(", ")}. Wide open, not tied to today's date or current events. Search to confirm every concrete detail you use about it is accurate.${excludeBlock}${categoryBlock}
 
 Now write exactly ONE SENTENCE — a riddle — that describes this topic WITHOUT ever naming it, in a specific voice: withheld and a little poetic, an inverted opening rather than a plain statement, the subject's identity never spelled out directly. One sentence only — use dashes or a semicolon to string clauses together the way the examples below do, not periods to split it into several. But it must still be SOLVABLE — anchor it with 2-3 real, concrete, verifiable details about the topic (not just abstract mood), so a reader who knows the subject can actually place it. Do not over-abstract into pure metaphor with no verifiable facts left in it — that stops being a riddle and becomes unsolvable.
 
@@ -393,20 +418,21 @@ Produce:
 - "topic": the real answer — a short, punchy 2-5 word label (title case, no trailing punctuation)
 - "teaser": the riddle paragraph itself, written to the register above
 - "options": an array of exactly 2 decoy topics as described above
+- "category": exactly one of these strings, whichever actually fits your answer: ${RIDDLE_CATEGORIES.join(", ")}
 - "source_url": the URL of a real source confirming the concrete details you used in the riddle — a specific page actually about the topic, not a homepage or unrelated page
 
 ${SOURCE_URL_CHECK}
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
-{"topic": "...", "teaser": "...", "options": ["...", "..."], "source_url": "..."}`;
+{"topic": "...", "teaser": "...", "options": ["...", "..."], "category": "...", "source_url": "..."}`;
 }
 
-function promptForField(field: string, excludeTopics: string[]): string {
+function promptForField(field: string, excludeTopics: string[], recentRiddleCategories: string[] = []): string {
   if (field === "National Day") return nationalDayPrompt(excludeTopics);
   if (field === "This Day In History") return thisDayInHistoryPrompt(excludeTopics);
   if (field === "Word Of The Day") return wordOfTheDayPrompt(excludeTopics);
   if (field === "Quote Of The Day") return quoteOfTheDayPrompt(excludeTopics);
-  if (field === RIDDLE_FIELD) return riddlePrompt(excludeTopics);
+  if (field === RIDDLE_FIELD) return riddlePrompt(excludeTopics, recentRiddleCategories);
   if (field === TRENDING_WILDCARD_FIELD) return trendingWildcardPrompt(excludeTopics);
   if (field === TRENDING_MAINSTREAM_FIELDS[0]) return trendingMainstreamPrompt(excludeTopics, "primary");
   if (field === TRENDING_MAINSTREAM_FIELDS[1]) return trendingMainstreamPrompt(excludeTopics, "secondary");
@@ -421,7 +447,12 @@ function promptForField(field: string, excludeTopics: string[]): string {
 // down with it.
 const PER_FIELD_TIMEOUT_MS = 60_000;
 
-async function generateForField(apiKey: string, field: string, excludeTopics: string[]) {
+async function generateForField(
+  apiKey: string,
+  field: string,
+  excludeTopics: string[],
+  recentRiddleCategories: string[] = []
+) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), PER_FIELD_TIMEOUT_MS);
   let anthropicRes: Response;
@@ -453,7 +484,7 @@ async function generateForField(apiKey: string, field: string, excludeTopics: st
             ...(TRENDING_MAINSTREAM_FIELDS.includes(field) ? { allowed_domains: TRUSTED_MAINSTREAM_DOMAINS } : {}),
           },
         ],
-        messages: [{ role: "user", content: promptForField(field, excludeTopics) }],
+        messages: [{ role: "user", content: promptForField(field, excludeTopics, recentRiddleCategories) }],
       }),
       signal: controller.signal,
     });
@@ -506,9 +537,11 @@ async function generateForField(apiKey: string, field: string, excludeTopics: st
     throw new Error(`Picked a topic already in its own exclude list: "${topic}"`);
   }
 
-  // Only the Riddle field's multiple-choice decoys — every other field
-  // just omits this key entirely, leaving the DB column null for their rows.
+  // Only the Riddle field's multiple-choice decoys and category — every
+  // other field just omits these keys entirely, leaving the DB columns
+  // null for their rows.
   let options: string[] | undefined;
+  let category: string | undefined;
   if (field === RIDDLE_FIELD) {
     options = Array.isArray(parsed.options)
       ? parsed.options.map((o: unknown) => String(o).trim()).filter(Boolean)
@@ -516,6 +549,13 @@ async function generateForField(apiKey: string, field: string, excludeTopics: st
     if (options.length !== 2 || options.some((o) => o.toLowerCase() === topic.toLowerCase())) {
       throw new Error(`Riddle needs exactly 2 valid decoys distinct from the answer: ${cleaned.slice(0, 300)}`);
     }
+    // Not rejected on a miss (unlike options above) — this is a steering
+    // aid for future calls' variety, not something a real visitor ever
+    // sees, so a malformed value just means this one pick doesn't
+    // contribute to the category history rather than losing an otherwise-
+    // good riddle over a label mismatch.
+    const rawCategory = String(parsed.category || "").trim().toLowerCase();
+    category = RIDDLE_CATEGORIES.includes(rawCategory) ? rawCategory : undefined;
   }
 
   // Real usage, not the estimate in the pricing spreadsheet — every field
@@ -534,6 +574,7 @@ async function generateForField(apiKey: string, field: string, excludeTopics: st
     topic,
     teaser,
     ...(options ? { options } : {}),
+    ...(category ? { category } : {}),
     source_url: sourceUrl,
     input_tokens: inputTokens,
     output_tokens: outputTokens,
@@ -594,6 +635,28 @@ async function fetchRecentTopicsByField(): Promise<Record<string, string[]>> {
   return Object.fromEntries(entries);
 }
 
+// Riddle-only: the last few answers' broad categories (animal, place,
+// invention, ...), most-recent-first, so riddlePrompt can see it's about
+// to pick the same kind of thing yet again instead of guessing blind every
+// call. Small limit on purpose — this is steering toward variety, not a
+// hard exclusion list like fetchRecentTopicsByField above, so only the
+// immediate streak matters.
+const RECENT_RIDDLE_CATEGORY_COUNT = 5;
+async function fetchRecentRiddleCategories(): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("trending_topics_cache")
+    .select("category")
+    .eq("field", RIDDLE_FIELD)
+    .not("category", "is", null)
+    .order("generated_at", { ascending: false })
+    .limit(RECENT_RIDDLE_CATEGORY_COUNT);
+  if (error || !data) {
+    console.error("generate-trending-topics: failed to fetch recent riddle categories", error);
+    return [];
+  }
+  return data.map((row) => row.category).filter(Boolean);
+}
+
 serve(async (req) => {
   const cronSecret = Deno.env.get("CRON_SECRET");
   if (!cronSecret || req.headers.get("x-cron-secret") !== cronSecret) {
@@ -626,6 +689,7 @@ serve(async (req) => {
   const fieldsToRun = requestedFields.length > 0 ? requestedFields : NEWS_FIELDS;
 
   const recentByField = await fetchRecentTopicsByField();
+  const recentRiddleCategories = fieldsToRun.includes(RIDDLE_FIELD) ? await fetchRecentRiddleCategories() : [];
 
   // Trending 1 and 2 specifically run SEQUENTIALLY, not concurrently with
   // everything else — confirmed live that running them in parallel (each
@@ -667,7 +731,14 @@ serve(async (req) => {
   }
 
   const otherResults = await Promise.allSettled(
-    otherFields.map((field) => generateForField(apiKey, field, recentByField[field] || []))
+    otherFields.map((field) =>
+      generateForField(
+        apiKey,
+        field,
+        recentByField[field] || [],
+        field === RIDDLE_FIELD ? recentRiddleCategories : undefined
+      )
+    )
   );
   orderedFields.push(...otherFields);
   results.push(...otherResults);
