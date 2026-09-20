@@ -1738,7 +1738,16 @@ export default function Hyfax() {
                       {"▌"}
                     </span>
                   </p>
-                ) : (selected.type === "root" ? selected.overview || selected.teaser : selected.teaser) ? (
+                ) : !selected.article && (selected.type === "root" ? selected.overview || selected.teaser : selected.teaser) ? (
+                  // Hidden once the full article has anything to show — the
+                  // article's own opening paragraph covers the same ground
+                  // as this overview/teaser (same topic, same core hook),
+                  // so showing both back to back just repeats the same fact
+                  // twice in a row. Confirmed live on a Word Of The Day
+                  // page: the overview's etymology summary and the
+                  // article's actual first paragraph restated the identical
+                  // Latin origin. This still shows while waiting for the
+                  // article to start streaming, so the page isn't blank.
                   <p>{renderLinked(selected.type === "root" ? selected.overview || selected.teaser : selected.teaser, linkableChildren)}</p>
                 ) : null}
 
