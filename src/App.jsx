@@ -1131,6 +1131,30 @@ export default function Hyfax() {
     setSelectedRiddle(false);
   }, [riddleTopic?.topic]);
   const selected = nodes.find((n) => n.id === selectedId) || null;
+
+  // Smooth "opener sentence" transition-out once its article is fully
+  // realized (not just started — confirmed live that hiding it the
+  // instant the article began streaming caused it to vanish mid-flicker,
+  // barely a beat after appearing) — see the overview/teaser paragraph
+  // below. `overviewFading` drives a real CSS opacity/transform
+  // transition instead of an instant conditional swap, which is what made
+  // this feel sudden/jerky before; `overviewGone` only flips true once
+  // that transition has actually had time to play, so the paragraph
+  // doesn't just disappear the instant it starts fading.
+  const OVERVIEW_FADE_MS = 450;
+  const [overviewFading, setOverviewFading] = useState(false);
+  const [overviewGone, setOverviewGone] = useState(false);
+  useEffect(() => {
+    setOverviewFading(false);
+    setOverviewGone(false);
+  }, [selected?.id]);
+  useEffect(() => {
+    if (selected?.article && !selected?.articleStreaming && !overviewGone && !overviewFading) {
+      setOverviewFading(true);
+      const timer = setTimeout(() => setOverviewGone(true), OVERVIEW_FADE_MS);
+      return () => clearTimeout(timer);
+    }
+  }, [selected?.article, selected?.articleStreaming, overviewGone, overviewFading]);
   const selectedChildren = selected ? nodes.filter((n) => n.parentId === selected.id) : [];
   // Once the trial's exhausted, Dig In still works for a fresh general
   // topic, but nothing it produces should offer a further hyperlink to
@@ -1738,21 +1762,29 @@ export default function Hyfax() {
                       {"▌"}
                     </span>
                   </p>
-                ) : !selected.article && (selected.type === "root" ? selected.overview || selected.teaser : selected.teaser) ? (
-                  // Hidden once the full article has anything to show — the
-                  // article's own opening paragraph covers the same ground
-                  // as this overview/teaser (same topic, same core hook),
-                  // so showing both back to back just repeats the same fact
-                  // twice in a row. Confirmed live on a Word Of The Day
-                  // page: the overview's etymology summary and the
-                  // article's actual first paragraph restated the identical
-                  // Latin origin. This still shows while waiting for the
-                  // article to start streaming, so the page isn't blank.
-                  <p>{renderLinked(selected.type === "root" ? selected.overview || selected.teaser : selected.teaser, linkableChildren)}</p>
+                ) : !overviewGone && (selected.type === "root" ? selected.overview || selected.teaser : selected.teaser) ? (
+                  // Stays visible for as long as the article is generating
+                  // (that's the point — a headline and an opening line to
+                  // read while the rest streams in), then transitions out
+                  // smoothly once the article is fully realized, since by
+                  // then its own opening paragraph covers the same ground
+                  // as this overview/teaser (confirmed live on a Word Of
+                  // The Day page: both restated the same etymology back to
+                  // back) and keeping it around any longer is pure repeat.
+                  <p
+                    className="transition-all ease-out"
+                    style={{
+                      transitionDuration: `${OVERVIEW_FADE_MS}ms`,
+                      opacity: overviewFading ? 0 : 1,
+                      transform: overviewFading ? "translateY(-4px)" : "translateY(0)",
+                    }}
+                  >
+                    {renderLinked(selected.type === "root" ? selected.overview || selected.teaser : selected.teaser, linkableChildren)}
+                  </p>
                 ) : null}
 
                 {selected.article ? (
-                  <div className="mt-4 pt-4 border-t space-y-4" style={{ borderColor: "#4A3C2C", color: "#F1E6D3" }}>
+                  <div className="mt-4 pt-4 border-t space-y-4 rh-fade-in" style={{ borderColor: "#4A3C2C", color: "#F1E6D3" }}>
                     {selected.article
                       .split(/\n\s*\n/)
                       .map((s) => s.trim())
