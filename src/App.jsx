@@ -1767,22 +1767,33 @@ export default function Hyfax() {
                 ) : !overviewGone && (selected.type === "root" ? selected.overview || selected.teaser : selected.teaser) ? (
                   // Stays visible for as long as the article is generating
                   // (that's the point — a headline and an opening line to
-                  // read while the rest streams in), then transitions out
+                  // read while the rest streams in), then collapses away
                   // smoothly once the article is fully realized, since by
                   // then its own opening paragraph covers the same ground
                   // as this overview/teaser (confirmed live on a Word Of
                   // The Day page: both restated the same etymology back to
                   // back) and keeping it around any longer is pure repeat.
-                  <p
-                    className="transition-all ease-out"
+                  // A grid-rows collapse (rather than a plain fade) so the
+                  // article's divider line rides up with it and settles
+                  // right under the title, instead of just fading in place
+                  // and leaving a gap behind — the "fr" trick animates to a
+                  // true zero height without needing to measure the text.
+                  <div
+                    className="grid"
                     style={{
-                      transitionDuration: `${OVERVIEW_FADE_MS}ms`,
-                      opacity: overviewFading ? 0 : 1,
-                      transform: overviewFading ? "translateY(-4px)" : "translateY(0)",
+                      gridTemplateRows: overviewFading ? "0fr" : "1fr",
+                      transition: `grid-template-rows ${OVERVIEW_FADE_MS}ms ease-in-out`,
                     }}
                   >
-                    {renderLinked(selected.type === "root" ? selected.overview || selected.teaser : selected.teaser, linkableChildren)}
-                  </p>
+                    <div className="overflow-hidden">
+                      <p
+                        className="transition-opacity ease-out"
+                        style={{ transitionDuration: `${OVERVIEW_FADE_MS}ms`, opacity: overviewFading ? 0 : 1 }}
+                      >
+                        {renderLinked(selected.type === "root" ? selected.overview || selected.teaser : selected.teaser, linkableChildren)}
+                      </p>
+                    </div>
+                  </div>
                 ) : null}
 
                 {selected.article ? (
