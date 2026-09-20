@@ -298,6 +298,11 @@ export default function Hyfax() {
   const [rootLoading, setRootLoading] = useState(false);
   const [rootError, setRootError] = useState(null);
   const [rootPreview, setRootPreview] = useState("");
+  // Raw typed/clicked topic text, shown as the topic page's heading the
+  // instant "Dig in" is tapped — before the real (cleaned-up) rootLabel
+  // comes back from the API. Lets the page switch over immediately instead
+  // of generating the opening sentence on the hero page itself.
+  const [pendingLabel, setPendingLabel] = useState("");
   // { nodeId, text } — the currently-typing teaser for a node that was just
   // selected and is still being expanded (its own branches + article are
   // still generating). Not real streaming (the teaser text is already
@@ -622,14 +627,14 @@ export default function Hyfax() {
   const startTopic = async (raw, newsContext) => {
     const t = raw.trim();
     if (!t) return;
-    // Tapping a Trending/Today card can be well down the page — scroll
-    // straight back to the "Dig in" button so the spinner (the only
-    // visible sign anything's happening) is actually on screen instead
-    // of off the bottom of a small mobile viewport.
-    if (heroRef.current) heroRef.current.scrollTop = 0;
     setRootError(null);
     setRootLoading(true);
     setRootPreview("");
+    // Switches the page over to the topic-page layout immediately (see
+    // `hasStarted || rootLoading` below) — no generated text shows on the
+    // hero page itself anymore, the opening sentence streams in on the
+    // topic page instead, right below this provisional heading.
+    setPendingLabel(t);
     idCounter = 0;
 
     // Streams the overview in at reading pace while the rest of the JSON
@@ -708,6 +713,7 @@ export default function Hyfax() {
     } finally {
       setRootLoading(false);
       setRootPreview("");
+      setPendingLabel("");
       syncActionsToday();
     }
   };
@@ -1106,6 +1112,11 @@ export default function Hyfax() {
     );
 
   const hasStarted = nodes.length > 0;
+  // Distinct from hasStarted: flips true the instant "Dig in" is tapped, so
+  // the page switches away from the hero the moment a topic is submitted
+  // rather than waiting for the root's data to come back — the opening
+  // sentence generates on the topic page itself, not on the hero page.
+  const showTopicPage = hasStarted || rootLoading;
   const newsTopics = latestByField(trendingTopics, NEWS_FIELDS);
   const todayTopics = latestByField(trendingTopics, SPECIAL_FIELDS);
   const quoteTopic = latestByField(trendingTopics, [QUOTE_FIELD])[0] || null;
@@ -1261,7 +1272,7 @@ export default function Hyfax() {
         </div>
       )}
 
-      {!hasStarted && (
+      {!showTopicPage && (
         <div ref={heroRef} className="flex-1 flex flex-col items-center px-6 pt-10 md:pt-16 pb-10 overflow-y-auto">
           <div className="max-w-md w-full text-center rh-fade-in">
             <h2 className="rh-display rh-hero-headline italic mb-8" style={{ color: "#F1E6D3" }}>
@@ -1340,15 +1351,6 @@ export default function Hyfax() {
             {rootError && (
               <div className="mt-4 flex items-center justify-center gap-1.5 text-xs rh-body" style={{ color: "#D98A6E" }}>
                 <AlertCircle size={13} /> {rootError}
-              </div>
-            )}
-
-            {rootLoading && rootPreview && (
-              <div className="mt-4 max-w-lg mx-auto text-sm rh-body" style={{ color: "#A89478" }}>
-                {rootPreview}
-                <span className="rh-cursor-blink" style={{ color: "#E3A73C" }}>
-                  {"▌"}
-                </span>
               </div>
             )}
 
@@ -2000,6 +2002,43 @@ export default function Hyfax() {
             </div>
           </div>
         </>
+      )}
+
+      {/* Shown between tapping "Dig in" and the root actually existing —
+          same layout position/sizing as the real topic page above (so the
+          swap from this to that, once the root lands, doesn't jump around)
+          but with only a provisional heading and the streaming opening
+          sentence, since nothing else (article, branches) exists yet. */}
+      {rootLoading && !hasStarted && (
+        <div className="flex-1 overflow-y-auto px-5 md:px-7 pb-10">
+          <div className="max-w-2xl mx-auto rh-fade-in">
+            <span
+              className="rh-mono rh-text-10 uppercase tracking-wider px-2 py-0.5 rounded-full inline-block mb-3"
+              style={{ color: "#E3A73C", border: "1px solid #E3A73C55" }}
+            >
+              Origin
+            </span>
+
+            <h2 className="rh-display text-3xl italic mb-4" style={{ color: "#F1E6D3" }}>
+              {pendingLabel}
+            </h2>
+
+            <div className="text-base leading-relaxed" style={{ color: "#F5EDDC" }}>
+              {rootPreview ? (
+                <p>
+                  {rootPreview}
+                  <span className="rh-cursor-blink" style={{ color: "#E3A73C" }}>
+                    {"▌"}
+                  </span>
+                </p>
+              ) : (
+                <div className="flex items-center gap-1.5 text-base" style={{ color: "#B8A886" }}>
+                  <Loader2 size={16} className="animate-spin" /> Digging in…
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* floats just BELOW whatever's currently highlighted in the article
