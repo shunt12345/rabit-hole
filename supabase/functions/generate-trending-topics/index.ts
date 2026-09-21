@@ -60,6 +60,10 @@ const NEWS_FIELDS = [...TRENDING_MAINSTREAM_FIELDS, TRENDING_WILDCARD_FIELD];
 // their real mechanic: one nightly pick, no live-search "recent story"
 // framing, excludeTopics keeps it from repeating.
 const SPECIAL_FIELDS = ["National Day", "This Day In History", "Word Of The Day", "Quote Of The Day"];
+// Its own constant (like RIDDLE_FIELD below) purely so the category-variety
+// mechanism added for it (QUOTE_CATEGORIES, fetchRecentQuoteCategories) can
+// reference the field name without a string literal scattered everywhere.
+const QUOTE_FIELD = "Quote Of The Day";
 // National Day and This Day In History are both anchored to the SAME
 // calendar date, and confirmed live that's enough to converge them on the
 // exact same real-world fact — September 19th's most famous anecdote
@@ -313,6 +317,23 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
 }
 
+// Fixed vocabulary, same reasoning as RIDDLE_CATEGORIES below — keeps
+// fetchRecentQuoteCategories' history comparable call to call and gives the
+// steering instruction something concrete to point at. Confirmed live: left
+// unguided, this defaulted almost entirely to scientists and philosophers
+// (Bohr, Feynman x3, Curie, Descartes, Socrates all within a couple weeks) —
+// politics, sports, business, and tech basically never came up.
+const QUOTE_CATEGORIES = [
+  "science",
+  "technology",
+  "politics",
+  "sports",
+  "business",
+  "arts-and-literature",
+  "philosophy",
+  "history-and-leadership",
+];
+
 // The "topic" field doubles as the actual quote text here, not a punchy
 // short label like every other field — the client renders it as the full
 // quote itself (see App.jsx's dedicated Quote Of The Day card, placed above
@@ -320,23 +341,30 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 // rampant online (a large share of "Einstein said"/"Twain said" quotes
 // circulating are fake), so this explicitly names that risk rather than
 // just asking for "a real quote" and trusting search results at face value.
-function quoteOfTheDayPrompt(excludeTopics: string[]): string {
+function quoteOfTheDayPrompt(excludeTopics: string[], recentCategories: string[]): string {
   const excludeBlock = excludeTopics.length
     ? `\n\nAlready featured recently — pick a different quote this time, not a repeat of any of these: ${excludeTopics.join("; ")}.`
     : "";
+  // Same steering-not-hard-exclusion pattern as riddlePrompt's categoryBlock
+  // — this is variety guidance for future picks, not something a reader
+  // ever sees, so it nudges rather than forbids.
+  const categoryBlock = recentCategories.length
+    ? `\n\nThe last few picks' categories, most recent first: ${recentCategories.join(", ")}. Do not pick from that same category again this time — actively favor whichever of these categories AREN'T in that recent list: ${QUOTE_CATEGORIES.join(", ")}.`
+    : "";
   return `You have live web search — use it now.
 
-Pick a single real, genuinely well-known and quotable quote worth a reader pausing on — from a real historical or notable figure (a writer, scientist, leader, artist, philosopher, etc.), not an anonymous "inspirational quote" graphic. Search to confirm BOTH the exact wording AND the attribution are accurate — misattributed quotes are extremely common online (a large share of "Einstein said" or "Mark Twain said" quotes circulating online are fake or misattributed to them), so specifically check whether this one is a known fake before using it. If you can't confirm a real, correctly-attributed quote, pick a different one you can verify instead of using an unconfirmed one.${excludeBlock}
+Pick a single real, genuinely well-known and quotable quote worth a reader pausing on — from a real historical or notable figure, not an anonymous "inspirational quote" graphic. Deliberately range across ALL of these categories over time, not just the ones that come to mind first: ${QUOTE_CATEGORIES.join(", ")} — a scientist or philosopher is a perfectly fine pick sometimes, but so is a politician, an athlete, a tech founder, or a business leader; don't reach for the same kind of figure out of habit every time this runs. Search to confirm BOTH the exact wording AND the attribution are accurate — misattributed quotes are extremely common online (a large share of "Einstein said" or "Mark Twain said" quotes circulating online are fake or misattributed to them), so specifically check whether this one is a known fake before using it. If you can't confirm a real, correctly-attributed quote, pick a different one you can verify instead of using an unconfirmed one.${excludeBlock}${categoryBlock}
 
 Once you've confirmed a real, correctly-attributed quote via search, produce:
 - "topic": the quote itself, in quotation marks, exactly as verified — word for word, no paraphrasing. This can run longer than the usual short label; the whole point is showing the real quote.
 - "teaser": the author's name, and if it fits within 20 words, a brief note on who they were (e.g., "— Marie Curie, physicist and two-time Nobel laureate")
+- "category": exactly one of these strings, whichever actually fits the speaker/quote: ${QUOTE_CATEGORIES.join(", ")}
 - "source_url": the URL of a real source confirming this exact wording and attribution — a specific page actually about it, not a homepage or unrelated page
 
 ${SOURCE_URL_CHECK}
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
-{"topic": "...", "teaser": "...", "source_url": "..."}`;
+{"topic": "...", "teaser": "...", "category": "...", "source_url": "..."}`;
 }
 
 // "Reverse Hyfax" — normally a Hyfax topic branches OUT into surprising
@@ -427,11 +455,16 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 {"topic": "...", "teaser": "...", "options": ["...", "..."], "category": "...", "source_url": "..."}`;
 }
 
-function promptForField(field: string, excludeTopics: string[], recentRiddleCategories: string[] = []): string {
+function promptForField(
+  field: string,
+  excludeTopics: string[],
+  recentRiddleCategories: string[] = [],
+  recentQuoteCategories: string[] = []
+): string {
   if (field === "National Day") return nationalDayPrompt(excludeTopics);
   if (field === "This Day In History") return thisDayInHistoryPrompt(excludeTopics);
   if (field === "Word Of The Day") return wordOfTheDayPrompt(excludeTopics);
-  if (field === "Quote Of The Day") return quoteOfTheDayPrompt(excludeTopics);
+  if (field === QUOTE_FIELD) return quoteOfTheDayPrompt(excludeTopics, recentQuoteCategories);
   if (field === RIDDLE_FIELD) return riddlePrompt(excludeTopics, recentRiddleCategories);
   if (field === TRENDING_WILDCARD_FIELD) return trendingWildcardPrompt(excludeTopics);
   if (field === TRENDING_MAINSTREAM_FIELDS[0]) return trendingMainstreamPrompt(excludeTopics, "primary");
@@ -451,7 +484,8 @@ async function generateForField(
   apiKey: string,
   field: string,
   excludeTopics: string[],
-  recentRiddleCategories: string[] = []
+  recentRiddleCategories: string[] = [],
+  recentQuoteCategories: string[] = []
 ) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), PER_FIELD_TIMEOUT_MS);
@@ -484,7 +518,9 @@ async function generateForField(
             ...(TRENDING_MAINSTREAM_FIELDS.includes(field) ? { allowed_domains: TRUSTED_MAINSTREAM_DOMAINS } : {}),
           },
         ],
-        messages: [{ role: "user", content: promptForField(field, excludeTopics, recentRiddleCategories) }],
+        messages: [
+          { role: "user", content: promptForField(field, excludeTopics, recentRiddleCategories, recentQuoteCategories) },
+        ],
       }),
       signal: controller.signal,
     });
@@ -537,11 +573,9 @@ async function generateForField(
     throw new Error(`Picked a topic already in its own exclude list: "${topic}"`);
   }
 
-  // Only the Riddle field's multiple-choice decoys and category — every
-  // other field just omits these keys entirely, leaving the DB columns
-  // null for their rows.
+  // Riddle's multiple-choice decoys — every other field omits this key
+  // entirely, leaving the DB column null for their rows.
   let options: string[] | undefined;
-  let category: string | undefined;
   if (field === RIDDLE_FIELD) {
     options = Array.isArray(parsed.options)
       ? parsed.options.map((o: unknown) => String(o).trim()).filter(Boolean)
@@ -549,13 +583,20 @@ async function generateForField(
     if (options.length !== 2 || options.some((o) => o.toLowerCase() === topic.toLowerCase())) {
       throw new Error(`Riddle needs exactly 2 valid decoys distinct from the answer: ${cleaned.slice(0, 300)}`);
     }
-    // Not rejected on a miss (unlike options above) — this is a steering
-    // aid for future calls' variety, not something a real visitor ever
-    // sees, so a malformed value just means this one pick doesn't
-    // contribute to the category history rather than losing an otherwise-
-    // good riddle over a label mismatch.
+  }
+  // Category — Riddle and Quote Of The Day each have their own fixed
+  // vocabulary (different concepts: what KIND of thing a riddle's answer
+  // is, vs. what KIND of figure a quote's speaker is), sharing the one
+  // `category` column since a row is only ever one field or the other.
+  // Not rejected on a miss — this is a steering aid for future calls'
+  // variety, not something a real visitor ever sees, so a malformed value
+  // just means this one pick doesn't contribute to the category history
+  // rather than losing an otherwise-good pick over a label mismatch.
+  let category: string | undefined;
+  if (field === RIDDLE_FIELD || field === QUOTE_FIELD) {
+    const validCategories = field === RIDDLE_FIELD ? RIDDLE_CATEGORIES : QUOTE_CATEGORIES;
     const rawCategory = String(parsed.category || "").trim().toLowerCase();
-    category = RIDDLE_CATEGORIES.includes(rawCategory) ? rawCategory : undefined;
+    category = validCategories.includes(rawCategory) ? rawCategory : undefined;
   }
 
   // Real usage, not the estimate in the pricing spreadsheet — every field
@@ -657,6 +698,25 @@ async function fetchRecentRiddleCategories(): Promise<string[]> {
   return data.map((row) => row.category).filter(Boolean);
 }
 
+// Same idea as fetchRecentRiddleCategories, for Quote Of The Day's speaker
+// categories (science, politics, sports, business, ...) instead of riddle
+// answer types.
+const RECENT_QUOTE_CATEGORY_COUNT = 5;
+async function fetchRecentQuoteCategories(): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("trending_topics_cache")
+    .select("category")
+    .eq("field", QUOTE_FIELD)
+    .not("category", "is", null)
+    .order("generated_at", { ascending: false })
+    .limit(RECENT_QUOTE_CATEGORY_COUNT);
+  if (error || !data) {
+    console.error("generate-trending-topics: failed to fetch recent quote categories", error);
+    return [];
+  }
+  return data.map((row) => row.category).filter(Boolean);
+}
+
 serve(async (req) => {
   const cronSecret = Deno.env.get("CRON_SECRET");
   if (!cronSecret || req.headers.get("x-cron-secret") !== cronSecret) {
@@ -690,6 +750,7 @@ serve(async (req) => {
 
   const recentByField = await fetchRecentTopicsByField();
   const recentRiddleCategories = fieldsToRun.includes(RIDDLE_FIELD) ? await fetchRecentRiddleCategories() : [];
+  const recentQuoteCategories = fieldsToRun.includes(QUOTE_FIELD) ? await fetchRecentQuoteCategories() : [];
 
   // Trending 1 and 2 specifically run SEQUENTIALLY, not concurrently with
   // everything else — confirmed live that running them in parallel (each
@@ -736,7 +797,8 @@ serve(async (req) => {
         apiKey,
         field,
         recentByField[field] || [],
-        field === RIDDLE_FIELD ? recentRiddleCategories : undefined
+        field === RIDDLE_FIELD ? recentRiddleCategories : undefined,
+        field === QUOTE_FIELD ? recentQuoteCategories : undefined
       )
     )
   );
