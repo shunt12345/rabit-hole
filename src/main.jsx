@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import Hyfax from "./App.jsx";
+import { initRedditPixel } from "./lib/redditPixel.js";
 import "./index.css";
 
 // /s/:id (a shared-article link, see lib/share.js) is served entirely by
@@ -8,6 +9,8 @@ import "./index.css";
 // rendered HTML — that's what makes link previews in iMessage/Twitter/
 // Slack show the real article instead of a generic card. This app never
 // renders that route client-side.
+initRedditPixel();
+
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <Hyfax />

@@ -13,6 +13,7 @@ import {
 import { HYFAX_SYSTEM, OBSCURITY_LEVELS, FIXED_OBSCURITY } from "./lib/hyfaxSystemPrompt.js";
 import { createPacedReveal } from "./lib/pacedReveal.js";
 import { getCurrentUser, onAuthStateChange } from "./lib/auth.js";
+import { maybeReportSignUp } from "./lib/redditPixel.js";
 import { getProfile, getLifetimeFundedUsd } from "./lib/profile.js";
 import AccountMenu from "./AccountMenu.jsx";
 import LegalModal from "./LegalModal.jsx";
@@ -365,7 +366,14 @@ export default function Hyfax() {
   const [user, setUser] = useState(null);
   useEffect(() => {
     getCurrentUser().then(setUser);
-    return onAuthStateChange(setUser);
+    return onAuthStateChange((u) => {
+      setUser(u);
+      // Reddit Ads conversion tracking (see lib/redditPixel.js) — reports a
+      // "SignUp" event the first time this fires for a genuinely new
+      // account, no-ops for a returning sign-in or when no Reddit Pixel is
+      // configured.
+      maybeReportSignUp(u);
+    });
   }, []);
 
   // Swaps "continue exploring" over to the account tier once someone's
