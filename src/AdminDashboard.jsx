@@ -291,6 +291,21 @@ export default function AdminDashboard() {
               </div>
             </div>
 
+            <div className="rounded-2xl border p-4 mb-6" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
+              <div className="rh-mono rh-text-10 uppercase tracking-wider mb-2" style={{ color: COLORS.dim }}>
+                Funded vs. free-tier spend (last 7 days)
+              </div>
+              <Table
+                columns={[
+                  { key: "tier", label: "Tier" },
+                  { key: "requests", label: "Requests" },
+                  { key: "spendUsd", label: "Spend", render: (r) => usd(r.spendUsd) },
+                ]}
+                rows={stats.fundedSplit}
+                emptyText="No requests in the last 7 days."
+              />
+            </div>
+
             <div className="rounded-2xl border p-4" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
               <div className="rh-mono rh-text-10 uppercase tracking-wider mb-2" style={{ color: COLORS.dim }}>
                 Top IPs (last 24h)

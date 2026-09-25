@@ -456,7 +456,8 @@ async function logRequest(
   endpoint: string,
   userId: string | null,
   nodeType?: string,
-  ipAddress?: string | null
+  ipAddress?: string | null,
+  funded?: boolean
 ): Promise<number | null> {
   try {
     const { data, error } = await supabase
@@ -467,6 +468,10 @@ async function logRequest(
         user_id: userId,
         node_type: nodeType && VALID_NODE_TYPES.has(nodeType) ? nodeType : null,
         ip_address: ipAddress ?? null,
+        // Captured now, not derived later from profiles.balance_usd — see
+        // migration 0032. `undefined` (never explicitly passed) stores as
+        // null, same as any row logged before this column existed.
+        funded: funded ?? null,
       })
       .select("id")
       .single();
@@ -910,7 +915,7 @@ serve(async (req) => {
     // fire-and-forget — never block the actual Claude call on this. The
     // returned promise is only awaited later, inside the background
     // billing task below, once the real cost is known.
-    const logRowIdPromise = logRequest(sessionId, endpoint, userId, nodeType, clientIp);
+    const logRowIdPromise = logRequest(sessionId, endpoint, userId, nodeType, clientIp, funded);
 
     if (newsCacheKey && endpoint === "article") {
       const { data: cached, error: cacheErr } = await supabase

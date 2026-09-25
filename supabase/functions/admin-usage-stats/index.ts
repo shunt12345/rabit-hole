@@ -95,7 +95,7 @@ serve(async (req) => {
       await Promise.all([
         supabase
           .from("rabbit_hole_request_logs")
-          .select("created_at, session_id, endpoint, cost_usd, latency_ms, user_id, ip_address")
+          .select("created_at, session_id, endpoint, cost_usd, latency_ms, user_id, ip_address, funded")
           .gte("created_at", since30d)
           .order("created_at", { ascending: false })
           .limit(50000),
@@ -164,6 +164,37 @@ serve(async (req) => {
       { signedIn: false, requests: anonRequests, spendUsd: anonSpend },
     ];
 
+    // Funded vs. free-tier spend, last 7 days — `funded` is captured at
+    // request time (migration 0032), not derived from the account's
+    // CURRENT balance, so this reflects what was actually true when the
+    // money was spent. Rows logged before that column existed have
+    // funded === null, kept as its own "unknown (pre-tracking)" bucket
+    // rather than silently folded into either real bucket.
+    let fundedRequests = 0;
+    let fundedSpend = 0;
+    let freeRequests = 0;
+    let freeSpend = 0;
+    let unknownRequests = 0;
+    let unknownSpend = 0;
+    for (const r of recentRows) {
+      const cost = Number(r.cost_usd ?? 0);
+      if (r.funded === true) {
+        fundedRequests += 1;
+        fundedSpend += cost;
+      } else if (r.funded === false) {
+        freeRequests += 1;
+        freeSpend += cost;
+      } else {
+        unknownRequests += 1;
+        unknownSpend += cost;
+      }
+    }
+    const fundedSplit = [
+      { tier: "Funded", requests: fundedRequests, spendUsd: fundedSpend },
+      { tier: "Free", requests: freeRequests, spendUsd: freeSpend },
+      ...(unknownRequests ? [{ tier: "Unknown (pre-tracking)", requests: unknownRequests, spendUsd: unknownSpend }] : []),
+    ];
+
     // Top IPs, last 24h — abuse/scraping visibility.
     const ipRows = allRows.filter((r) => String(r.created_at) >= since24h && r.ip_address);
     const ipMap = new Map<string, number>();
@@ -193,6 +224,7 @@ serve(async (req) => {
         daily,
         byEndpoint,
         identitySplit,
+        fundedSplit,
         topIps,
         dailySignups,
       }),

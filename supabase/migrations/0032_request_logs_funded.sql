@@ -1,0 +1,13 @@
+-- Whether the caller was a funded account at the moment of THIS request —
+-- captured at request time rather than derived later from profiles, since
+-- balance_usd changes over time (a user can fund, spend down, or add more
+-- later) and a later join would misattribute old requests to whatever
+-- their CURRENT status happens to be. Nullable: existing rows predate this
+-- column and stay unknown rather than being backfilled with a guess — same
+-- posture as every other column added incrementally to this table
+-- (input_tokens, cost_usd, user_id, node_type, ip_address all did the
+-- same). Backs the admin dashboard's funded-vs-free-tier spend breakdown
+-- (see admin-usage-stats) — without this, that split could only ever
+-- approximate off user_id's CURRENT funded status, not what was actually
+-- true when the money was spent.
+alter table rabbit_hole_request_logs add column if not exists funded boolean;
