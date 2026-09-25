@@ -132,8 +132,13 @@ serve(async (req) => {
               user,
             },
           ],
-          partner: "hyfax-direct-api",
-          partner_version: "1.0.0",
+          // No `partner`/`partner_version` — confirmed live that Reddit
+          // validates `partner` against a fixed list of known integration
+          // names (its own official GTM template always sends "SGTM" for
+          // exactly this reason). A made-up value here ("hyfax-direct-api")
+          // got a 400 on $.data.partner; omitting both fields entirely
+          // works fine for a direct API integration that isn't one of
+          // Reddit's recognized partners.
         },
       }),
     });
