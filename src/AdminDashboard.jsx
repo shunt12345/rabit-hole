@@ -213,6 +213,11 @@ export default function AdminDashboard() {
           </div>
         </div>
 
+        <p className="text-xs mb-4" style={{ color: COLORS.dim }}>
+          Your own signed-in activity is excluded from every number below except the 24h cap gauge, which mirrors the
+          real enforced limit. Testing done while signed out can't be told apart from a real anonymous visitor.
+        </p>
+
         {error && (
           <div
             className="flex items-center gap-2 rounded-xl border p-4 mb-6 text-sm"

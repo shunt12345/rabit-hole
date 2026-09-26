@@ -107,7 +107,21 @@ serve(async (req) => {
     if (spendErr) throw spendErr;
     if (usersErr) throw usersErr;
 
-    const allRows = rows ?? [];
+    // Excludes the operator's OWN traffic from every metric below — this
+    // dashboard exists to show real user behavior, and an admin's own
+    // testing/dogfooding would otherwise skew every number (spend, top
+    // IPs, sign-up count on the day the admin account itself was created).
+    // Only catches testing done while SIGNED IN, since that's the only
+    // case with a user_id to match against — a logged-out/incognito test
+    // session looks identical to a real anonymous visitor and can't be
+    // separated out. spendLast24hUsd deliberately does NOT exclude this:
+    // it mirrors the real number rabbit-hole-proxy-v2 checks against the
+    // actual enforced GLOBAL_DAILY_SPEND_LIMIT_USD cap, including an
+    // unfunded admin account's own calls, which really do count against
+    // it in production — filtering it here would make the cap gauge lie
+    // about how close the app actually is to pausing free-tier access.
+    const allRows = (rows ?? []).filter((r) => !r.user_id || !ADMIN_USER_IDS.has(r.user_id));
+    const allUsers = (usersPage?.users ?? []).filter((u) => !ADMIN_USER_IDS.has(u.id));
 
     // Daily requests/sessions/spend, full 30-day window.
     const dailyMap = new Map<string, { requests: number; sessions: Set<string>; spendUsd: number }>();
@@ -206,9 +220,11 @@ serve(async (req) => {
 
     // New accounts per day, last 30 days — auth.users isn't queryable via
     // the regular postgrest client, hence the admin.listUsers() call above
-    // instead of a .from("...") select.
+    // instead of a .from("...") select. allUsers already excludes the
+    // operator's own account (see above), so the day it was created won't
+    // show up as a phantom "sign-up."
     const signupMap = new Map<string, number>();
-    for (const u of usersPage?.users ?? []) {
+    for (const u of allUsers) {
       if (!u.created_at || u.created_at < since30d) continue;
       const day = u.created_at.slice(0, 10);
       signupMap.set(day, (signupMap.get(day) ?? 0) + 1);
