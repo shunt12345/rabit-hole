@@ -17,8 +17,6 @@ import { maybeReportSignUp } from "./lib/redditPixel.js";
 import { getProfile, getLifetimeFundedUsd } from "./lib/profile.js";
 import AccountMenu from "./AccountMenu.jsx";
 import LegalModal from "./LegalModal.jsx";
-import WelcomeModal from "./WelcomeModal.jsx";
-import { hasSeenWelcome, markWelcomeSeen } from "./lib/welcome.js";
 import { nextOpenerShape } from "./lib/openerVariety.js";
 import { nextSurpriseTopic } from "./lib/surpriseTopics.js";
 import UsageGauge from "./UsageGauge.jsx";
@@ -319,15 +317,6 @@ export default function Hyfax() {
   // with no flash of empty state while the account fetch (if any) is
   // still in flight.
   const [exploredHistory, setExploredHistory] = useState(() => getLocalHistory());
-  // First-time-only greeting (see WelcomeModal.jsx / lib/welcome.js) —
-  // starts closed and an effect below opens it once, only for a browser
-  // that's never seen it, rather than computing hasSeenWelcome() directly
-  // as the initial value (keeps the very first paint identical for every
-  // visitor, then lets this pop in a beat later for a first-timer).
-  const [showWelcome, setShowWelcome] = useState(false);
-  useEffect(() => {
-    if (!hasSeenWelcome()) setShowWelcome(true);
-  }, []);
   // Which "Trending" card was clicked, so only that one highlights
   // instead of all three dimming identically once rootLoading flips on.
   const [selectedNewsIdx, setSelectedNewsIdx] = useState(null);
@@ -1706,15 +1695,6 @@ export default function Hyfax() {
       )}
 
       {legalDoc && <LegalModal doc={legalDoc} onClose={() => setLegalDoc(null)} />}
-
-      {showWelcome && (
-        <WelcomeModal
-          onClose={() => {
-            markWelcomeSeen();
-            setShowWelcome(false);
-          }}
-        />
-      )}
 
       {hasStarted && selected && (
         <>
