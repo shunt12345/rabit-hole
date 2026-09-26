@@ -95,7 +95,7 @@ serve(async (req) => {
       await Promise.all([
         supabase
           .from("rabbit_hole_request_logs")
-          .select("created_at, session_id, endpoint, cost_usd, latency_ms, user_id, ip_address, funded")
+          .select("created_at, session_id, endpoint, cost_usd, latency_ms, user_id, ip_address, funded, hero_source")
           .gte("created_at", since30d)
           .order("created_at", { ascending: false })
           .limit(50000),
@@ -209,6 +209,27 @@ serve(async (req) => {
       ...(unknownRequests ? [{ tier: "Unknown (pre-tracking)", requests: unknownRequests, spendUsd: unknownSpend }] : []),
     ];
 
+    // What people click from the hero page, last 30 days — only "root"
+    // calls carry a hero_source at all (see migration 0033; an
+    // expand/article/continuation call is downstream of an already-started
+    // topic). Wider window than the 7-day breakdowns above since this is
+    // specifically about seeing variety across the full card rotation
+    // (Trending/Today/Quote/Riddle all refresh daily), not a cost signal.
+    const rootRows = allRows.filter((r) => r.endpoint === "root");
+    const heroSourceMap = new Map<string, number>();
+    for (const r of rootRows) {
+      const source = r.hero_source || "unknown (pre-tracking)";
+      heroSourceMap.set(source, (heroSourceMap.get(source) ?? 0) + 1);
+    }
+    const totalRootClicks = rootRows.length;
+    const byHeroSource = [...heroSourceMap.entries()]
+      .map(([source, clicks]) => ({
+        source,
+        clicks,
+        share: totalRootClicks ? clicks / totalRootClicks : 0,
+      }))
+      .sort((a, b) => b.clicks - a.clicks);
+
     // Top IPs, last 24h — abuse/scraping visibility.
     const ipRows = allRows.filter((r) => String(r.created_at) >= since24h && r.ip_address);
     const ipMap = new Map<string, number>();
@@ -241,6 +262,7 @@ serve(async (req) => {
         byEndpoint,
         identitySplit,
         fundedSplit,
+        byHeroSource,
         topIps,
         dailySignups,
       }),

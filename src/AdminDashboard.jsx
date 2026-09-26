@@ -311,6 +311,21 @@ export default function AdminDashboard() {
               />
             </div>
 
+            <div className="rounded-2xl border p-4 mb-6" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
+              <div className="rh-mono rh-text-10 uppercase tracking-wider mb-2" style={{ color: COLORS.dim }}>
+                What people click from the hero page (last 30 days)
+              </div>
+              <Table
+                columns={[
+                  { key: "source", label: "Source" },
+                  { key: "clicks", label: "Clicks" },
+                  { key: "share", label: "Share", render: (r) => `${Math.round(r.share * 100)}%` },
+                ]}
+                rows={stats.byHeroSource}
+                emptyText="No root topics started in the last 30 days."
+              />
+            </div>
+
             <div className="rounded-2xl border p-4" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
               <div className="rh-mono rh-text-10 uppercase tracking-wider mb-2" style={{ color: COLORS.dim }}>
                 Top IPs (last 24h)

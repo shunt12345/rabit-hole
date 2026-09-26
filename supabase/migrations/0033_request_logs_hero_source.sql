@@ -1,0 +1,12 @@
+-- Which hero-page section led to a ROOT call — the exact
+-- trending_topics_cache field name ("Trending 1", "National Day", "Quote
+-- Of The Day", "Riddle", ...) for a hero-card click, or one of a few
+-- synthetic values for everything else a root can come from: "freeform"
+-- (typed into Dig In with nothing else selected), "spin_a_thread" (typed
+-- text came from the curated Surprise Me pool and was submitted as-is),
+-- or "url_param" (a shared ?topic= link). Nullable and only ever populated
+-- for endpoint = "root" — an expand/article/continuation call is
+-- downstream of an already-started topic and has no hero source of its
+-- own. Backs the admin dashboard's "what do people actually click from
+-- the hero page" breakdown (see admin-usage-stats).
+alter table rabbit_hole_request_logs add column if not exists hero_source text;

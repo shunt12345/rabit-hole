@@ -205,7 +205,7 @@ export async function callClaude(system, prompt, endpoint) {
 // API's server-sent-event chunks, and calls onChunk with the accumulated
 // text so far after every delta. Returns the final raw accumulated text —
 // callers apply their own cleanup/parsing on top (plain prose vs. JSON).
-async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey, nodeType, onUsage) {
+async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey, nodeType, onUsage, heroSource) {
   const controller = new AbortController();
   let timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   let res;
@@ -222,6 +222,11 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
         sessionId: getSessionId(),
         ...(newsCacheKey ? { newsCacheKey } : {}),
         ...(nodeType ? { nodeType } : {}),
+        // Which hero-page section (or freeform/spin-a-thread/shared-link)
+        // led to this ROOT call — see App.jsx's startTopic. Analytics only,
+        // logged onto rabbit_hole_request_logs so the admin dashboard can
+        // show what people actually click into from the hero page.
+        ...(heroSource ? { heroSource } : {}),
         ...(await authField()),
         ...timeZoneField(),
       }),
@@ -376,7 +381,7 @@ function unescapeJSONStringFragment(s) {
 // response), plus an optional onOverviewChunk callback fired with the
 // "overview" field's text as it streams in — the one field worth showing
 // live while the rest of the JSON (children, etc.) is still generating.
-export async function streamJSON(system, prompt, endpoint, onOverviewChunk, newsCacheKey, onUsage) {
+export async function streamJSON(system, prompt, endpoint, onOverviewChunk, newsCacheKey, onUsage, heroSource) {
   const fullText = await streamRaw(
     system,
     prompt,
@@ -390,7 +395,8 @@ export async function streamJSON(system, prompt, endpoint, onOverviewChunk, news
     },
     newsCacheKey,
     undefined,
-    onUsage
+    onUsage,
+    heroSource
   );
   const cleaned = fullText.replace(/```json|```/g, "").trim();
   const start = cleaned.indexOf("{");

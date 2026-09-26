@@ -613,7 +613,7 @@ export default function Hyfax() {
       setSelectedNewsIdx(null);
       setSelectedTodayIdx(null);
       setSelectedQuote(false);
-      startTopic(inputVal);
+      startTopic(inputVal, undefined, isSurprise ? "spin_a_thread" : "freeform");
     } catch (syncErr) {
       console.error("Hyfax: synchronous error on click", syncErr);
       setRootError(`Unexpected error: ${syncErr.message || syncErr}`);
@@ -621,7 +621,7 @@ export default function Hyfax() {
     }
   };
 
-  const startTopic = async (raw, newsContext) => {
+  const startTopic = async (raw, newsContext, heroSource) => {
     const t = raw.trim();
     if (!t) return;
     setRootError(null);
@@ -665,7 +665,8 @@ export default function Hyfax() {
         newsCacheKey,
         (usage) => {
           rootUsage = usage;
-        }
+        },
+        heroSource
       );
       if (newsCacheKey) {
         writeNewsRootCache(newsCacheKey, data.rootLabel, data.overview, data.children, rootUsage);
@@ -768,7 +769,7 @@ export default function Hyfax() {
       const params = new URLSearchParams(window.location.search);
       const urlTopic = params.get("topic");
       if (urlTopic && urlTopic.trim() && nodesRef.current.length === 0) {
-        startTopic(urlTopic);
+        startTopic(urlTopic, undefined, "url_param");
       }
     } catch (e) {
       console.error("Hyfax: failed to read topic from URL", e);
@@ -1424,7 +1425,7 @@ export default function Hyfax() {
                       setSelectedQuote(true);
                       setSelectedNewsIdx(null);
                       setSelectedTodayIdx(null);
-                      startTopic(quoteTopic.topic, quoteTopic.teaser);
+                      startTopic(quoteTopic.topic, quoteTopic.teaser, QUOTE_FIELD);
                     }}
                     disabled={rootLoading}
                     className={`rh-chip text-left p-5 rounded-2xl border transition-colors w-full ${
@@ -1469,7 +1470,7 @@ export default function Hyfax() {
                           setSelectedTodayIdx(i);
                           setSelectedNewsIdx(null);
                           setSelectedQuote(false);
-                          startTopic(t.topic, t.teaser);
+                          startTopic(t.topic, t.teaser, t.field);
                         }}
                         disabled={rootLoading}
                         className={`rh-chip text-left p-4 rounded-2xl border transition-colors ${
@@ -1524,7 +1525,7 @@ export default function Hyfax() {
                       setSelectedNewsIdx(null);
                       setSelectedTodayIdx(null);
                       setSelectedQuote(false);
-                      startTopic(riddleTopic.topic, riddleTopic.teaser);
+                      startTopic(riddleTopic.topic, riddleTopic.teaser, RIDDLE_FIELD);
                     }}
                     disabled={rootLoading}
                     className={`rh-chip text-left p-5 rounded-2xl border transition-colors w-full ${
@@ -1562,7 +1563,7 @@ export default function Hyfax() {
                                 setSelectedNewsIdx(null);
                                 setSelectedTodayIdx(null);
                                 setSelectedQuote(false);
-                                startTopic(riddleTopic.topic, riddleTopic.teaser);
+                                startTopic(riddleTopic.topic, riddleTopic.teaser, RIDDLE_FIELD);
                               } else {
                                 setRiddleWrongPicks((prev) => (prev.includes(choice) ? prev : [...prev, choice]));
                               }
@@ -1626,7 +1627,7 @@ export default function Hyfax() {
                           setSelectedNewsIdx(i);
                           setSelectedTodayIdx(null);
                           setSelectedQuote(false);
-                          startTopic(t.topic, t.teaser);
+                          startTopic(t.topic, t.teaser, t.field);
                         }}
                         disabled={rootLoading}
                         className={`rh-chip text-left p-4 rounded-2xl border transition-colors ${

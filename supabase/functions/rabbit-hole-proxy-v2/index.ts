@@ -457,7 +457,8 @@ async function logRequest(
   userId: string | null,
   nodeType?: string,
   ipAddress?: string | null,
-  funded?: boolean
+  funded?: boolean,
+  heroSource?: string
 ): Promise<number | null> {
   try {
     const { data, error } = await supabase
@@ -472,6 +473,14 @@ async function logRequest(
         // migration 0032. `undefined` (never explicitly passed) stores as
         // null, same as any row logged before this column existed.
         funded: funded ?? null,
+        // Not validated against a fixed enum the way node_type is — the
+        // real values are trending_topics_cache field names (drawn from
+        // generate-trending-topics' own FIELDS constant, a separate
+        // function/file) plus a few synthetic ones from App.jsx
+        // (freeform/spin_a_thread/url_param). Analytics-only, nothing is
+        // gated on it, so a loose length cap is enough; only actually
+        // meaningful for endpoint === "root" (see migration 0033).
+        hero_source: typeof heroSource === "string" ? heroSource.slice(0, 60) : null,
       })
       .select("id")
       .single();
@@ -776,7 +785,8 @@ serve(async (req) => {
       });
     }
 
-    const { messages, max_tokens, stream, endpoint, sessionId, system, newsCacheKey, userAccessToken, nodeType, timeZone } = body;
+    const { messages, max_tokens, stream, endpoint, sessionId, system, newsCacheKey, userAccessToken, nodeType, timeZone, heroSource } =
+      body;
     const effectiveTimeZone = isValidTimeZone(timeZone) ? timeZone : DEFAULT_TIME_ZONE;
 
     if (!Array.isArray(messages) || messages.length === 0) {
@@ -915,7 +925,7 @@ serve(async (req) => {
     // fire-and-forget — never block the actual Claude call on this. The
     // returned promise is only awaited later, inside the background
     // billing task below, once the real cost is known.
-    const logRowIdPromise = logRequest(sessionId, endpoint, userId, nodeType, clientIp, funded);
+    const logRowIdPromise = logRequest(sessionId, endpoint, userId, nodeType, clientIp, funded, heroSource);
 
     if (newsCacheKey && endpoint === "article") {
       const { data: cached, error: cacheErr } = await supabase
