@@ -1256,6 +1256,15 @@ export default function Hyfax() {
   // that transition has actually had time to play, so the paragraph
   // doesn't just disappear the instant it starts fading.
   const OVERVIEW_FADE_MS = 450;
+  // How long the opening line sits fully visible, untouched, once the
+  // article's finished arriving — before the fade-out above even starts.
+  // Started out at 0 (fading began the instant the article was ready), which
+  // was fine when a fresh generation's own few seconds of streaming already
+  // gave the reader time to read it. A CACHED article (see node_cache/
+  // news_root_cache — the whole Reddit-campaign point) arrives in one shot
+  // almost instantly, so with no added delay the opening line could start
+  // collapsing before someone's actually finished reading it.
+  const OVERVIEW_READ_DELAY_MS = 2500;
   const [overviewFading, setOverviewFading] = useState(false);
   const [overviewGone, setOverviewGone] = useState(false);
   useEffect(() => {
@@ -1264,11 +1273,16 @@ export default function Hyfax() {
   }, [selected?.id]);
   useEffect(() => {
     if (selected?.article && !selected?.articleStreaming && !overviewGone && !overviewFading) {
-      setOverviewFading(true);
-      const timer = setTimeout(() => setOverviewGone(true), OVERVIEW_FADE_MS);
-      return () => clearTimeout(timer);
+      const readTimer = setTimeout(() => setOverviewFading(true), OVERVIEW_READ_DELAY_MS);
+      return () => clearTimeout(readTimer);
     }
   }, [selected?.article, selected?.articleStreaming, overviewGone, overviewFading]);
+  useEffect(() => {
+    if (overviewFading && !overviewGone) {
+      const fadeTimer = setTimeout(() => setOverviewGone(true), OVERVIEW_FADE_MS);
+      return () => clearTimeout(fadeTimer);
+    }
+  }, [overviewFading, overviewGone]);
   const selectedChildren = selected ? nodes.filter((n) => n.parentId === selected.id) : [];
   // Once the trial's exhausted, Dig In still works for a fresh general
   // topic, but nothing it produces should offer a further hyperlink to
