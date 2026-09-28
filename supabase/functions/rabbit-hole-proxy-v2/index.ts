@@ -194,6 +194,22 @@ function trialHeaders(searchesUsed: number, funded: boolean) {
 // meant for deliberate, eyeballed model changes, not auto-upgrading to
 // "whatever's newest."
 const MODEL = Deno.env.get("MODEL") ?? "claude-sonnet-5";
+// Root's output is short, structured JSON (a label, one overview
+// paragraph, a handful of one-sentence teasers) — a meaningfully different
+// task from a full article's prose, and root is specifically the thing a
+// Reddit visitor is waiting on before any chip appears at all (avg ~6.7s
+// measured live). Worth being able to try a faster model for JUST this
+// endpoint without touching the model everything else uses, which was
+// already chosen over Haiku 4.5 after a real side-by-side quality check
+// for the article/full-prose case (see the handoff README) — that
+// decision doesn't automatically transfer to root's much shorter, more
+// structured output. Defaults to MODEL (zero behavior change) until
+// explicitly set.
+const ROOT_MODEL = Deno.env.get("ROOT_MODEL") ?? MODEL;
+// If this ever actually gets set to a non-Sonnet model, INPUT_PRICE_PER_M/
+// OUTPUT_PRICE_PER_M below (named and priced for Sonnet specifically) would
+// silently mis-cost every root call at the wrong per-token rate — same
+// trap the comment on those two already flags for MODEL itself.
 
 // Same env var names generate-trending-topics uses for its own cost
 // calculation — Supabase secrets are project-wide, so one value covers
@@ -1024,7 +1040,7 @@ serve(async (req) => {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: MODEL,
+        model: endpoint === "root" ? ROOT_MODEL : MODEL,
         max_tokens: max_tokens || 1200,
         stream: !!stream,
         // claude-sonnet-5 runs adaptive thinking by default; left enabled,

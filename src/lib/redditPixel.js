@@ -104,3 +104,27 @@ export function maybeReportSignUp(user) {
   trackSignUp(conversionId);
   reportSignUpServerSide(conversionId, user.email);
 }
+
+const LEAD_REPORTED_KEY = "hyfax-reddit-lead-reported";
+
+// Fires once per SESSION (sessionStorage, not localStorage — unlike
+// SignUp's once-ever-per-browser scope, "a session that ran a search" is
+// meant to reset each real visit) the first time a root topic actually
+// succeeds. This is the Reddit ad campaign's real engagement signal per
+// the brief: most clickers never run a search at all, so a completed root
+// request is worth reporting as a Lead distinctly from the page load
+// itself (already covered by PageVisit in initRedditPixel above).
+export function maybeReportLead() {
+  if (!PIXEL_ID) return;
+  try {
+    if (sessionStorage.getItem(LEAD_REPORTED_KEY) === "1") return;
+    sessionStorage.setItem(LEAD_REPORTED_KEY, "1");
+  } catch (_) {
+    // storage unavailable — proceed rather than silently never reporting;
+    // worst case (a private-mode edge case) is a rare double-count
+  }
+  const conversionId = crypto.randomUUID();
+  if (typeof window.rdt === "function") {
+    window.rdt("track", "Lead", { conversionId });
+  }
+}

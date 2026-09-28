@@ -13,7 +13,10 @@ import {
 import { HYFAX_SYSTEM, OBSCURITY_LEVELS, FIXED_OBSCURITY } from "./lib/hyfaxSystemPrompt.js";
 import { createPacedReveal } from "./lib/pacedReveal.js";
 import { getCurrentUser, onAuthStateChange } from "./lib/auth.js";
-import { maybeReportSignUp } from "./lib/redditPixel.js";
+import { maybeReportSignUp, maybeReportLead } from "./lib/redditPixel.js";
+import { getAttribution, isRedditVisit } from "./lib/attribution.js";
+import RedditLoadingAnimation from "./RedditLoadingAnimation.jsx";
+import { recordChipTap, hasDismissedSignUpPrompt, dismissSignUpPrompt } from "./lib/chipTaps.js";
 import { getProfile, getLifetimeFundedUsd } from "./lib/profile.js";
 import AccountMenu from "./AccountMenu.jsx";
 import LegalModal from "./LegalModal.jsx";
@@ -236,6 +239,20 @@ const QUOTE_FIELD = "Quote Of The Day";
 // treatment (the guess UI), not the plain topic+teaser list layout.
 const RIDDLE_FIELD = "Riddle";
 
+// One-tap starter chips above the Dig In input — matched EXACTLY (topic
+// string) against the seed rows in migration 0035, since that's what lets
+// them hit the precomputed news_root_cache entry instead of a fresh ~9s
+// generation. "why do cats purr" is also the exact question the Reddit ad
+// prefills (see lib/attribution.js/the Reddit entry-flow effect) — the
+// same cached answer either way.
+const STARTER_QUESTIONS = [
+  { topic: "why do cats purr", teaser: "A low hum that might double as a bone-healing frequency." },
+  { topic: "why do we dream", teaser: "Your brain runs a nightly simulation nobody fully understands yet." },
+  { topic: "why is the sky blue", teaser: "Sunlight gets ambushed by the air itself before it reaches your eyes." },
+  { topic: "why do we get goosebumps", teaser: "A shiver left over from fur you stopped growing thousands of years ago." },
+];
+const STARTER_QUESTION_FIELD = "Starter Question";
+
 // How old a row can be before it's treated as stale rather than shown as
 // today's pick — generous past the ~24h cron cadence (36h) to tolerate
 // normal timing jitter, but still short enough to catch a genuinely failed
@@ -302,6 +319,20 @@ export default function Hyfax() {
   // comes back from the API. Lets the page switch over immediately instead
   // of generating the opening sentence on the hero page itself.
   const [pendingLabel, setPendingLabel] = useState("");
+  // Reddit-ad landing flow (see lib/attribution.js) — true only when this
+  // visit's utm_source=reddit and nothing's loaded yet. Gates both the
+  // hero-skip/autofire effect below and which loading UI shows (the brand
+  // animation instead of the normal pending-topic-page shell) while that
+  // one auto-fired request is in flight. `redditAnimationSkipped` lets the
+  // visitor dismiss the animation early; the animation also disappears on
+  // its own the instant rootLoading goes false, whichever happens first.
+  const [redditEntryActive, setRedditEntryActive] = useState(false);
+  const [redditAnimationSkipped, setRedditAnimationSkipped] = useState(false);
+  // Soft sign-up nudge — shows once, after the 3rd "Explore next" chip tap
+  // in a session, for anyone not already signed in. Never blocks exploring
+  // (see its render below: a small dismissible bar, not a modal) and never
+  // shows again this session once dismissed (see lib/chipTaps.js).
+  const [showSignUpPrompt, setShowSignUpPrompt] = useState(false);
   // { nodeId, text } — the currently-typing teaser for a node that was just
   // selected and is still being expanded (its own branches + article are
   // still generating). Not real streaming (the teaser text is already
@@ -357,6 +388,7 @@ export default function Hyfax() {
     getCurrentUser().then(setUser);
     return onAuthStateChange((u) => {
       setUser(u);
+      if (u) setShowSignUpPrompt(false);
       // Reddit Ads conversion tracking (see lib/redditPixel.js) — reports a
       // "SignUp" event the first time this fires for a genuinely new
       // account, no-ops for a returning sign-in or when no Reddit Pixel is
@@ -701,6 +733,12 @@ export default function Hyfax() {
       recordExploredRoot({ label: root.label, fullTopic: root.fullTopic, overview: root.overview, children }).catch(
         (e) => console.error("Hyfax: failed to record explored topic", e)
       );
+      // Reddit Ads conversion tracking — the first successful root request
+      // in a session is the real engagement signal for this campaign (per
+      // the brief: most ad clickers never run a search at all). Only here,
+      // not in resumeExploredRoot below — that's a free local-history
+      // replay with no actual request behind it.
+      maybeReportLead();
     } catch (e) {
       console.error("Hyfax: startTopic failed", e);
       reveal.cancel();
@@ -768,11 +806,44 @@ export default function Hyfax() {
     try {
       const params = new URLSearchParams(window.location.search);
       const urlTopic = params.get("topic");
-      if (urlTopic && urlTopic.trim() && nodesRef.current.length === 0) {
+      // Skipped on a Reddit-attributed visit — that gets its own richer
+      // handling (below: ?q= override, autofire, loading animation) rather
+      // than the plain auto-fire this path does. The two params aren't
+      // expected to co-occur in practice.
+      if (urlTopic && urlTopic.trim() && nodesRef.current.length === 0 && !isRedditVisit()) {
         startTopic(urlTopic, undefined, "url_param");
       }
     } catch (e) {
       console.error("Hyfax: failed to read topic from URL", e);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Reddit ad landing flow (see lib/attribution.js + the ad brief this was
+  // built for): a Reddit visitor never sees the plain hero — the exact
+  // question the ad shows someone typing gets submitted for them,
+  // immediately, no tap required. Defaults to "why do cats purr" (the ad's
+  // own example) but honors ?q= so a future ad campaign can point at a
+  // different starter question without a code change. Only ever fires
+  // once, and only if nothing's already loaded (matches the ?topic=
+  // effect's own guard above).
+  useEffect(() => {
+    if (!isRedditVisit() || nodesRef.current.length > 0) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const q = (params.get("q") || "why do cats purr").trim();
+      if (!q) return;
+      setRedditEntryActive(true);
+      // A matching precomputed starter question (see migration 0035 + the
+      // seed script) gets its real cached teaser as newsContext, so this
+      // hits the SAME cache the starter chips do; a ?q= override with no
+      // precomputed match still passes a non-null newsContext (so a cache
+      // write attempt is harmless best-effort, per handleNewsCacheWrite's
+      // own existence check) and just falls through to a fresh generation.
+      const matchedStarter = STARTER_QUESTIONS.find((s) => s.topic.toLowerCase() === q.toLowerCase());
+      startTopic(q, matchedStarter?.teaser || "From a Reddit ad", "reddit_ad_prefill");
+    } catch (e) {
+      console.error("Hyfax: failed to auto-start Reddit ad landing", e);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1186,6 +1257,8 @@ export default function Hyfax() {
         .rh-mono { font-family: 'JetBrains Mono', monospace; }
         .rh-fade-in { animation: rh-fadein 0.4s ease both; }
         @keyframes rh-fadein { from { opacity: 0; transform: translateY(6px);} to { opacity: 1; transform: translateY(0);} }
+        .rh-chip-stagger-in { animation: rh-chip-stagger 0.35s ease both; }
+        @keyframes rh-chip-stagger { from { opacity: 0; transform: translateY(4px) scale(0.96);} to { opacity: 1; transform: translateY(0) scale(1);} }
         .rh-placeholder::placeholder { color: #6B5B45; }
         .rh-input:focus { border-color: #E3A73C !important; }
         .rh-btn-dark:hover { background-color: #2A2018 !important; }
@@ -1278,6 +1351,27 @@ export default function Hyfax() {
               <br />
               as far as it goes.
             </h2>
+
+            {/* One-tap starter questions — precomputed (see migration 0035
+                + the seed script) so tapping one renders instantly instead
+                of waiting out a fresh generation, same as clicking a
+                Trending/Today/Quote/Riddle card. Hidden once a real Dig In
+                is in flight, same as every other hero-page entry point. */}
+            {!rootLoading && (
+              <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
+                {STARTER_QUESTIONS.map((q) => (
+                  <button
+                    key={q.topic}
+                    type="button"
+                    onClick={() => startTopic(q.topic, q.teaser, STARTER_QUESTION_FIELD)}
+                    className="rh-chip rh-body text-xs rounded-full px-3 py-1.5 border transition-colors"
+                    style={{ borderColor: "#5A4630", color: "#C9B896", backgroundColor: "transparent" }}
+                  >
+                    {q.topic}
+                  </button>
+                ))}
+              </div>
+            )}
 
             <div className="flex flex-wrap items-center justify-center gap-2">
               <input
@@ -1697,6 +1791,50 @@ export default function Hyfax() {
 
       {legalDoc && <LegalModal doc={legalDoc} onClose={() => setLegalDoc(null)} />}
 
+      {redditEntryActive && rootLoading && !redditAnimationSkipped && (
+        <RedditLoadingAnimation onSkip={() => setRedditAnimationSkipped(true)} />
+      )}
+
+      {/* Soft sign-up nudge — fixed bar, not a modal, so it never sits in
+          front of the article or the chips it's specifically trying to get
+          someone to keep exploring with. Dismiss just hides it (via
+          lib/chipTaps.js) rather than signing anyone out of anything;
+          "Sign up" opens the same account modal every other entry point
+          in this app uses (openAccountModal). */}
+      {showSignUpPrompt && (
+        <div
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 rounded-full border px-4 py-2.5 shadow-lg rh-fade-in"
+          style={{ backgroundColor: "#1F1811", borderColor: "#3A2E20" }}
+        >
+          <span className="rh-body text-sm" style={{ color: "#F1E6D3" }}>
+            Want to keep your threads? Sign up.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setShowSignUpPrompt(false);
+              openAccountModal();
+            }}
+            className="rh-body text-xs font-medium rounded-full px-3 py-1.5 shrink-0"
+            style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
+          >
+            Sign up
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              dismissSignUpPrompt();
+              setShowSignUpPrompt(false);
+            }}
+            className="rh-body text-xs shrink-0"
+            style={{ color: "#6B5B45" }}
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {hasStarted && selected && (
         <>
           <div ref={contentRef} className="flex-1 overflow-y-auto px-5 md:px-7 pb-10">
@@ -1949,18 +2087,34 @@ export default function Hyfax() {
                       Explore next
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {selectedChildren.map((child) => {
+                      {selectedChildren.map((child, i) => {
                         const color = "#E3A73C"; // same bright orange for every chip, regardless of branch type
                         const visited = !!child.article;
                         return (
                           <button
                             key={child.id}
-                            onClick={() => jumpToNode(child.id)}
-                            className="rh-chip rh-body text-sm rounded-full px-4 py-2 border transition-colors"
+                            onClick={() => {
+                              jumpToNode(child.id);
+                              if (!user && !hasDismissedSignUpPrompt() && recordChipTap() === 3) {
+                                setShowSignUpPrompt(true);
+                              }
+                            }}
+                            className="rh-chip rh-chip-stagger-in rh-body text-sm rounded-full px-4 py-2 border transition-colors"
                             style={{
                               borderColor: color,
                               color,
                               backgroundColor: visited ? `${color}22` : "transparent",
+                              // One at a time rather than all popping in
+                              // together — see the ad brief's "reveal chips
+                              // one at a time as they arrive" ask. Chips
+                              // all land in the same client render (root
+                              // generation only exposes them once the full
+                              // JSON parses, not incrementally), so this is
+                              // a staggered CSS entrance rather than a true
+                              // incremental-parse reveal — same visible
+                              // effect, without the fragility of parsing a
+                              // JSON array mid-stream.
+                              animationDelay: `${i * 90}ms`,
                             }}
                           >
                             {child.label}
