@@ -223,7 +223,17 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 // actually looks like) plus an explicit instruction to go back and fix it
 // rather than submit a URL that fails the check, instead of leaving
 // "specific" to the model's own judgment alone.
-const SOURCE_URL_CHECK = `Before finalizing, check your own source_url against this: a bare domain, a short generic section path (like ".../business", ".../news", ".../world"), or a rolling live-updates/liveblog page covering many unrelated stories — anything that isn't one page specifically about THIS story — means you defaulted to a generic page instead of a real one. If that's what you have, first try to fix it: pick a genuinely specific result from your search (a URL with a real headline-shaped path, not just a section or liveblog) or search again with a more targeted query.
+//
+// The roundup/listicle line below was added after a real failure: Trending
+// Wildcard's source_url for "Jimothy The Raccoon" was a generic
+// "trending-tiktok-memes" roundup blog post, not a page about that specific
+// moment — and the raccoon meme itself turned out to already be an old,
+// previously-circulated one, not something that started trending in the
+// last 48 hours. A roundup page's mere existence doesn't verify any single
+// item on it is actually current; it's exactly the kind of source that lets
+// stale, already-been-around content slip past the freshness requirement
+// disguised as "trending now."
+const SOURCE_URL_CHECK = `Before finalizing, check your own source_url against this: a bare domain, a short generic section path (like ".../business", ".../news", ".../world"), a rolling live-updates/liveblog page covering many unrelated stories, or a roundup/listicle/compilation post (e.g. "10 trending memes this week," "best of the internet right now") that rounds up several different, unrelated things — anything that isn't one page specifically about THIS one story — means you defaulted to a generic page instead of a real one. If that's what you have, first try to fix it: pick a genuinely specific result from your search (a URL with a real headline-shaped path, not just a section, liveblog, or roundup) or search again with a more targeted query. A roundup page is also a specific red flag for the freshness requirement above — anything only found rounded up alongside other unrelated things has probably been circulating for a while already, not something that just started trending; treat that as a signal to search again for the actual originating story and its real publish date, not as evidence the item is current.
 
 That said, you must still answer. Never respond by saying you couldn't find one, giving a meta-answer about your own search process, or leaving source_url empty/null — those responses are worse than an imperfect one and will break the app that reads this. If your best result after trying still isn't a perfectly specific page, use it anyway: a real story with an imperfect source beats no answer at all.`;
 
@@ -298,13 +308,24 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
 }
 
-function wordOfTheDayPrompt(excludeTopics: string[]): string {
+function wordOfTheDayPrompt(excludeTopics: string[], recentTeasers: { topic: string; teaser: string }[] = []): string {
   const excludeBlock = excludeTopics.length
     ? `\n\nAlready featured recently — pick a different word this time, not a repeat of any of these: ${excludeTopics.join("; ")}.`
     : "";
+  // A different word from the exclude list above isn't enough on its own —
+  // confirmed live "Sphinx" and "Sphincter" both got picked, 5 days apart,
+  // each citing the exact same shared-root connection from the other
+  // word's side. Showing the actual past teasers (not just the words) lets
+  // the model recognize "I've already used this fact/connection" even when
+  // the headline word itself is new.
+  const factBlock = recentTeasers.length
+    ? `\n\nAlso avoid reusing any fact, etymology, or connection already told below, even under a completely different word — if a word's interesting angle turns out to be the same connection as one of these (e.g. two words that share a root, or reference the same story), pick something else instead:\n${recentTeasers
+        .map((t) => `- "${t.topic}": ${t.teaser}`)
+        .join("\n")}`
+    : "";
   return `You have live web search — use it now.
 
-Pick a single real English word — common enough that most readers will already recognize it — with a genuinely surprising, verifiable etymology or origin story, the kind of thing that makes someone say "wait, really?" Avoid a word whose origin story is already common knowledge. Search to confirm the etymology is real and accurate, not a popular folk etymology that turns out to be false.${excludeBlock}
+Pick a single real English word — common enough that most readers will already recognize it — with a genuinely surprising, verifiable etymology or origin story, the kind of thing that makes someone say "wait, really?" Avoid a word whose origin story is already common knowledge. Search to confirm the etymology is real and accurate, not a popular folk etymology that turns out to be false.${excludeBlock}${factBlock}
 
 Once you've confirmed a real one via search, produce:
 - "topic": the word itself, title case, no definition or extra text
@@ -459,11 +480,12 @@ function promptForField(
   field: string,
   excludeTopics: string[],
   recentRiddleCategories: string[] = [],
-  recentQuoteCategories: string[] = []
+  recentQuoteCategories: string[] = [],
+  recentWordTeasers: { topic: string; teaser: string }[] = []
 ): string {
   if (field === "National Day") return nationalDayPrompt(excludeTopics);
   if (field === "This Day In History") return thisDayInHistoryPrompt(excludeTopics);
-  if (field === "Word Of The Day") return wordOfTheDayPrompt(excludeTopics);
+  if (field === "Word Of The Day") return wordOfTheDayPrompt(excludeTopics, recentWordTeasers);
   if (field === QUOTE_FIELD) return quoteOfTheDayPrompt(excludeTopics, recentQuoteCategories);
   if (field === RIDDLE_FIELD) return riddlePrompt(excludeTopics, recentRiddleCategories);
   if (field === TRENDING_WILDCARD_FIELD) return trendingWildcardPrompt(excludeTopics);
@@ -485,7 +507,8 @@ async function generateForField(
   field: string,
   excludeTopics: string[],
   recentRiddleCategories: string[] = [],
-  recentQuoteCategories: string[] = []
+  recentQuoteCategories: string[] = [],
+  recentWordTeasers: { topic: string; teaser: string }[] = []
 ) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), PER_FIELD_TIMEOUT_MS);
@@ -519,7 +542,10 @@ async function generateForField(
           },
         ],
         messages: [
-          { role: "user", content: promptForField(field, excludeTopics, recentRiddleCategories, recentQuoteCategories) },
+          {
+            role: "user",
+            content: promptForField(field, excludeTopics, recentRiddleCategories, recentQuoteCategories, recentWordTeasers),
+          },
         ],
       }),
       signal: controller.signal,
@@ -717,6 +743,31 @@ async function fetchRecentQuoteCategories(): Promise<string[]> {
   return data.map((row) => row.category).filter(Boolean);
 }
 
+// Word Of The Day specifically needs the past TEASERS, not just topic
+// strings — confirmed live that a topic-string-only exclude list (see
+// fetchRecentTopicsByField) let "Sphinx" through 5 days after "Sphincter,"
+// even though both teasers cite the exact same etymological connection,
+// just told from the other word's side ("shares a root with the other").
+// A shorter, richer recent window (the last ~30 picks, not the full
+// 365-day exact-repeat list — nobody's going to notice or care about a
+// near-duplicate fact from months ago) lets the model actually recognize
+// "I've already used this connection" instead of only deduplicating
+// literal word strings.
+const RECENT_WORD_TEASER_COUNT = 30;
+async function fetchRecentWordTeasers(): Promise<{ topic: string; teaser: string }[]> {
+  const { data, error } = await supabase
+    .from("trending_topics_cache")
+    .select("topic, teaser")
+    .eq("field", "Word Of The Day")
+    .order("generated_at", { ascending: false })
+    .limit(RECENT_WORD_TEASER_COUNT);
+  if (error || !data) {
+    console.error("generate-trending-topics: failed to fetch recent word teasers", error);
+    return [];
+  }
+  return data;
+}
+
 serve(async (req) => {
   const cronSecret = Deno.env.get("CRON_SECRET");
   if (!cronSecret || req.headers.get("x-cron-secret") !== cronSecret) {
@@ -751,6 +802,7 @@ serve(async (req) => {
   const recentByField = await fetchRecentTopicsByField();
   const recentRiddleCategories = fieldsToRun.includes(RIDDLE_FIELD) ? await fetchRecentRiddleCategories() : [];
   const recentQuoteCategories = fieldsToRun.includes(QUOTE_FIELD) ? await fetchRecentQuoteCategories() : [];
+  const recentWordTeasers = fieldsToRun.includes("Word Of The Day") ? await fetchRecentWordTeasers() : [];
 
   // Trending 1 and 2 specifically run SEQUENTIALLY, not concurrently with
   // everything else — confirmed live that running them in parallel (each
@@ -798,7 +850,8 @@ serve(async (req) => {
         field,
         recentByField[field] || [],
         field === RIDDLE_FIELD ? recentRiddleCategories : undefined,
-        field === QUOTE_FIELD ? recentQuoteCategories : undefined
+        field === QUOTE_FIELD ? recentQuoteCategories : undefined,
+        field === "Word Of The Day" ? recentWordTeasers : undefined
       )
     )
   );
