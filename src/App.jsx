@@ -17,7 +17,6 @@ import { createPacedReveal } from "./lib/pacedReveal.js";
 import { getCurrentUser, onAuthStateChange } from "./lib/auth.js";
 import { maybeReportSignUp, maybeReportLead } from "./lib/redditPixel.js";
 import { getAttribution, isRedditVisit } from "./lib/attribution.js";
-import RedditLoadingAnimation from "./RedditLoadingAnimation.jsx";
 import { recordChipTap, hasDismissedSignUpPrompt, dismissSignUpPrompt } from "./lib/chipTaps.js";
 import { getProfile, getLifetimeFundedUsd } from "./lib/profile.js";
 import AccountMenu from "./AccountMenu.jsx";
@@ -321,15 +320,6 @@ export default function Hyfax() {
   // comes back from the API. Lets the page switch over immediately instead
   // of generating the opening sentence on the hero page itself.
   const [pendingLabel, setPendingLabel] = useState("");
-  // Reddit-ad landing flow (see lib/attribution.js) — true only when this
-  // visit's utm_source=reddit and nothing's loaded yet. Gates both the
-  // hero-skip/autofire effect below and which loading UI shows (the brand
-  // animation instead of the normal pending-topic-page shell) while that
-  // one auto-fired request is in flight. `redditAnimationSkipped` lets the
-  // visitor dismiss the animation early; the animation also disappears on
-  // its own the instant rootLoading goes false, whichever happens first.
-  const [redditEntryActive, setRedditEntryActive] = useState(false);
-  const [redditAnimationSkipped, setRedditAnimationSkipped] = useState(false);
   // Soft sign-up nudge — shows once, after the 3rd "Explore next" chip tap
   // in a session, for anyone not already signed in. Never blocks exploring
   // (see its render below: a small dismissible bar, not a modal) and never
@@ -809,9 +799,9 @@ export default function Hyfax() {
       const params = new URLSearchParams(window.location.search);
       const urlTopic = params.get("topic");
       // Skipped on a Reddit-attributed visit — that gets its own richer
-      // handling (below: ?q= override, autofire, loading animation) rather
-      // than the plain auto-fire this path does. The two params aren't
-      // expected to co-occur in practice.
+      // handling (below: ?q= override, autofire straight onto the topic
+      // page) rather than the plain auto-fire this path does. The two
+      // params aren't expected to co-occur in practice.
       if (urlTopic && urlTopic.trim() && nodesRef.current.length === 0 && !isRedditVisit()) {
         startTopic(urlTopic, undefined, "url_param");
       }
@@ -824,18 +814,19 @@ export default function Hyfax() {
   // Reddit ad landing flow (see lib/attribution.js + the ad brief this was
   // built for): a Reddit visitor never sees the plain hero — the exact
   // question the ad shows someone typing gets submitted for them,
-  // immediately, no tap required. Defaults to "why do cats purr" (the ad's
-  // own example) but honors ?q= so a future ad campaign can point at a
-  // different starter question without a code change. Only ever fires
-  // once, and only if nothing's already loaded (matches the ?topic=
-  // effect's own guard above).
+  // immediately, no tap required, landing straight on that topic's page
+  // (the same "pendingLabel" shell/streaming-in-place every normal topic
+  // transition already uses — no separate loading UI). Defaults to "why do
+  // cats purr" (the ad's own example) but honors ?q= so a future ad
+  // campaign can point at a different starter question without a code
+  // change. Only ever fires once, and only if nothing's already loaded
+  // (matches the ?topic= effect's own guard above).
   useEffect(() => {
     if (!isRedditVisit() || nodesRef.current.length > 0) return;
     try {
       const params = new URLSearchParams(window.location.search);
       const q = (params.get("q") || "why do cats purr").trim();
       if (!q) return;
-      setRedditEntryActive(true);
       // A matching precomputed starter question (see migration 0035 + the
       // seed script) gets its real cached teaser as newsContext, so this
       // hits the SAME cache the starter chips do; a ?q= override with no
@@ -1833,10 +1824,6 @@ export default function Hyfax() {
       )}
 
       {legalDoc && <LegalModal doc={legalDoc} onClose={() => setLegalDoc(null)} />}
-
-      {redditEntryActive && rootLoading && !redditAnimationSkipped && (
-        <RedditLoadingAnimation onSkip={() => setRedditAnimationSkipped(true)} />
-      )}
 
       {/* Soft sign-up nudge — fixed bar, not a modal, so it never sits in
           front of the article or the chips it's specifically trying to get
