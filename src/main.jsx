@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import Hyfax from "./App.jsx";
 import AdminDashboard from "./AdminDashboard.jsx";
 import { initRedditPixel } from "./lib/redditPixel.js";
+import { captureAttribution } from "./lib/attribution.js";
 import "./index.css";
 
 // /s/:id (a shared-article link, see lib/share.js) is served entirely by
@@ -16,6 +17,10 @@ import "./index.css";
 // either; vercel.json's catch-all rewrite already serves index.html for
 // any path, so this is just a plain pathname check at mount time.
 const isAdminRoute = window.location.pathname === "/admin";
+
+// Before anything else reads it (App.jsx's Reddit entry-flow check, every
+// proxy request's attribution fields) — see lib/attribution.js.
+captureAttribution();
 
 if (!isAdminRoute) initRedditPixel();
 

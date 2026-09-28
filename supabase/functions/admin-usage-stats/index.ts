@@ -95,7 +95,7 @@ serve(async (req) => {
       await Promise.all([
         supabase
           .from("rabbit_hole_request_logs")
-          .select("created_at, session_id, endpoint, cost_usd, latency_ms, user_id, ip_address, funded, hero_source")
+          .select("created_at, session_id, endpoint, cost_usd, latency_ms, user_id, ip_address, funded, hero_source, utm_source")
           .gte("created_at", since30d)
           .order("created_at", { ascending: false })
           .limit(50000),
@@ -123,7 +123,18 @@ serve(async (req) => {
     const allRows = (rows ?? []).filter((r) => !r.user_id || !ADMIN_USER_IDS.has(r.user_id));
     const allUsers = (usersPage?.users ?? []).filter((u) => !ADMIN_USER_IDS.has(u.id));
 
-    // Daily requests/sessions/spend, full 30-day window.
+    // Binary channel bucket for every source breakdown below — "reddit" if
+    // this row's utm_source (see lib/attribution.js) says so, otherwise
+    // lumped into "direct/other" (organic, other ad platforms, shared
+    // links, etc.) rather than a long tail of one-off UTM values that
+    // would fragment the numbers without real signal at current traffic
+    // levels.
+    const channelOf = (r: { utm_source?: string | null }) => (r.utm_source === "reddit" ? "reddit" : "direct/other");
+
+    // Daily requests/sessions/spend, full 30-day window — channel-agnostic,
+    // unchanged shape (the stat cards read daily[0] directly, and
+    // splitting this by channel would double up every day's row and break
+    // that). See dailyByChannel below for the reddit-vs-other breakdown.
     const dailyMap = new Map<string, { requests: number; sessions: Set<string>; spendUsd: number }>();
     for (const r of allRows) {
       const day = String(r.created_at).slice(0, 10);
@@ -136,6 +147,28 @@ serve(async (req) => {
     const daily = [...dailyMap.entries()]
       .map(([day, b]) => ({ day, requests: b.requests, uniqueSessions: b.sessions.size, spendUsd: b.spendUsd }))
       .sort((a, b) => (a.day < b.day ? 1 : -1));
+
+    // Same daily window, split reddit vs. direct/other — a separate table
+    // from `daily` above rather than fragmenting it, so the stat cards and
+    // the existing trend view are unaffected by a day with no Reddit
+    // traffic at all (the overwhelming majority, pre-campaign).
+    const dailyByChannelMap = new Map<
+      string,
+      { day: string; channel: string; requests: number; sessions: Set<string>; spendUsd: number }
+    >();
+    for (const r of allRows) {
+      const day = String(r.created_at).slice(0, 10);
+      const channel = channelOf(r);
+      const key = `${day}|${channel}`;
+      const bucket = dailyByChannelMap.get(key) ?? { day, channel, requests: 0, sessions: new Set<string>(), spendUsd: 0 };
+      bucket.requests += 1;
+      if (r.session_id) bucket.sessions.add(r.session_id);
+      bucket.spendUsd += Number(r.cost_usd ?? 0);
+      dailyByChannelMap.set(key, bucket);
+    }
+    const dailyByChannel = [...dailyByChannelMap.values()]
+      .map((b) => ({ day: b.day, channel: b.channel, requests: b.requests, uniqueSessions: b.sessions.size, spendUsd: b.spendUsd }))
+      .sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : a.channel.localeCompare(b.channel)));
 
     // Endpoint breakdown, last 7 days.
     const recentRows = allRows.filter((r) => String(r.created_at) >= since7d);
@@ -230,6 +263,29 @@ serve(async (req) => {
       }))
       .sort((a, b) => b.clicks - a.clicks);
 
+    // Same breakdown, split reddit vs. direct/other — share is computed
+    // WITHIN each channel (% of that channel's own root clicks), not
+    // against the combined total, so "what Reddit visitors click" and
+    // "what everyone else clicks" are each a meaningful 100%-summing
+    // picture rather than one being dwarfed by the other's volume.
+    const heroSourceByChannelMap = new Map<string, { source: string; channel: string; clicks: number }>();
+    const channelRootTotals = new Map<string, number>();
+    for (const r of rootRows) {
+      const source = r.hero_source || "unknown (pre-tracking)";
+      const channel = channelOf(r);
+      const key = `${channel}|${source}`;
+      const bucket = heroSourceByChannelMap.get(key) ?? { source, channel, clicks: 0 };
+      bucket.clicks += 1;
+      heroSourceByChannelMap.set(key, bucket);
+      channelRootTotals.set(channel, (channelRootTotals.get(channel) ?? 0) + 1);
+    }
+    const byHeroSourceByChannel = [...heroSourceByChannelMap.values()]
+      .map((b) => {
+        const channelTotal = channelRootTotals.get(b.channel) ?? 0;
+        return { ...b, share: channelTotal ? b.clicks / channelTotal : 0 };
+      })
+      .sort((a, b) => (a.channel === b.channel ? b.clicks - a.clicks : a.channel.localeCompare(b.channel)));
+
     // Top IPs, last 24h — abuse/scraping visibility.
     const ipRows = allRows.filter((r) => String(r.created_at) >= since24h && r.ip_address);
     const ipMap = new Map<string, number>();
@@ -259,10 +315,12 @@ serve(async (req) => {
         spendLast24hUsd: Number(spend24h ?? 0),
         spendCapUsd: GLOBAL_DAILY_SPEND_LIMIT_USD,
         daily,
+        dailyByChannel,
         byEndpoint,
         identitySplit,
         fundedSplit,
         byHeroSource,
+        byHeroSourceByChannel,
         topIps,
         dailySignups,
       }),

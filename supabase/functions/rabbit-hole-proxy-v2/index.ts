@@ -458,7 +458,12 @@ async function logRequest(
   nodeType?: string,
   ipAddress?: string | null,
   funded?: boolean,
-  heroSource?: string
+  heroSource?: string,
+  // Grouped into one object rather than three more positional params —
+  // the parameter list here was already getting long enough to mix up by
+  // position; these three always travel together anyway (see
+  // lib/attribution.js, which captures/reads them as one unit).
+  attribution?: { utmSource?: string; utmCampaign?: string; rdtCid?: string }
 ): Promise<number | null> {
   try {
     const { data, error } = await supabase
@@ -481,6 +486,11 @@ async function logRequest(
         // gated on it, so a loose length cap is enough; only actually
         // meaningful for endpoint === "root" (see migration 0033).
         hero_source: typeof heroSource === "string" ? heroSource.slice(0, 60) : null,
+        // Ad-attribution (migration 0034) — client-captured once from the
+        // URL, attached to every request in a session, not just root.
+        utm_source: typeof attribution?.utmSource === "string" ? attribution.utmSource.slice(0, 60) : null,
+        utm_campaign: typeof attribution?.utmCampaign === "string" ? attribution.utmCampaign.slice(0, 120) : null,
+        rdt_cid: typeof attribution?.rdtCid === "string" ? attribution.rdtCid.slice(0, 120) : null,
       })
       .select("id")
       .single();
@@ -785,8 +795,22 @@ serve(async (req) => {
       });
     }
 
-    const { messages, max_tokens, stream, endpoint, sessionId, system, newsCacheKey, userAccessToken, nodeType, timeZone, heroSource } =
-      body;
+    const {
+      messages,
+      max_tokens,
+      stream,
+      endpoint,
+      sessionId,
+      system,
+      newsCacheKey,
+      userAccessToken,
+      nodeType,
+      timeZone,
+      heroSource,
+      utmSource,
+      utmCampaign,
+      rdtCid,
+    } = body;
     const effectiveTimeZone = isValidTimeZone(timeZone) ? timeZone : DEFAULT_TIME_ZONE;
 
     if (!Array.isArray(messages) || messages.length === 0) {
@@ -925,7 +949,11 @@ serve(async (req) => {
     // fire-and-forget — never block the actual Claude call on this. The
     // returned promise is only awaited later, inside the background
     // billing task below, once the real cost is known.
-    const logRowIdPromise = logRequest(sessionId, endpoint, userId, nodeType, clientIp, funded, heroSource);
+    const logRowIdPromise = logRequest(sessionId, endpoint, userId, nodeType, clientIp, funded, heroSource, {
+      utmSource,
+      utmCampaign,
+      rdtCid,
+    });
 
     if (newsCacheKey && endpoint === "article") {
       const { data: cached, error: cacheErr } = await supabase

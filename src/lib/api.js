@@ -7,6 +7,7 @@
 // side of this and the handoff README for the Phase 1/2 plan this sets up.
 import { getSessionId } from "./session.js";
 import { getAccessToken } from "./auth.js";
+import { getAttribution } from "./attribution.js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -227,6 +228,18 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
         // logged onto rabbit_hole_request_logs so the admin dashboard can
         // show what people actually click into from the hero page.
         ...(heroSource ? { heroSource } : {}),
+        // Ad-attribution signals (see lib/attribution.js) — attached to
+        // EVERY request, not just root, so a full session's cost/behavior
+        // can be traced back to its source, not just the one call that
+        // happened to carry the URL params.
+        ...(() => {
+          const attr = getAttribution();
+          return {
+            ...(attr.utmSource ? { utmSource: attr.utmSource } : {}),
+            ...(attr.utmCampaign ? { utmCampaign: attr.utmCampaign } : {}),
+            ...(attr.rdtCid ? { rdtCid: attr.rdtCid } : {}),
+          };
+        })(),
         ...(await authField()),
         ...timeZoneField(),
       }),
