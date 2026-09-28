@@ -738,7 +738,7 @@ export default function Hyfax() {
       // the brief: most ad clickers never run a search at all). Only here,
       // not in resumeExploredRoot below — that's a free local-history
       // replay with no actual request behind it.
-      maybeReportLead();
+      maybeReportLead(user?.email);
     } catch (e) {
       console.error("Hyfax: startTopic failed", e);
       reveal.cancel();

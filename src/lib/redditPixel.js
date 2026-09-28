@@ -51,13 +51,13 @@ function trackSignUp(conversionId) {
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Server-side mirror of trackSignUp above — see the report-reddit-conversion
-// edge function for why this matters beyond just the browser pixel (ad
-// blockers, Safari ITP, etc. all silently drop the browser-side fire for a
-// real chunk of visitors). Fire-and-forget: a failed report here just means
-// this one conversion under-counts, never worth surfacing to the person who
-// already successfully signed up.
-function reportSignUpServerSide(conversionId, email) {
+// Server-side mirror for both SignUp and Lead below — see the
+// report-reddit-conversion edge function for why this matters beyond just
+// the browser pixel (ad blockers, Safari ITP, etc. all silently drop the
+// browser-side fire for a real chunk of visitors). Fire-and-forget: a
+// failed report here just means this one conversion under-counts, never
+// worth surfacing to the person whose action already succeeded.
+function reportConversionServerSide(conversionId, eventType, email) {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
   fetch(`${SUPABASE_URL}/functions/v1/report-reddit-conversion`, {
     method: "POST",
@@ -66,7 +66,7 @@ function reportSignUpServerSide(conversionId, email) {
       apikey: SUPABASE_ANON_KEY,
       Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
     },
-    body: JSON.stringify({ conversionId, eventType: "SignUp", email }),
+    body: JSON.stringify({ conversionId, eventType, ...(email ? { email } : {}) }),
   }).catch((e) => console.error("Hyfax: failed to report Reddit conversion server-side", e));
 }
 
@@ -102,7 +102,7 @@ export function maybeReportSignUp(user) {
 
   const conversionId = crypto.randomUUID();
   trackSignUp(conversionId);
-  reportSignUpServerSide(conversionId, user.email);
+  reportConversionServerSide(conversionId, "SignUp", user.email);
 }
 
 const LEAD_REPORTED_KEY = "hyfax-reddit-lead-reported";
@@ -114,7 +114,13 @@ const LEAD_REPORTED_KEY = "hyfax-reddit-lead-reported";
 // the brief: most clickers never run a search at all, so a completed root
 // request is worth reporting as a Lead distinctly from the page load
 // itself (already covered by PageVisit in initRedditPixel above).
-export function maybeReportLead() {
+//
+// Mirrored server-side via report-reddit-conversion (same conversionId,
+// same dedup story as SignUp) — most root requests are from anonymous
+// visitors with no email to attach, so `email` here is optional and just
+// omitted from the CAPI payload when there isn't one (see App.jsx's
+// startTopic, which passes the signed-in user's email when it has one).
+export function maybeReportLead(email) {
   if (!PIXEL_ID) return;
   try {
     if (sessionStorage.getItem(LEAD_REPORTED_KEY) === "1") return;
@@ -127,4 +133,5 @@ export function maybeReportLead() {
   if (typeof window.rdt === "function") {
     window.rdt("track", "Lead", { conversionId });
   }
+  reportConversionServerSide(conversionId, "Lead", email);
 }

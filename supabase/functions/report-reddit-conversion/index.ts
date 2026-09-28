@@ -67,7 +67,7 @@ async function sha256Hex(input: string): Promise<string> {
 // get tracked (see the mushroom/mind-expansion ad campaign this was built
 // for). Validated against a fixed set rather than trusting the client's
 // string verbatim, same posture as nodeType in rabbit-hole-proxy-v2.
-const VALID_EVENT_TYPES = new Set(["SignUp"]);
+const VALID_EVENT_TYPES = new Set(["SignUp", "Lead"]);
 
 const REDDIT_PIXEL_ID = Deno.env.get("REDDIT_PIXEL_ID");
 const REDDIT_CONVERSION_TOKEN = Deno.env.get("REDDIT_CONVERSION_TOKEN");
