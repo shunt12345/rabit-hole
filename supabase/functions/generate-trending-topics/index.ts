@@ -362,6 +362,19 @@ const QUOTE_CATEGORIES = [
 // rampant online (a large share of "Einstein said"/"Twain said" quotes
 // circulating are fake), so this explicitly names that risk rather than
 // just asking for "a real quote" and trusting search results at face value.
+// Confirmed live this needed fixing: "genuinely well-known and quotable"
+// below used to be the actual instruction, and it reliably produced the
+// most overexposed line from each figure's career — Armstrong's "one small
+// step," JFK's "ask not what your country can do for you," Jobs' "stay
+// hungry, stay foolish," Churchill's "never give in," Socrates' "the
+// unexamined life." All real, all correctly attributed, all something
+// nearly every reader has already seen a hundred times before — technically
+// satisfying the brief while completely missing the point of a daily quote
+// worth actually pausing on. Rewritten to select for INSIGHT (does this
+// teach something real about how to think, learn, create, or work with
+// people) rather than FAME (is this the most-quoted line this person ever
+// said), which are different axes — a figure's single most iconic line is
+// often their most worn-out one, not their most substantive.
 function quoteOfTheDayPrompt(excludeTopics: string[], recentCategories: string[]): string {
   const excludeBlock = excludeTopics.length
     ? `\n\nAlready featured recently — pick a different quote this time, not a repeat of any of these: ${excludeTopics.join("; ")}.`
@@ -374,7 +387,9 @@ function quoteOfTheDayPrompt(excludeTopics: string[], recentCategories: string[]
     : "";
   return `You have live web search — use it now.
 
-Pick a single real, genuinely well-known and quotable quote worth a reader pausing on — from a real historical or notable figure, not an anonymous "inspirational quote" graphic. Deliberately range across ALL of these categories over time, not just the ones that come to mind first: ${QUOTE_CATEGORIES.join(", ")} — a scientist or philosopher is a perfectly fine pick sometimes, but so is a politician, an athlete, a tech founder, or a business leader; don't reach for the same kind of figure out of habit every time this runs. Search to confirm BOTH the exact wording AND the attribution are accurate — misattributed quotes are extremely common online (a large share of "Einstein said" or "Mark Twain said" quotes circulating online are fake or misattributed to them), so specifically check whether this one is a known fake before using it. If you can't confirm a real, correctly-attributed quote, pick a different one you can verify instead of using an unconfirmed one.${excludeBlock}${categoryBlock}
+Pick a single real quote that offers genuine insight into learning, education, creativity, problem-solving, curiosity, growth through failure, or working well with other people — something a reader could actually turn over and apply, not just nod at. This is the actual selection criterion — fame is NOT: do not pick a quote just because it's iconic or the single most-quoted line the speaker is known for. In fact, treat "this is the most famous thing this person ever said" as a reason to look further, not a reason to pick it — everyone has already heard "that's one small step for man" or "ask not what your country can do for you" a hundred times, and a quote everyone can already recite offers a reader nothing new to sit with. A real person's LESS-repeated lines are usually where the actual substance is; search specifically for those instead of whatever comes up first. The quote must still be from a real historical or notable figure, not an anonymous "inspirational quote" graphic, but being well-known is neutral at best — insight is what matters.
+
+Deliberately range across ALL of these categories over time, not just the ones that come to mind first: ${QUOTE_CATEGORIES.join(", ")} — a scientist or philosopher is a perfectly fine pick sometimes, but so is a politician, an athlete, a tech founder, or a business leader; don't reach for the same kind of figure out of habit every time this runs. Search to confirm BOTH the exact wording AND the attribution are accurate — misattributed quotes are extremely common online (a large share of "Einstein said" or "Mark Twain said" quotes circulating online are fake or misattributed to them), so specifically check whether this one is a known fake before using it. If you can't confirm a real, correctly-attributed quote, pick a different one you can verify instead of using an unconfirmed one.${excludeBlock}${categoryBlock}
 
 Once you've confirmed a real, correctly-attributed quote via search, produce:
 - "topic": the quote itself, in quotation marks, exactly as verified — word for word, no paraphrasing. This can run longer than the usual short label; the whole point is showing the real quote.
