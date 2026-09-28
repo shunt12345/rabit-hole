@@ -1115,9 +1115,16 @@ export default function Hyfax() {
       const reveal = createPacedReveal((revealed) => setChildPreview({ nodeId: selectedId, text: revealed }));
       childPreviewRevealRef.current = reveal;
       reveal.push(node.teaser || "");
-      reveal.finish(node.teaser || "");
+      const revealDone = reveal.finish(node.teaser || "");
 
-      expandNode(selectedId).finally(() => {
+      // Waits on BOTH the network call and the teaser's own on-screen typing
+      // before starting the article — expandNode alone used to gate this,
+      // so a fast (often cached) expand could return well before the teaser
+      // finished typing out, and loadArticle's own paced reveal would start
+      // writing the article right on top of it: two cursors typing at once,
+      // confirmed live as genuinely confusing to watch. The teaser should
+      // finish being read first; the article starts only once that's done.
+      Promise.all([expandNode(selectedId), revealDone]).finally(() => {
         if (selectedIdRef.current !== selectedId) return; // moved on to something else meanwhile
         setChildPreview(null); // node.generated is now true — the real render path takes over
         const fresh = nodesRef.current.find((n) => n.id === selectedId);
@@ -1246,37 +1253,49 @@ export default function Hyfax() {
   }, [riddleTopic?.topic]);
   const selected = nodes.find((n) => n.id === selectedId) || null;
 
-  // Smooth "opener sentence" transition-out once its article is fully
-  // realized (not just started — confirmed live that hiding it the
-  // instant the article began streaming caused it to vanish mid-flicker,
-  // barely a beat after appearing) — see the overview/teaser paragraph
-  // below. `overviewFading` drives a real CSS opacity/transform
-  // transition instead of an instant conditional swap, which is what made
-  // this feel sudden/jerky before; `overviewGone` only flips true once
-  // that transition has actually had time to play, so the paragraph
-  // doesn't just disappear the instant it starts fading.
+  // Smooth "opener sentence" transition-out once its article starts being
+  // written — see the overview/teaser paragraph below. `overviewFading`
+  // drives a real CSS opacity/transform transition instead of an instant
+  // conditional swap, which read as sudden/jerky; `overviewGone` only flips
+  // true once that transition has actually had time to play, so the
+  // paragraph doesn't just disappear the instant it starts fading.
   const OVERVIEW_FADE_MS = 450;
-  // How long the opening line sits fully visible, untouched, once the
-  // article's finished arriving — before the fade-out above even starts.
-  // Started out at 0 (fading began the instant the article was ready), which
-  // was fine when a fresh generation's own few seconds of streaming already
-  // gave the reader time to read it. A CACHED article (see node_cache/
-  // news_root_cache — the whole Reddit-campaign point) arrives in one shot
-  // almost instantly, so with no added delay the opening line could start
-  // collapsing before someone's actually finished reading it.
-  const OVERVIEW_READ_DELAY_MS = 2500;
+  // Floor on how long the opening line stays fully visible before it's
+  // allowed to start fading, measured from the moment it first appeared —
+  // NOT from when the article finishes. Fading used to wait for the whole
+  // article to finish generating, which for a fresh (non-cached) topic
+  // happened to double as reading time for free; a CACHED article (see
+  // node_cache/news_root_cache — the whole Reddit-campaign point) or an
+  // already-typed-out child teaser (see the selection effect above, which
+  // now waits for the teaser's own reveal before even starting the
+  // article) arrives fast enough that without this floor the opening line
+  // could start collapsing well before, or barely after, it finished
+  // appearing.
+  const OVERVIEW_MIN_VISIBLE_MS = 2500;
   const [overviewFading, setOverviewFading] = useState(false);
   const [overviewGone, setOverviewGone] = useState(false);
+  const overviewShownAtRef = useRef(0);
   useEffect(() => {
+    overviewShownAtRef.current = Date.now();
     setOverviewFading(false);
     setOverviewGone(false);
   }, [selected?.id]);
+  // Starts the fade once the article is actually being written (streaming
+  // in, or already fully there for an edge case that skips the streaming
+  // flag) rather than waiting for it to finish — confirmed live that
+  // waiting for full completion left the opening line sitting untouched,
+  // fully redundant, for as long as the whole rest of the article took to
+  // generate. `OVERVIEW_MIN_VISIBLE_MS` still protects a root's overview
+  // (which has no equivalent of the child teaser's own pre-article delay)
+  // from fading before there's been real time to read it.
   useEffect(() => {
-    if (selected?.article && !selected?.articleStreaming && !overviewGone && !overviewFading) {
-      const readTimer = setTimeout(() => setOverviewFading(true), OVERVIEW_READ_DELAY_MS);
-      return () => clearTimeout(readTimer);
+    if ((selected?.articleStreaming || selected?.article) && !overviewGone && !overviewFading) {
+      const elapsed = Date.now() - overviewShownAtRef.current;
+      const wait = Math.max(0, OVERVIEW_MIN_VISIBLE_MS - elapsed);
+      const startTimer = setTimeout(() => setOverviewFading(true), wait);
+      return () => clearTimeout(startTimer);
     }
-  }, [selected?.article, selected?.articleStreaming, overviewGone, overviewFading]);
+  }, [selected?.articleStreaming, selected?.article, overviewGone, overviewFading]);
   useEffect(() => {
     if (overviewFading && !overviewGone) {
       const fadeTimer = setTimeout(() => setOverviewGone(true), OVERVIEW_FADE_MS);
