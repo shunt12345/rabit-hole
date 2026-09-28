@@ -26,7 +26,7 @@ import { nextSurpriseTopic } from "./lib/surpriseTopics.js";
 import UsageGauge from "./UsageGauge.jsx";
 import MiniGauge from "./MiniGauge.jsx";
 import AdCard from "./AdCard.jsx";
-import { pickHouseAd, engagementStage } from "./lib/houseAds.js";
+import { pickHouseAd, getHouseAdById, engagementStage } from "./lib/houseAds.js";
 import { getSessionId } from "./lib/session.js";
 import {
   getLocalHistory,
@@ -1977,9 +1977,24 @@ export default function Hyfax() {
                               the first paragraph rather than sitting above
                               the article entirely. A second one shows after
                               "dig deeper" instead of repeating this same
-                              slot twice. */}
+                              slot twice.
+
+                              The Reddit ad campaign's "why do cats purr"
+                              landing pins this specific ad instead of
+                              leaving it to rotation — a first-time visitor
+                              from that campaign should see copy picked for
+                              them, not whatever the seeded pick happens to
+                              land on. Every other topic keeps the normal
+                              rotation untouched. */}
                           {!funded && !selected.articleStreaming && i === 0 && arr.length > 1 && (
-                            <AdCard ad={pickHouseAd(selected.id, adStage)} onClick={openAccountModal} />
+                            <AdCard
+                              ad={
+                                selected.type === "root" && selected.fullTopic === "why do cats purr"
+                                  ? getHouseAdById("what-are-you-looking-for")
+                                  : pickHouseAd(selected.id, adStage)
+                              }
+                              onClick={openAccountModal}
+                            />
                           )}
                         </Fragment>
                       ))}

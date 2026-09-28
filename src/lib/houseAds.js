@@ -102,6 +102,14 @@ export const HOUSE_ADS = [
   },
 ];
 
+// Pins one specific ad by id instead of rotating — used for the Reddit ad
+// campaign's "why do cats purr" landing (see App.jsx), where the copy was
+// picked deliberately for a first-time visitor rather than left to whatever
+// the normal seeded rotation happens to land on.
+export function getHouseAdById(id) {
+  return HOUSE_ADS.find((ad) => ad.id === id) || null;
+}
+
 // Deterministic pick — the same seed always returns the same ad (so a
 // given node/session doesn't flicker between different ads on
 // re-render), but different seeds spread across the list. Not true
