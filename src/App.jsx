@@ -289,17 +289,6 @@ function latestByField(rows, fields) {
     .filter(isFresh);
 }
 
-// UI-only mockup of the lightweight "Explore next" chip ad — hardcoded
-// placeholder content, no real sponsor backend. Deliberately NOT part of
-// the house-ad rotation (lib/houseAds.js): this one slot stays constant
-// rather than rotating, per the ad-placement plan. Swap for real
-// sponsored data — and add real gating — when this becomes more than a
-// mockup.
-const CHIP_AD = {
-  brand: "Farside Media",
-  label: "The Deep End",
-};
-
 export default function Hyfax() {
   const [topic, setTopic] = useState("");
   const [inputVal, setInputVal] = useState("");
@@ -2199,23 +2188,6 @@ export default function Hyfax() {
                           </button>
                         );
                       })}
-                      {/* Ad tier 3 (mockup) — lightest unit, mixed into the
-                          branch chips with just a label, no teaser copy.
-                          Funded accounts don't see ads at all, same as the
-                          house-ad cards. */}
-                      {!funded && (
-                        <button
-                          type="button"
-                          className="rh-chip rh-body text-sm rounded-full px-4 py-2 border transition-colors inline-flex items-center gap-1.5"
-                          style={{ borderColor: "#5A4C38", color: "#A89478", backgroundColor: "transparent" }}
-                        >
-                          <span className="rh-mono uppercase" style={{ fontSize: "8px", color: "#E3A73C" }}>
-                            Sponsored
-                          </span>
-                          · {CHIP_AD.label} — {CHIP_AD.brand}
-                          <ArrowUpRight size={13} />
-                        </button>
-                      )}
                     </div>
                   </div>
                 )}
