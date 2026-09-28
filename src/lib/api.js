@@ -122,7 +122,7 @@ function timeZoneField() {
 // "continuation") the proxy logs alongside an anonymous session id per
 // request — see the handoff brief's Phase 1 logging note: this is what lets
 // Phase 2's usage caps be set from real numbers instead of a guess.
-async function fetchClaudeText(system, prompt, maxTokens, endpoint) {
+async function fetchClaudeText(system, prompt, maxTokens, endpoint, nodeCacheKey) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 25000);
   let res;
@@ -136,6 +136,11 @@ async function fetchClaudeText(system, prompt, maxTokens, endpoint) {
         messages: [{ role: "user", content: prompt }],
         endpoint,
         sessionId: getSessionId(),
+        // Branch-node cache key (see App.jsx's expandNode) — only ever set
+        // for a "expand" call on a direct child of an already-cached root,
+        // same idea as streamRaw's newsCacheKey but one level deeper (see
+        // rabbit-hole-proxy-v2's node_cache table).
+        ...(nodeCacheKey ? { nodeCacheKey } : {}),
         ...(await authField()),
         ...timeZoneField(),
       }),
@@ -182,11 +187,19 @@ async function fetchClaudeText(system, prompt, maxTokens, endpoint) {
     console.error("Hyfax: no text content in API response", data);
     throw new Error("Empty response from the API.");
   }
-  return text;
+  return { text, usage: data.usage || null };
 }
 
-export async function callClaude(system, prompt, endpoint) {
-  const text = await fetchClaudeText(system, prompt, undefined, endpoint);
+// `onUsage`, when given, is called with this call's real {input_tokens,
+// output_tokens} — only meaningful for a genuinely fresh generation (a
+// cache hit's usage is always zeroed, see rabbit-hole-proxy-v2). Lets
+// expandNode capture a branch's real cost in the SAME request that writes
+// its node_cache row (see writeNodeCache), avoiding a race against the
+// server's own background billing task the way root's rootUsage already
+// does for its own cache write.
+export async function callClaude(system, prompt, endpoint, nodeCacheKey, onUsage) {
+  const { text, usage } = await fetchClaudeText(system, prompt, undefined, endpoint, nodeCacheKey);
+  if (onUsage) onUsage(usage);
   const cleaned = text.replace(/```json|```/g, "").trim();
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
@@ -206,7 +219,7 @@ export async function callClaude(system, prompt, endpoint) {
 // API's server-sent-event chunks, and calls onChunk with the accumulated
 // text so far after every delta. Returns the final raw accumulated text —
 // callers apply their own cleanup/parsing on top (plain prose vs. JSON).
-async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey, nodeType, onUsage, heroSource) {
+async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey, nodeCacheKey, nodeType, onUsage, heroSource) {
   const controller = new AbortController();
   let timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   let res;
@@ -222,6 +235,10 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
         endpoint,
         sessionId: getSessionId(),
         ...(newsCacheKey ? { newsCacheKey } : {}),
+        // Branch-node equivalent of newsCacheKey, one level deeper — only
+        // ever set for a branch's own article (see App.jsx's loadArticle),
+        // never alongside newsCacheKey (mutually exclusive by construction).
+        ...(nodeCacheKey ? { nodeCacheKey } : {}),
         ...(nodeType ? { nodeType } : {}),
         // Which hero-page section (or freeform/spin-a-thread/shared-link)
         // led to this ROOT call — see App.jsx's startTopic. Analytics only,
@@ -370,8 +387,8 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
 // request purely for analysis — which branch types people actually choose
 // to read, so the obscurity mix (hyfaxSystemPrompt.js's OBSCURITY_LEVELS)
 // can eventually be tuned toward what resonates instead of a guess.
-export async function streamTextFromPrompt(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, nodeType, newsCacheKey) {
-  const fullText = await streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey, nodeType);
+export async function streamTextFromPrompt(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, nodeType, newsCacheKey, nodeCacheKey, onUsage) {
+  const fullText = await streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey, nodeCacheKey, nodeType, onUsage);
   return fullText.replace(/```/g, "").trim();
 }
 
@@ -407,7 +424,8 @@ export async function streamJSON(system, prompt, endpoint, onOverviewChunk, news
       if (match) onOverviewChunk(unescapeJSONStringFragment(match[1]));
     },
     newsCacheKey,
-    undefined,
+    undefined, // nodeCacheKey — root calls never use the branch-level cache
+    undefined, // nodeType
     onUsage,
     heroSource
   );
@@ -473,4 +491,43 @@ export function writeNewsArticleCache(cacheKey, article) {
     headers: proxyHeaders(),
     body: JSON.stringify({ newsArticleCacheWrite: { cacheKey, article } }),
   }).catch((e) => console.error("Hyfax: failed to write news article cache", e));
+}
+
+// Branch-node equivalent of writeNewsRootCache — see App.jsx's expandNode.
+// cacheKey is "<root's own cache key>::<this child's label>" (see
+// rabbit-hole-proxy-v2's parseNodeCacheKey); only ever called for a direct
+// child of an already-cached root, never a grandchild.
+export function writeNodeCache(cacheKey, children, usage) {
+  fetch(PROXY_URL, {
+    method: "POST",
+    headers: proxyHeaders(),
+    body: JSON.stringify({
+      nodeCacheWrite: {
+        cacheKey,
+        children,
+        ...(usage ? { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens } : {}),
+      },
+    }),
+  }).catch((e) => console.error("Hyfax: failed to write node cache", e));
+}
+
+// Branch-node equivalent of writeNewsArticleCache — see App.jsx's
+// loadArticle. Unlike writeNewsArticleCache, the underlying row may not
+// exist yet when this fires (a visitor can open a branch's article without
+// ever expanding it), so the server handler creates it here if needed —
+// which means, unlike the root article case, usage has to travel in THIS
+// same write rather than a later server-side update (nothing guarantees
+// the row exists yet for that update to find).
+export function writeNodeArticleCache(cacheKey, article, usage) {
+  fetch(PROXY_URL, {
+    method: "POST",
+    headers: proxyHeaders(),
+    body: JSON.stringify({
+      nodeArticleCacheWrite: {
+        cacheKey,
+        article,
+        ...(usage ? { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens } : {}),
+      },
+    }),
+  }).catch((e) => console.error("Hyfax: failed to write node article cache", e));
 }

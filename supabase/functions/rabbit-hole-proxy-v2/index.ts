@@ -663,9 +663,27 @@ function newsRootCacheResponse(
 }
 
 // Same synthetic-response trick as newsRootCacheResponse, but for a cached
+// branch's own children (see the nodeCacheKey/"expand" read path below) —
+// `content[].text` is a JSON blob with just `children`, matching what a
+// real "expand" call's response shape looks like from the client's own
+// callClaude() parsing (it only ever reads `data.children` for this
+// endpoint).
+function nodeChildrenCacheResponse(children: unknown, headers: Record<string, string>) {
+  const text = JSON.stringify({ children });
+  return new Response(
+    JSON.stringify({
+      content: [{ type: "text", text }],
+      usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    }),
+    { status: 200, headers: { ...headers, "Content-Type": "application/json" } }
+  );
+}
+
+// Same synthetic-response trick as newsRootCacheResponse, but for a cached
 // article — plain prose instead of a JSON blob, since streamRaw's cache-hit
 // path (src/lib/api.js) just extracts `content[].text` verbatim regardless
-// of endpoint.
+// of endpoint. Reused as-is for a branch's own cached article (nodeCacheKey)
+// — the response shape is identical either way.
 function newsArticleCacheResponse(articleText: string, headers: Record<string, string>) {
   return new Response(
     JSON.stringify({
@@ -784,6 +802,143 @@ async function handleNewsArticleCacheWrite(write: any, corsHeaders: Record<strin
   });
 }
 
+// One level deeper than the news_root_cache functions above — see
+// migration 0036_node_cache.sql. A "node" here is a direct child of an
+// already-cached root (never a grandchild — see that migration's note on
+// why this stays exactly one level deep), keyed by
+// "<root's cache_key>::<child label>".
+function parseNodeCacheKey(cacheKey: string): { rootCacheKey: string; childLabel: string } | null {
+  const idx = cacheKey.indexOf("::");
+  if (idx === -1) return null;
+  const rootCacheKey = cacheKey.slice(0, idx);
+  const childLabel = cacheKey.slice(idx + 2);
+  return rootCacheKey && childLabel ? { rootCacheKey, childLabel } : null;
+}
+
+// Anti-poisoning check shared by both node_cache write handlers below —
+// same posture as handleNewsCacheWrite's trending_topics_cache check, one
+// level deeper: a client can only ever cache a (root, child) pairing where
+// the root is itself a real cached root AND the child label is one this
+// root's own cached generation actually produced, never an arbitrary label.
+async function verifyRootChildPair(rootCacheKey: string, childLabel: string): Promise<boolean> {
+  const { data: rootRow } = await supabase
+    .from("news_root_cache")
+    .select("children")
+    .eq("cache_key", rootCacheKey)
+    .maybeSingle();
+  const rootChildren = Array.isArray(rootRow?.children) ? rootRow.children : [];
+  return rootChildren.some((c: any) => typeof c?.label === "string" && c.label === childLabel);
+}
+
+// Handles `nodeCacheWrite` — the branch-level equivalent of
+// handleNewsCacheWrite, sent by the client after it has already generated
+// (via the non-streaming "expand" endpoint) a branch's own children. Uses a
+// plain insert (cache_key is the table's primary key) rather than an
+// upsert: a genuine race between two visitors expanding the same brand-new
+// branch at once just means the loser's insert fails on the primary key
+// conflict, which is caught and swallowed below — same "first write wins,
+// no real request signing" trade-off as the root cache.
+async function handleNodeCacheWrite(write: any, corsHeaders: Record<string, string>) {
+  const cacheKey = typeof write?.cacheKey === "string" ? write.cacheKey.trim() : "";
+  const children = Array.isArray(write?.children) ? write.children : null;
+  const inputTokens = Number.isFinite(write?.inputTokens) ? write.inputTokens : null;
+  const outputTokens = Number.isFinite(write?.outputTokens) ? write.outputTokens : null;
+  const parsed = cacheKey ? parseNodeCacheKey(cacheKey) : null;
+
+  if (!parsed || !children) {
+    return new Response(JSON.stringify({ error: "invalid nodeCacheWrite payload" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    if (await verifyRootChildPair(parsed.rootCacheKey, parsed.childLabel)) {
+      const { data: existing } = await supabase.from("node_cache").select("children").eq("cache_key", cacheKey).maybeSingle();
+      if (!existing) {
+        await supabase.from("node_cache").insert({
+          cache_key: cacheKey,
+          root_cache_key: parsed.rootCacheKey,
+          child_label: parsed.childLabel,
+          children,
+          children_input_tokens: inputTokens,
+          children_output_tokens: outputTokens,
+        });
+      } else if (existing.children == null) {
+        // Row already exists (its article was cached first, independently
+        // — see handleNodeArticleCacheWrite) but children never were.
+        await supabase
+          .from("node_cache")
+          .update({ children, children_input_tokens: inputTokens, children_output_tokens: outputTokens })
+          .eq("cache_key", cacheKey)
+          .is("children", null);
+      }
+    }
+  } catch (e) {
+    // best-effort — a failed write just means the next visitor generates
+    // fresh too, never worth surfacing as an error to the client over
+    console.error("rabbit-hole-proxy: failed to write node cache", e);
+  }
+
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+// Handles `nodeArticleCacheWrite` — the branch-level equivalent of
+// handleNewsArticleCacheWrite. Unlike that function, the row here may not
+// exist yet (a visitor can open a branch's article without ever expanding
+// it further), so this creates the row itself when needed rather than
+// assuming handleNodeCacheWrite already ran first — and, since that means
+// there's no guaranteed-already-existing row for a later server-side update
+// to attach usage to, the client passes its own captured usage in THIS same
+// write (see api.js's writeNodeArticleCache), same reasoning as
+// writeNewsRootCache's usage args.
+async function handleNodeArticleCacheWrite(write: any, corsHeaders: Record<string, string>) {
+  const cacheKey = typeof write?.cacheKey === "string" ? write.cacheKey.trim() : "";
+  const article = typeof write?.article === "string" ? write.article : "";
+  const inputTokens = Number.isFinite(write?.inputTokens) ? write.inputTokens : null;
+  const outputTokens = Number.isFinite(write?.outputTokens) ? write.outputTokens : null;
+  const parsed = cacheKey ? parseNodeCacheKey(cacheKey) : null;
+
+  if (!parsed || !article) {
+    return new Response(JSON.stringify({ error: "invalid nodeArticleCacheWrite payload" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const { data: existing } = await supabase.from("node_cache").select("article").eq("cache_key", cacheKey).maybeSingle();
+    if (!existing) {
+      if (await verifyRootChildPair(parsed.rootCacheKey, parsed.childLabel)) {
+        await supabase.from("node_cache").insert({
+          cache_key: cacheKey,
+          root_cache_key: parsed.rootCacheKey,
+          child_label: parsed.childLabel,
+          article,
+          article_input_tokens: inputTokens,
+          article_output_tokens: outputTokens,
+        });
+      }
+    } else if (existing.article == null) {
+      await supabase
+        .from("node_cache")
+        .update({ article, article_input_tokens: inputTokens, article_output_tokens: outputTokens })
+        .eq("cache_key", cacheKey)
+        .is("article", null);
+    }
+  } catch (e) {
+    console.error("rabbit-hole-proxy: failed to write node article cache", e);
+  }
+
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
 serve(async (req) => {
   const corsHeaders = corsHeadersFor(req);
   if (req.method === "OPTIONS") {
@@ -802,6 +957,12 @@ serve(async (req) => {
     if (body.newsArticleCacheWrite) {
       return handleNewsArticleCacheWrite(body.newsArticleCacheWrite, corsHeaders);
     }
+    if (body.nodeCacheWrite) {
+      return handleNodeCacheWrite(body.nodeCacheWrite, corsHeaders);
+    }
+    if (body.nodeArticleCacheWrite) {
+      return handleNodeArticleCacheWrite(body.nodeArticleCacheWrite, corsHeaders);
+    }
 
     const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
     if (!apiKey) {
@@ -819,6 +980,7 @@ serve(async (req) => {
       sessionId,
       system,
       newsCacheKey,
+      nodeCacheKey,
       userAccessToken,
       nodeType,
       timeZone,
@@ -971,7 +1133,58 @@ serve(async (req) => {
       rdtCid,
     });
 
-    if (newsCacheKey && endpoint === "article") {
+    if (nodeCacheKey && endpoint === "article") {
+      // Branch-level equivalent of the newsCacheKey/"article" branch below
+      // — see migration 0036_node_cache.sql. Same billing posture: a cache
+      // hit here is billed the same as the original real generation.
+      const { data: cached, error: cacheErr } = await supabase
+        .from("node_cache")
+        .select("article, article_input_tokens, article_output_tokens")
+        .eq("cache_key", nodeCacheKey)
+        .maybeSingle();
+      if (cacheErr) {
+        console.error("rabbit-hole-proxy: node article cache lookup failed", cacheErr);
+      } else if (cached?.article) {
+        if (cached.article_input_tokens != null || cached.article_output_tokens != null) {
+          background(
+            billAndLog(
+              { input_tokens: cached.article_input_tokens ?? 0, output_tokens: cached.article_output_tokens ?? 0 },
+              logRowIdPromise,
+              userId,
+              0
+            )
+          );
+        }
+        return newsArticleCacheResponse(cached.article, responseHeaders);
+      }
+    } else if (nodeCacheKey && endpoint === "expand") {
+      // Branch-level equivalent of the newsCacheKey root branch below, for
+      // a branch's own "dig deeper" children instead of a root's. Response
+      // shape only needs `children` (see App.jsx's expandNode, which reads
+      // `data.children` and never `data.rootLabel`/`data.overview` for this
+      // endpoint) — the client's callClaude() JSON-parses this the same as
+      // any other "expand" response, unaware it came from cache.
+      const { data: cached, error: cacheErr } = await supabase
+        .from("node_cache")
+        .select("children, children_input_tokens, children_output_tokens")
+        .eq("cache_key", nodeCacheKey)
+        .maybeSingle();
+      if (cacheErr) {
+        console.error("rabbit-hole-proxy: node children cache lookup failed", cacheErr);
+      } else if (cached?.children) {
+        if (cached.children_input_tokens != null || cached.children_output_tokens != null) {
+          background(
+            billAndLog(
+              { input_tokens: cached.children_input_tokens ?? 0, output_tokens: cached.children_output_tokens ?? 0 },
+              logRowIdPromise,
+              userId,
+              0
+            )
+          );
+        }
+        return nodeChildrenCacheResponse(cached.children, responseHeaders);
+      }
+    } else if (newsCacheKey && endpoint === "article") {
       const { data: cached, error: cacheErr } = await supabase
         .from("news_root_cache")
         .select("article, article_input_tokens, article_output_tokens")

@@ -8,6 +8,8 @@ import {
   getLastTrialStatus,
   writeNewsRootCache,
   writeNewsArticleCache,
+  writeNodeCache,
+  writeNodeArticleCache,
   TrialExhaustedError,
 } from "./lib/api.js";
 import { HYFAX_SYSTEM, OBSCURITY_LEVELS, FIXED_OBSCURITY } from "./lib/hyfaxSystemPrompt.js";
@@ -102,7 +104,7 @@ function linkifyText(text, children) {
 // parses the API's server-sent-event chunks directly and calls onChunk
 // with the accumulated text so far after every delta, so the screen can
 // render it growing in real time rather than sitting on a spinner.
-async function fetchArticleTextStreaming(topicLabel, path, childLabels, onChunk, newsContext, nodeType, articleCacheKey) {
+async function fetchArticleTextStreaming(topicLabel, path, childLabels, onChunk, newsContext, nodeType, articleCacheKey, nodeCacheKey, onUsage) {
   const today = new Date().toISOString().slice(0, 10);
   const branchNote =
     childLabels && childLabels.length
@@ -130,7 +132,7 @@ Today's date is ${today}.
 Path so far: ${path.join(" → ")}
 Topic: "${topicLabel}"${newsNote}${branchNote}${openerNote}`;
 
-  return streamTextFromPrompt(HYFAX_SYSTEM, userContent, 700, 30000, "article", onChunk, nodeType, articleCacheKey);
+  return streamTextFromPrompt(HYFAX_SYSTEM, userContent, 700, 30000, "article", onChunk, nodeType, articleCacheKey, nodeCacheKey, onUsage);
 }
 
 // "Dig deeper" — this app is entertainment, not a research tool, so this is
@@ -901,10 +903,39 @@ export default function Hyfax() {
     setNodes([...nodesRef.current]);
 
     const path = pathToNode(node);
-    const existingLabels = nodesRef.current.map((n) => n.label);
+    // A direct child of an already-cached root (Trending/Today/Quote/
+    // Riddle/Starter-Question) is expanded identically for every visitor —
+    // see migration 0036_node_cache.sql. Scoped to depth 1 only (one click
+    // from the root): a grandchild's expansion depends on the specific path
+    // taken to reach it, isn't shared the way a root's own direct children
+    // are, and caching it would grow combinatorially for little benefit.
+    const root = node.depth === 1 ? nodesRef.current.find((n) => n.id === node.parentId) : null;
+    const branchCacheEligible = !!(root && root.type === "root" && root.newsContext);
+    const nodeCacheKey = branchCacheEligible ? `${root.fullTopic}::${node.label}` : undefined;
+    // Determinism requirement for a cache the WHOLE campaign shares: this
+    // exact prompt must come out the same for every visitor. `existingLabels`
+    // is normally derived from the visitor's own full exploration history
+    // (nodesRef.current), which differs session to session — using that here
+    // would make two visitors' "same" cached branch diverge depending on
+    // what else they'd already dug into. For a cache-eligible node, use only
+    // the root + its own direct children instead — a fixed set determined
+    // entirely by the (already-cached, therefore fixed) root itself.
+    const existingLabels = branchCacheEligible
+      ? [root.label, ...nodesRef.current.filter((n) => n.parentId === root.id).map((n) => n.label)]
+      : nodesRef.current.map((n) => n.label);
+    let nodeUsage = null;
 
     try {
-      const data = await callClaude(HYFAX_SYSTEM, childPrompt(node.label, path, existingLabels, node.depth + 1), "expand");
+      const data = await callClaude(
+        HYFAX_SYSTEM,
+        childPrompt(node.label, path, existingLabels, node.depth + 1),
+        "expand",
+        nodeCacheKey,
+        (usage) => {
+          nodeUsage = usage;
+        }
+      );
+      if (nodeCacheKey) writeNodeCache(nodeCacheKey, data.children, nodeUsage);
       const children = placeChildren(node, normalizeChildren(data.children));
       node.loading = false;
       node.generated = true;
@@ -949,14 +980,21 @@ export default function Hyfax() {
 
     const path = pathToNode(node);
     const childLabels = nodesRef.current.filter((n) => n.parentId === node.id).map((n) => n.label);
-    // Only the ROOT of a news/today/quote-sourced topic caches its article
-    // — same scoping as newsCacheKey itself (see startTopic), since a
-    // child's article depends on the specific path taken to reach it and
-    // isn't shared the way a hero-card root's own page is. Confirmed live
-    // this was missing entirely: every visitor who dug into the same
-    // Trending/Today/Quote root got a fresh, differently-worded article
-    // every time, duplicating real Anthropic cost for identical content.
+    // The ROOT of a news/today/quote-sourced topic caches its article — same
+    // scoping as newsCacheKey itself (see startTopic). Confirmed live this
+    // was missing entirely: every visitor who dug into the same Trending/
+    // Today/Quote root got a fresh, differently-worded article every time,
+    // duplicating real Anthropic cost for identical content.
     const articleCacheKey = node.type === "root" && node.newsContext ? node.fullTopic : undefined;
+    // One level deeper (see expandNode's branchCacheEligible/nodeCacheKey
+    // and migration 0036_node_cache.sql): a DIRECT child of that same
+    // cached root has exactly one path to it (root → this child), so its
+    // article is just as shareable as the root's own — unlike a
+    // grandchild, whose article depends on the specific further path taken
+    // to reach it and stays uncached.
+    const root = node.type !== "root" && node.depth === 1 ? nodesRef.current.find((n) => n.id === node.parentId) : null;
+    const nodeCacheKey = root && root.type === "root" && root.newsContext ? `${root.fullTopic}::${node.label}` : undefined;
+    let nodeUsage = null;
     const reveal = createPacedReveal((revealed) => {
       node.article = stripMarkdown(revealed);
       setNodes([...nodesRef.current]);
@@ -978,13 +1016,18 @@ export default function Hyfax() {
         },
         node.newsContext,
         node.type,
-        articleCacheKey
+        articleCacheKey,
+        nodeCacheKey,
+        (usage) => {
+          nodeUsage = usage;
+        }
       );
       await reveal.finish(finalText);
       node.article = stripMarkdown(finalText);
       node.articleStreaming = false;
       node.articleLoading = false;
       if (articleCacheKey) writeNewsArticleCache(articleCacheKey, finalText);
+      if (nodeCacheKey) writeNodeArticleCache(nodeCacheKey, finalText, nodeUsage);
     } catch (e) {
       console.error("Hyfax: loadArticle failed", e);
       reveal.cancel();
