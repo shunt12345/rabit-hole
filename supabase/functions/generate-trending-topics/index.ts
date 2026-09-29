@@ -424,7 +424,13 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 // observations into one sentence — a distinct failure mode (density, not
 // specificity) from the Belize one, needing its own instruction and
 // example rather than assuming the existing "2-3 details" line alone
-// would be enough to stop it.
+// would be enough to stop it. A fourth round switched the sentence itself
+// from a withheld, poetic statement ("Something without bones...") to an
+// explicit "What is...?" question — same withheld-but-solvable riddle
+// underneath, just asked outright rather than described around. See
+// App.jsx's riddle card render, which used to append "...." itself for a
+// trailing-off effect on the old statement style — that had to go too,
+// since a "?" already reads as a complete, self-terminating question.
 // Fixed vocabulary rather than free text — keeps fetchRecentRiddleCategories'
 // history actually comparable call to call (freeform labels like "sea
 // creature" vs "marine animal" wouldn't reliably match each other), and
@@ -458,29 +464,29 @@ function riddlePrompt(excludeTopics: string[], recentCategories: string[]): stri
 
 Pick a single real, genuinely interesting topic. It does NOT have to be an animal or living thing — deliberately range across ALL of these categories over time, not just the ones that come to mind first: ${RIDDLE_CATEGORIES.join(", ")}. Wide open, not tied to today's date or current events. Search to confirm every concrete detail you use about it is accurate.${excludeBlock}${categoryBlock}
 
-Now write exactly ONE SENTENCE — a riddle — that describes this topic WITHOUT ever naming it, in a specific voice: withheld and a little poetic, an inverted opening rather than a plain statement, the subject's identity never spelled out directly. One sentence only — use dashes or a semicolon to string clauses together the way the examples below do, not periods to split it into several. But it must still be SOLVABLE — anchor it with 2-3 real, concrete, verifiable details about the topic (not just abstract mood), so a reader who knows the subject can actually place it. Do not over-abstract into pure metaphor with no verifiable facts left in it — that stops being a riddle and becomes unsolvable.
+Now write exactly ONE SENTENCE — a riddle, phrased as a single question that starts with the literal words "What is" and ends with a question mark — that describes this topic WITHOUT ever naming it. One sentence, one question mark, at the very end only — use dashes or commas to string clauses together the way the examples below do, not periods (or a second "?") to split it into several. But it must still be SOLVABLE — anchor it with 2-3 real, concrete, verifiable details about the topic (not just abstract mood), so a reader who knows the subject can actually place it. Do not over-abstract into pure metaphor with no verifiable facts left in it — that stops being a riddle and becomes unsolvable.
 
 Keep those concrete details GENERAL rather than pinpoint-specific. Default to vague: "many," "several," "dozens," "centuries," "a hemisphere," "a stretch of coastline," "a continent away" instead of an exact number, a named country, a named city, or a specific date/year. Only reach for something that specific if the riddle genuinely cannot be solved without it — most of the time it can be. A named place or an exact figure tends to hand over the answer outright instead of pointing at it, which flattens the puzzle into a fact card. Vagueness on this axis is what keeps it a riddle rather than a trivia sentence with the noun blanked out.
 
 A real example that ran too specific: a riddle about a giant marine sinkhole named the exact country it's in ("off Belize") and gave near-exact measurements ("roughly a thousand feet wide and over four hundred deep") — the other details (a drowned limestone cave, an ice age, a famous diver charting it) were already plenty to solve it, so the named country and precise numbers weren't earning their place; "a stretch of tropical coastline" and "vast" would have kept the same puzzle intact without just announcing the answer's location.
 
-Separately, the 2-3 details limit above is a HARD cap, not a floor — stop as soon as you hit it. A real example that went over: "A giant that spends the better part of a decade hoarding energy underground just to throw one wild, fleeting party — unfurling in a matter of hours, warming itself to something close to body heat, and perfuming the air like rotting meat so that flies and beetles arrive expecting a carcass." (answer: corpse flower) — that's five or six separate observations stacked into one sentence (the long wait, the party, how fast it opens, the heat, the smell, the insects it fools), which reads as an inventory instead of a riddle even though every clause is accurate and even though it stayed vague on numbers/places. Keeping only two or three of those — say, the long wait, the one party, and how quickly it's over — would have hit just as hard at half the length. Once you've picked your 2-3 details, resist the urge to add "one more good one."
+Separately, the 2-3 details limit above is a HARD cap, not a floor — stop as soon as you hit it. A real example that went over: "What is the giant that spends the better part of a decade hoarding energy underground just to throw one wild, fleeting party, unfurling in a matter of hours, warming itself to something close to body heat, and perfuming the air like rotting meat so that flies and beetles arrive expecting a carcass?" (answer: corpse flower) — that's five or six separate observations stacked into one sentence (the long wait, the party, how fast it opens, the heat, the smell, the insects it fools), which reads as an inventory instead of a riddle even though every clause is accurate and even though it stayed vague on numbers/places. Keeping only two or three of those — say, the long wait, the one party, and how quickly it's over — would have hit just as hard at half the length. Once you've picked your 2-3 details, resist the urge to add "one more good one."
 
-Match this exact register AND length — three worked examples, each one single sentence:
+Match this exact register AND length — three worked examples, each one single sentence, each a question starting with "What is" and ending in exactly one "?":
 
-"Something without bones to give its shape away tastes the world through its own skin — and thinks in pieces that don't always agree with each other." (answer: octopus cognition)
+"What is the boneless thing that tastes the world through its own skin, and thinks in pieces that don't always agree with each other?" (answer: octopus cognition)
 
-"A route walked so many times it wore itself into the map — carrying plague in one direction, paper in the other, and never much caring who it belonged to." (answer: the Silk Road)
+"What is the route, walked so many times it wore itself into the map, that carried plague in one direction, paper in the other, never much caring who it belonged to?" (answer: the Silk Road)
 
-"A light with no wiring, no bulb, no plan — switched on by life itself, over and over, in the coldest, darkest places it could find." (answer: bioluminescence)
+"What is the light with no wiring, no bulb, no plan, switched on by life itself, over and over, in the coldest, darkest places it could find?" (answer: bioluminescence)
 
-Notice each one: exactly one sentence, stitched together with dashes rather than broken into several; opens with the situation, not the subject; withholds the name entirely; but still contains real, checkable specifics (no bones, plague and paper, no wiring) — that's the balance to hit. A response that runs two or three sentences instead of one is too long, even if the content is good.
+Notice each one: exactly one sentence, one question mark at the very end, clauses strung together with commas rather than broken into several sentences; opens with "What is," never the subject's name; withholds the name entirely; but still contains real, checkable specifics (no bones, plague and paper, no wiring) — that's the balance to hit. A response that runs two or three sentences instead of one, or that isn't phrased as a "What is...?" question, is wrong even if the content is good.
 
 Once you've written it, produce exactly 2 decoy topics — other real, plausible subjects that each share at least one concrete detail from your riddle (so someone recalling only part of it could wrongly guess one), but clearly don't fit ALL of the details once you consider the whole thing. Format them the same short way as the real answer (title case, 2-5 words).
 
 Produce:
 - "topic": the real answer — a short, punchy 2-5 word label (title case, no trailing punctuation)
-- "teaser": the riddle paragraph itself, written to the register above
+- "teaser": the riddle itself — the single "What is...?" question written above
 - "options": an array of exactly 2 decoy topics as described above
 - "category": exactly one of these strings, whichever actually fits your answer: ${RIDDLE_CATEGORIES.join(", ")}
 - "source_url": the URL of a real source confirming the concrete details you used in the riddle — a specific page actually about the topic, not a homepage or unrelated page

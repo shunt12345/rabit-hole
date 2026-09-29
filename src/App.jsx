@@ -1687,7 +1687,7 @@ export default function Hyfax() {
                     }}
                   >
                     <p className="rh-display italic text-lg leading-relaxed" style={{ color: "#F1E6D3" }}>
-                      {riddleTopic.teaser.replace(/\.+\s*$/, "")}....
+                      {riddleTopic.teaser}
                     </p>
                   </button>
                 </div>
