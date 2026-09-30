@@ -998,15 +998,36 @@ serve(async (req) => {
       });
     }
 
-    const { userId, funded, featureDigDeeper } = await resolveIdentity(userAccessToken);
     const clientIp = getClientIp(req);
-
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { count, error: countError } = await supabase
-      .from("rabbit_hole_request_logs")
-      .select("*", { count: "exact", head: true })
-      .eq("session_id", sessionId || "unknown")
-      .gte("created_at", since);
+
+    // Preflight round 1: identity plus both rate-limit counts, run
+    // concurrently — none of the three depends on either of the others'
+    // result. This used to be three sequential awaits (identity, THEN
+    // session count, THEN IP count), each a real Supabase round-trip added
+    // to every single request's time-to-first-byte before generation even
+    // starts — real, felt latency, especially galling on a cache hit that's
+    // otherwise near-instant. Same checks, same precedence (session limit
+    // still wins over IP limit if both would fire), just fetched together
+    // instead of one after another.
+    const [identity, sessionCountResult, ipCountResult] = await Promise.all([
+      resolveIdentity(userAccessToken),
+      supabase
+        .from("rabbit_hole_request_logs")
+        .select("*", { count: "exact", head: true })
+        .eq("session_id", sessionId || "unknown")
+        .gte("created_at", since),
+      clientIp
+        ? supabase
+            .from("rabbit_hole_request_logs")
+            .select("*", { count: "exact", head: true })
+            .eq("ip_address", clientIp)
+            .gte("created_at", since)
+        : Promise.resolve({ count: null as number | null, error: null as Error | null }),
+    ]);
+    const { userId, funded, featureDigDeeper } = identity;
+    const { count, error: countError } = sessionCountResult;
+    const { count: ipCount, error: ipCountError } = ipCountResult;
 
     if (countError) {
       // fail open — a logging/count hiccup shouldn't block a real request
@@ -1026,11 +1047,6 @@ serve(async (req) => {
     // which would let one blocked bucket lock out everyone else with a
     // missing header.
     if (clientIp) {
-      const { count: ipCount, error: ipCountError } = await supabase
-        .from("rabbit_hole_request_logs")
-        .select("*", { count: "exact", head: true })
-        .eq("ip_address", clientIp)
-        .gte("created_at", since);
       if (ipCountError) {
         console.error("rabbit-hole-proxy: IP usage count check failed, allowing request", ipCountError);
       } else if ((ipCount ?? 0) >= DAILY_REQUEST_LIMIT_PER_IP) {
@@ -1041,13 +1057,27 @@ serve(async (req) => {
       }
     }
 
+    // Preflight round 2: the global spend check and the free-trial search
+    // count (see the top-of-file note — computed for every request, not
+    // just gated ones, so every response can carry real trial-status
+    // headers) both need round 1's `funded`/`userId`, but not each other's
+    // result, so these two also run concurrently rather than sequentially
+    // — the same "batch what's independent" idea one level later, once
+    // identity is actually known.
+    const [spendResult, searchCount] = await Promise.all([
+      !funded
+        ? supabase.rpc("get_recent_spend_usd", { since })
+        : Promise.resolve({ data: null as number | null, error: null as Error | null }),
+      countSearches(userId, sessionId, effectiveTimeZone),
+    ]);
+
     // The real backstop — see the top-of-file note. Total measured spend
     // across ALL free/unfunded traffic, not one session or IP's request
     // count, so many distinct abusers each staying under their own ceiling
     // still can't add up to unbounded real cost. Funded callers are exempt:
     // their own balance already bounds what they can spend.
     if (!funded) {
-      const { data: recentSpend, error: spendError } = await supabase.rpc("get_recent_spend_usd", { since });
+      const { data: recentSpend, error: spendError } = spendResult;
       if (spendError) {
         // fail open — same posture as every other check here
         console.error("rabbit-hole-proxy: global spend check failed, allowing request", spendError);
@@ -1062,12 +1092,6 @@ serve(async (req) => {
       }
     }
 
-    // Free-trial search count — see the top-of-file note. Computed for
-    // every request (not just gated ones) so every response can carry real
-    // trial-status headers, letting the client proactively hide/disable
-    // News/Today/Dig Deeper once the trial's used up instead of only
-    // finding out from a failed request.
-    const searchCount = await countSearches(userId, sessionId, effectiveTimeZone);
     // A root topic's OWN auto-loaded "read more" article is exempt from the
     // gate, same as root itself — otherwise a brand new "Dig In" search
     // after the trial's exhausted would generate its title/overview fine
