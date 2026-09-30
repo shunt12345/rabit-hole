@@ -240,19 +240,20 @@ const QUOTE_FIELD = "Quote Of The Day";
 // treatment (the guess UI), not the plain topic+teaser list layout.
 const RIDDLE_FIELD = "Riddle";
 
-// One-tap starter chips above the Dig In input — matched EXACTLY (topic
-// string) against the seed rows in migration 0035, since that's what lets
-// them hit the precomputed news_root_cache entry instead of a fresh ~9s
-// generation. "why do cats purr" is also the exact question the Reddit ad
-// prefills (see lib/attribution.js/the Reddit entry-flow effect) — the
-// same cached answer either way.
+// No longer rendered as hero chips (removed in favor of "Spin a thread"
+// taking that spot), but still the precomputed-cache lookup table for the
+// Reddit ad landing flow's ?q= override (see the Reddit entry-flow effect
+// below) — matched EXACTLY (topic string) against the seed rows in
+// migration 0035, since that's what lets a matching ?q= hit the
+// precomputed news_root_cache entry instead of a fresh ~9s generation.
+// "why do cats purr" is also the exact question the Reddit ad prefills by
+// default — the same cached answer either way.
 const STARTER_QUESTIONS = [
   { topic: "why do cats purr", teaser: "A low hum that might double as a bone-healing frequency." },
   { topic: "why do we dream", teaser: "Your brain runs a nightly simulation nobody fully understands yet." },
   { topic: "why is the sky blue", teaser: "Sunlight gets ambushed by the air itself before it reaches your eyes." },
   { topic: "why do we get goosebumps", teaser: "A shiver left over from fur you stopped growing thousands of years ago." },
 ];
-const STARTER_QUESTION_FIELD = "Starter Question";
 
 // How old a row can be before it's treated as stale rather than shown as
 // today's pick — generous past the ~24h cron cadence (36h) to tolerate
@@ -1408,24 +1409,33 @@ export default function Hyfax() {
               as far as it goes.
             </h2>
 
-            {/* One-tap starter questions — precomputed (see migration 0035
-                + the seed script) so tapping one renders instantly instead
-                of waiting out a fresh generation, same as clicking a
-                Trending/Today/Quote/Riddle card. Hidden once a real Dig In
-                is in flight, same as every other hero-page entry point. */}
+            {/* "Spin a thread" — a free, instant reroll through a fixed
+                curated list (see lib/surpriseTopics.js), populating the
+                input below rather than a separate lookalike box. Nothing
+                committed until "Dig In" is actually tapped, so the reader
+                can skip past as many boring picks as they want for free;
+                only the one they accept ever costs a real generation or
+                counts as a search. Takes the one-tap starter chips' old
+                spot above the input — it's the same "instant, no-typing
+                way in" role those played — and takes their gold accent
+                treatment too, so it reads as the inviting entry point;
+                "Dig In" (still the actual commit action, whether the input
+                holds a spun pick or something typed) drops to the plainer
+                outline instead. Hidden once a real Dig In is in flight,
+                same as every other hero-page entry point. */}
             {!rootLoading && (
-              <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
-                {STARTER_QUESTIONS.map((q) => (
-                  <button
-                    key={q.topic}
-                    type="button"
-                    onClick={() => startTopic(q.topic, q.teaser, STARTER_QUESTION_FIELD)}
-                    className="rh-chip rh-body text-xs rounded-full px-3 py-1.5 border transition-colors"
-                    style={{ borderColor: "#5A4630", color: "#C9B896", backgroundColor: "transparent" }}
-                  >
-                    {q.topic}
-                  </button>
-                ))}
+              <div className="flex justify-center mb-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInputVal(nextSurpriseTopic());
+                    setIsSurprise(true);
+                  }}
+                  className="rh-body flex items-center gap-1.5 text-sm font-medium rounded-full px-5 py-3 transition-colors rh-btn-accent"
+                  style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
+                >
+                  <Shuffle size={15} /> {isSurprise ? "Spin again" : "Spin a thread"}
+                </button>
               </div>
             )}
 
@@ -1447,51 +1457,23 @@ export default function Hyfax() {
                 className="rh-body flex-1 min-w-[180px] border outline-none rh-placeholder rh-input text-sm rounded-full px-5 py-3 transition-colors"
                 style={{ backgroundColor: "#332617", borderColor: "#5A4630", color: "#F1E6D3" }}
               />
-              <div className="flex items-center gap-2 shrink-0">
-                {/* "Spin a thread" — a free, instant reroll through a fixed
-                    curated list (see lib/surpriseTopics.js), populating the
-                    SAME input above rather than a separate lookalike box.
-                    Nothing committed until "Dig In" is actually tapped, so
-                    the reader can skip past as many boring picks as they
-                    want for free; only the one they accept ever costs a
-                    real generation or counts as a search. Given equal
-                    visual footing with Dig In (same height, right next to
-                    it) since it's a real second way in, not an afterthought
-                    — outlined rather than filled to stay clearly secondary
-                    to the gold Dig In commit action. Hidden once a real Dig
-                    In is in flight, same as every other hero-page entry
-                    point. */}
-                {!rootLoading && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setInputVal(nextSurpriseTopic());
-                      setIsSurprise(true);
-                    }}
-                    className="rh-body flex items-center gap-1.5 text-sm font-medium rounded-full px-4 py-3 border transition-colors rh-btn-outline"
-                    style={{ backgroundColor: "transparent", borderColor: "#5A4630", color: "#C9B896" }}
-                  >
-                    <Shuffle size={15} /> {isSurprise ? "Spin again" : "Spin a thread"}
-                  </button>
+              <button
+                type="button"
+                onClick={handleStartClick}
+                disabled={rootLoading}
+                className="rh-body flex items-center gap-1.5 disabled:cursor-not-allowed text-sm font-medium rounded-full px-5 py-3 border transition-colors shrink-0 rh-btn-outline"
+                style={{ backgroundColor: "transparent", borderColor: "#5A4630", color: "#C9B896" }}
+              >
+                {rootLoading ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" /> Digging in…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={15} /> Dig in
+                  </>
                 )}
-                <button
-                  type="button"
-                  onClick={handleStartClick}
-                  disabled={rootLoading}
-                  className="rh-body flex items-center gap-1.5 disabled:cursor-not-allowed text-sm font-medium rounded-full px-5 py-3 transition-colors shrink-0 rh-btn-accent"
-                  style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
-                >
-                  {rootLoading ? (
-                    <>
-                      <Loader2 size={15} className="animate-spin" /> Digging in…
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles size={15} /> Dig in
-                    </>
-                  )}
-                </button>
-              </div>
+              </button>
             </div>
 
             <UsageGauge profile={profile} lifetimeFunded={lifetimeFunded} />
