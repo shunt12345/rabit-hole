@@ -700,9 +700,23 @@ async function generateForField(
 // of input tokens — negligible next to what a repeat would cost in trust.
 const RECENT_EXCLUDE_COUNT = 365;
 
-async function fetchRecentTopicsByField(): Promise<Record<string, string[]>> {
+// `null` for a field means its exclude-history fetch itself failed — a
+// DISTINCT state from a genuinely empty history (a brand-new field with no
+// past rows yet, which is `[]`). This distinction matters: confirmed live
+// that "Avocado" repeated as Word Of The Day again (Sept 16 to Oct 2, only
+// 16 days — nowhere near exhausting the 365-day window or this function's
+// own per-field-query fix above) despite the exact-match guard in
+// parseFieldResult below existing specifically to catch this. The only
+// realistic way that guard lets an exact repeat through is if it was
+// checking against an empty or partial list because THIS query failed for
+// that field on that run — the previous code silently fell back to `[]`
+// on any error, which "fails open" (generates anyway) exactly when the
+// duplicate-prevention safety net most needs real data to check against.
+// The caller below now treats `null` as "skip generating this field this
+// run" instead.
+async function fetchRecentTopicsByField(): Promise<Record<string, string[] | null>> {
   const entries = await Promise.all(
-    FIELDS.map(async (field): Promise<[string, string[]]> => {
+    FIELDS.map(async (field): Promise<[string, string[] | null]> => {
       const { data, error } = await supabase
         .from("trending_topics_cache")
         .select("topic")
@@ -711,7 +725,7 @@ async function fetchRecentTopicsByField(): Promise<Record<string, string[]>> {
         .limit(RECENT_EXCLUDE_COUNT + 30);
       if (error || !data) {
         console.error(`generate-trending-topics: failed to fetch recent topics for field "${field}"`, error);
-        return [field, []];
+        return [field, null];
       }
       const unique: string[] = [];
       for (const row of data) {
@@ -855,8 +869,15 @@ serve(async (req) => {
   let justPicked: string[] = [];
   for (const field of sequentialFields) {
     orderedFields.push(field);
+    // A failed exclude-history fetch (see fetchRecentTopicsByField) means
+    // there's no real duplicate-prevention data to check this pick
+    // against — skip generating rather than proceed unprotected.
+    if (recentByField[field] === null) {
+      results.push({ status: "rejected", reason: new Error(`Skipped "${field}": failed to fetch its exclude history`) });
+      continue;
+    }
     try {
-      const value = await generateForField(apiKey, field, [...(recentByField[field] || []), ...justPicked]);
+      const value = await generateForField(apiKey, field, [...recentByField[field]!, ...justPicked]);
       results.push({ status: "fulfilled", value });
       justPicked = [...justPicked, value.topic];
     } catch (reason) {
@@ -865,16 +886,19 @@ serve(async (req) => {
   }
 
   const otherResults = await Promise.allSettled(
-    otherFields.map((field) =>
-      generateForField(
+    otherFields.map((field) => {
+      if (recentByField[field] === null) {
+        return Promise.reject(new Error(`Skipped "${field}": failed to fetch its exclude history`));
+      }
+      return generateForField(
         apiKey,
         field,
-        recentByField[field] || [],
+        recentByField[field]!,
         field === RIDDLE_FIELD ? recentRiddleCategories : undefined,
         field === QUOTE_FIELD ? recentQuoteCategories : undefined,
         field === "Word Of The Day" ? recentWordTeasers : undefined
-      )
-    )
+      );
+    })
   );
   orderedFields.push(...otherFields);
   results.push(...otherResults);
