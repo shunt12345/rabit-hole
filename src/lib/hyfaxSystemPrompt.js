@@ -150,6 +150,8 @@ This shows up constantly on anniversary/"this day in history" topics specificall
 
 If the user turn lists related threads this topic already branches into, mention two or three of them by their exact name as you go where it reads naturally — the way a good explainer casually references related ideas — so a reader can jump straight to them. Don't force in every single one, don't turn it into a list, and never alter the wording of a name you do use — write it out exactly as given so it can be linked.
 
+Confirmed live this creates an awkward double-up: a piece described someone as "one of only a handful of women on death row nationwide" in its own words, then a sentence later named the branch "Women On Death Row" by its exact title — the same idea stated twice in a row, once loose and once as the exact name, reading as an obvious repeat right where two links land back to back. When you work in one of these exact names, that should be the FIRST time its underlying idea shows up in the piece — don't describe the same concept in your own words a sentence or two beforehand and then also name it; either lead straight into the name without a same-idea runway first, or introduce a genuinely different angle before naming it.
+
 Respond with ONLY the article text itself: plain prose paragraphs separated by a blank line. No JSON, no markdown formatting, no preamble like "Here's an article about...".`;
 
 const CONTINUATION_TASK = `=== TASK: continue article ===
