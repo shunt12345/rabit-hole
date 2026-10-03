@@ -209,9 +209,9 @@ function nextId() {
 
 // Real live topics now — see supabase/functions/generate-trending-topics.
 // A scheduled job (pg_cron, twice daily) does one Claude web-search call per
-// field — 2 mainstream-trending picks + 1 offbeat "wildcard" one, plus 3
-// date-anchored/evergreen fields ("National Day", "This Day In History",
-// "Word Of The Day") — and caches each result in trending_topics_cache;
+// field — 2 mainstream-trending picks + 1 offbeat "wildcard" one, plus
+// date-anchored/evergreen fields ("This Day In History", "Word Of The
+// Day") — and caches each result in trending_topics_cache;
 // this just reads a batch of recent rows with the anon key. No live search
 // happens on the client or per page load. NEWS_FIELDS / SPECIAL_FIELDS
 // below pick the latest row per named field out of that batch, so a field
@@ -226,7 +226,7 @@ const NEWS_FIELDS = ["Trending 1", "Trending 2", "Trending Wildcard"];
 // "Trending" badge on screen; a field with no entry here just falls back
 // to showing its raw key.
 const NEWS_FIELD_LABELS = { "Trending 1": "Trending", "Trending 2": "Trending", "Trending Wildcard": "Wildcard" };
-const SPECIAL_FIELDS = ["National Day", "This Day In History", "Word Of The Day"];
+const SPECIAL_FIELDS = ["This Day In History", "Word Of The Day"];
 // Same source table/cron cadence as SPECIAL_FIELDS (see promptForField in
 // generate-trending-topics), but rendered as its own dedicated section
 // above "Trending" instead of grouped into "Today" — deliberately kept OUT
@@ -333,7 +333,7 @@ export default function Hyfax() {
   // Which "Trending" card was clicked, so only that one highlights
   // instead of all three dimming identically once rootLoading flips on.
   const [selectedNewsIdx, setSelectedNewsIdx] = useState(null);
-  // Same idea, for the separate "National Day" / "This Day In History" pair.
+  // Same idea, for the "Today" list (This Day In History / Word Of The Day).
   const [selectedTodayIdx, setSelectedTodayIdx] = useState(null);
   // Same idea, for the single Quote Of The Day card — a plain boolean since
   // there's only ever one of these on screen, unlike the indexed lists above.
@@ -1579,8 +1579,8 @@ export default function Hyfax() {
               </div>
             )}
 
-            {/* "Today" — National Day + This Day In History + Word Of The
-                Day, same source table and card treatment as "Trending"
+            {/* "Today" — This Day In History + Word Of The Day, same
+                source table and card treatment as "Trending"
                 but date-anchored/evergreen rather than searched-for-recency.
                 See promptForField in supabase/functions/generate-trending-topics.
                 Same funded-only gate as "Trending" below. */}

@@ -7,10 +7,11 @@
 // mainstream picks + one offbeat wildcard — see TRENDING_MAINSTREAM_FIELDS/
 // TRENDING_WILDCARD_FIELD below; this replaced the original fixed World
 // News/Science/Technology beats) twice a day with a plain `{}` body; a
-// second runs once nightly with `{"fields": ["National Day", "This Day In
-// History", "Word Of The Day"]}` — those three only change once a day (or,
-// for Word Of The Day, aren't tied to the date at all), so there's no
-// reason to re-run them on the trending cadence too. Uses Claude's
+// second runs once nightly with `{"fields": SPECIAL_FIELDS}` (This Day In
+// History, Word Of The Day, Quote Of The Day, Riddle) — those only change
+// once a day (or, for Word Of The Day/Quote Of The Day/Riddle, aren't tied
+// to the date at all), so there's no reason to re-run them on the trending
+// cadence too. Uses Claude's
 // web_search server tool with the same ANTHROPIC_API_KEY already used by
 // rabbit-hole-proxy, so no new vendor is needed (unlike the dormant
 // SerpApi-based trending-topics function this intentionally does not
@@ -55,24 +56,18 @@ const NEWS_FIELDS = [...TRENDING_MAINSTREAM_FIELDS, TRENDING_WILDCARD_FIELD];
 // Date-anchored, not news-search — same card treatment and cache table as
 // the news fields, but built from a different prompt (see promptForField)
 // since "recent development" doesn't apply to any of these. "Word Of The
-// Day" isn't actually tied to today's specific date the way the other two
-// are (a word doesn't have a calendar date) — it's here because it shares
-// their real mechanic: one nightly pick, no live-search "recent story"
-// framing, excludeTopics keeps it from repeating.
-const SPECIAL_FIELDS = ["National Day", "This Day In History", "Word Of The Day", "Quote Of The Day"];
+// Day" isn't actually tied to today's specific date the way "This Day In
+// History" is (a word doesn't have a calendar date) — it's here because it
+// shares the real mechanic: one nightly pick, no live-search "recent
+// story" framing, excludeTopics keeps it from repeating. "National Day"
+// used to run alongside these too (removed — redundant with This Day In
+// History, both drawing from the same "what's notable about this date"
+// well).
+const SPECIAL_FIELDS = ["This Day In History", "Word Of The Day", "Quote Of The Day"];
 // Its own constant (like RIDDLE_FIELD below) purely so the category-variety
 // mechanism added for it (QUOTE_CATEGORIES, fetchRecentQuoteCategories) can
 // reference the field name without a string literal scattered everywhere.
 const QUOTE_FIELD = "Quote Of The Day";
-// National Day and This Day In History are both anchored to the SAME
-// calendar date, and confirmed live that's enough to converge them on the
-// exact same real-world fact — September 19th's most famous anecdote
-// (Talk Like a Pirate Day's origin story) got picked as both the "day"
-// AND the "history" entry the same run, reading as one story told twice.
-// Runs sequentially with This Day In History getting National Day's real
-// pick as an extra exclusion (see DATE_ANCHORED_SEQUENTIAL_FIELDS below),
-// same fix already proven for Trending 1/2 converging on one headline.
-const DATE_ANCHORED_SEQUENTIAL_FIELDS = ["National Day", "This Day In History"];
 // "Reverse Hyfax" — a withheld-register riddle paragraph describing a real
 // topic without naming it, plus 2 decoy topics for a multiple-choice guess
 // (see riddlePrompt). Kept as its own field name rather than folded into
@@ -255,27 +250,6 @@ Once you've found a real story, produce:
 - "topic": a short, punchy 2-5 word label suitable as a one-tap starting point for someone exploring the topic (title case, no trailing punctuation) — name the current event/development, not just the subject's name
 - "teaser": one enticing sentence (max 20 words) describing the specific development, written to make someone curious to click it
 - "source_url": the URL of the real source you found via search, supporting the story — must be a specific page that actually discusses THIS exact story, not a homepage, an unrelated video, or a generic live-updates/liveblog page that merely happens to be from a relevant outlet
-
-${SOURCE_URL_CHECK}
-
-Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
-{"topic": "...", "teaser": "...", "source_url": "..."}`;
-}
-
-function nationalDayPrompt(excludeTopics: string[]): string {
-  const today = new Date();
-  const monthDay = today.toLocaleDateString("en-US", { month: "long", day: "numeric" });
-  const excludeBlock = excludeTopics.length
-    ? `\n\nAlready shown recently — pick a different one this time, not a repeat of any of these: ${excludeTopics.join("; ")}.`
-    : "";
-  return `Today's date is ${today.toISOString().slice(0, 10)} (${monthDay}). You have live web search — use it now.
-
-Search for a real, verifiable "National ___ Day" (or similar unofficial U.S. observance) that falls specifically on ${monthDay} — these repeat every year on the same month and day regardless of which year you find it listed under. If more than one observance falls on this date, pick whichever is genuinely more fun or interesting, not the most obscure option just to be different.${excludeBlock}
-
-Once you've confirmed a real one via search, produce:
-- "topic": the exact name of the day, e.g. "National Coffee Day" (title case, no trailing punctuation, no year)
-- "teaser": one enticing sentence (max 20 words) that makes someone curious to click and learn about it
-- "source_url": the URL of a real source confirming this observance falls on this date — a specific page actually about it, not a homepage or unrelated page
 
 ${SOURCE_URL_CHECK}
 
@@ -512,7 +486,6 @@ function promptForField(
   recentQuoteCategories: string[] = [],
   recentWordTeasers: { topic: string; teaser: string }[] = []
 ): string {
-  if (field === "National Day") return nationalDayPrompt(excludeTopics);
   if (field === "This Day In History") return thisDayInHistoryPrompt(excludeTopics);
   if (field === "Word Of The Day") return wordOfTheDayPrompt(excludeTopics, recentWordTeasers);
   if (field === QUOTE_FIELD) return quoteOfTheDayPrompt(excludeTopics, recentQuoteCategories);
@@ -685,8 +658,8 @@ async function generateForField(
 //
 // Queried ONE FIELD AT A TIME rather than a single globally-limited query.
 // A shared `.limit(60)` across all 7 fields looked fine but actually starved
-// the once-daily fields (National Day, This Day In History, Word Of The Day,
-// Quote Of The Day): the 3 news fields alone contribute 6 rows/day, so the
+// the once-daily fields (This Day In History, Word Of The Day, Quote Of
+// The Day): the 3 news fields alone contribute 6 rows/day, so the
 // 60-row window only reached back ~6 days, and any extra invocation that day
 // (a manual test run, a retry) ate into that budget too. Confirmed live —
 // "Avocado" as Word Of The Day repeated after only 8 days because the 8th
@@ -698,9 +671,9 @@ async function generateForField(
 // once/day) rather than the original 8 — Word Of The Day / Quote Of The Day
 // / Trending all draw from an effectively unlimited pool, so a short memory
 // meant a daily visitor would see the same pick resurface within weeks. A
-// full year also specifically covers National Day / This Day In History,
-// which are anchored to the real calendar date: their only realistic repeat
-// risk is the SAME date rolling back around next year, which a 30-day
+// full year also specifically covers This Day In History, which is
+// anchored to the real calendar date: its only realistic repeat risk is
+// the SAME date rolling back around next year, which a 30-day
 // window couldn't guard against at all. The query limit is padded above
 // this count to still land on 365 uniques even if a field got more than one
 // row on the same calendar day (a manual test run, a retry). The list is
@@ -858,16 +831,14 @@ serve(async (req) => {
   // framing keeps them apart. Costs a few extra seconds of wall time,
   // irrelevant for a once-daily background cron job.
   //
-  // National Day / This Day In History join the same sequential-plus-
-  // cross-exclusion treatment for the identical reason — confirmed live
-  // they converged on the exact same real-world fact (Talk Like a Pirate
-  // Day's origin, as both the "day" and the "history" pick) since both are
-  // anchored to the same calendar date and neither knew what the other had
-  // already found. TRENDING_MAINSTREAM_FIELDS and DATE_ANCHORED_SEQUENTIAL_
-  // FIELDS never actually co-occur in the same run (separate cron jobs
-  // request NEWS_FIELDS vs SPECIAL_FIELDS), so sharing one `justPicked`
-  // list across both groups is harmless either way.
-  const SEQUENTIAL_FIELDS = [...TRENDING_MAINSTREAM_FIELDS, ...DATE_ANCHORED_SEQUENTIAL_FIELDS];
+  // This used to also cover National Day + This Day In History, which
+  // converged on the same calendar-anchored fact often enough (confirmed
+  // live: Talk Like a Pirate Day's origin got picked as both the "day" and
+  // the "history" entry one run) to need the identical sequential-plus-
+  // cross-exclusion treatment. National Day is gone now (redundant with
+  // This Day In History), so that pairing problem no longer exists —
+  // This Day In History runs through the plain parallel path below instead.
+  const SEQUENTIAL_FIELDS = [...TRENDING_MAINSTREAM_FIELDS];
   const sequentialFields = fieldsToRun.filter((f) => SEQUENTIAL_FIELDS.includes(f));
   const otherFields = fieldsToRun.filter((f) => !SEQUENTIAL_FIELDS.includes(f));
 
