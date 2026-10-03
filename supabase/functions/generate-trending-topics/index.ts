@@ -133,9 +133,19 @@ const TRUSTED_MAINSTREAM_DOMAINS = [
 // alongside it, or every cost computed here keeps using the old rate.
 const INPUT_PRICE_PER_M = Number(Deno.env.get("SONNET_INPUT_PRICE_PER_M") ?? "2.00");
 const OUTPUT_PRICE_PER_M = Number(Deno.env.get("SONNET_OUTPUT_PRICE_PER_M") ?? "10.00");
-// How long a batch stays around before cleanup — just tidiness, not a
-// correctness requirement (the app only ever reads the latest batch_date).
-const RETENTION_DAYS = 14;
+// How long a batch stays around before cleanup. This used to be "just
+// tidiness" when duplicate-prevention only looked back a few days, but
+// RECENT_EXCLUDE_COUNT below now needs a full year of real rows to do its
+// job — a 14-day retention was silently deleting that history out from
+// under it. Confirmed live: the whole table's earliest row was always
+// exactly 14 days before "today," and both "Avocado" and "Clue" repeated
+// as Word Of The Day at gaps (8 and 16 days) comfortably past that cutoff
+// — not because the exclude-history fetch failed (it succeeded every
+// time), but because the prior occurrence had already been deleted by
+// this cleanup before the next run could see it. Retention now exceeds
+// RECENT_EXCLUDE_COUNT's 365-day window with margin, so the window is
+// always the real constraint, not this cleanup.
+const RETENTION_DAYS = 400;
 
 const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
