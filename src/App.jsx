@@ -246,8 +246,13 @@ const RIDDLE_FIELD = "Riddle";
 // below) — matched EXACTLY (topic string) against the seed rows in
 // migration 0035, since that's what lets a matching ?q= hit the
 // precomputed news_root_cache entry instead of a fresh ~9s generation.
-// "why do cats purr" is also the exact question the Reddit ad prefills by
-// default — the same cached answer either way.
+// The Reddit ad's own default landing topic ("why does bread go stale" as
+// of migration 0039) is intentionally NOT one of these — this array is
+// specifically the home-screen chip set, a separate surface from the
+// Reddit campaign's pinned landing. The Reddit flow below still hits the
+// same news_root_cache precompute either way (any non-empty newsContext
+// is enough to trigger that cache-key lookup), it just doesn't get its
+// teaser from this list.
 const STARTER_QUESTIONS = [
   { topic: "why do cats purr", teaser: "A low hum that might double as a bone-healing frequency." },
   { topic: "why do we dream", teaser: "Your brain runs a nightly simulation nobody fully understands yet." },
@@ -806,16 +811,17 @@ export default function Hyfax() {
   // question the ad shows someone typing gets submitted for them,
   // immediately, no tap required, landing straight on that topic's page
   // (the same "pendingLabel" shell/streaming-in-place every normal topic
-  // transition already uses — no separate loading UI). Defaults to "why do
-  // cats purr" (the ad's own example) but honors ?q= so a future ad
-  // campaign can point at a different starter question without a code
-  // change. Only ever fires once, and only if nothing's already loaded
-  // (matches the ?topic= effect's own guard above).
+  // transition already uses — no separate loading UI). Defaults to "why
+  // does bread go stale" (the current campaign's own example — see
+  // migration 0039) but honors ?q= so a future ad campaign can point at a
+  // different starter question without a code change. Only ever fires
+  // once, and only if nothing's already loaded (matches the ?topic=
+  // effect's own guard above).
   useEffect(() => {
     if (!isRedditVisit() || nodesRef.current.length > 0) return;
     try {
       const params = new URLSearchParams(window.location.search);
-      const q = (params.get("q") || "why do cats purr").trim();
+      const q = (params.get("q") || "why does bread go stale").trim();
       if (!q) return;
       // A matching precomputed starter question (see migration 0035 + the
       // seed script) gets its real cached teaser as newsContext, so this
@@ -1983,8 +1989,9 @@ export default function Hyfax() {
                               "dig deeper" instead of repeating this same
                               slot twice.
 
-                              The Reddit ad campaign's "why do cats purr"
-                              landing pins this specific ad instead of
+                              The Reddit ad campaign's landing topic (see
+                              migration 0039, currently "why does bread go
+                              stale") pins this specific ad instead of
                               leaving it to rotation — a first-time visitor
                               from that campaign should see copy picked for
                               them, not whatever the seeded pick happens to
@@ -1993,7 +2000,7 @@ export default function Hyfax() {
                           {!funded && !selected.articleStreaming && i === 0 && arr.length > 1 && (
                             <AdCard
                               ad={
-                                selected.type === "root" && selected.fullTopic === "why do cats purr"
+                                selected.type === "root" && selected.fullTopic === "why does bread go stale"
                                   ? getHouseAdById("what-are-you-looking-for")
                                   : pickHouseAd(selected.id, adStage)
                               }
