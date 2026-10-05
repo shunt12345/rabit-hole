@@ -218,7 +218,7 @@ function nextId() {
 // that's been renamed or retired (like the old "World News"/"Science"/
 // "Technology" beats this replaced) just stops rendering on its own
 // instead of lingering until its rows age out.
-const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,options,generated_at&order=generated_at.desc,id.desc&limit=20`;
+const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,options,generated_at&order=generated_at.desc,id.desc&limit=24`;
 const NEWS_FIELDS = ["Trending 1", "Trending 2", "Trending Wildcard"];
 // What each internal field key actually displays as — kept separate from
 // the field key itself so latestByField (below) can still tell the two
@@ -239,6 +239,15 @@ const QUOTE_FIELD = "Quote Of The Day";
 // that list for the same reason QUOTE_FIELD is: it needs its own card
 // treatment (the guess UI), not the plain topic+teaser list layout.
 const RIDDLE_FIELD = "Riddle";
+// Reframes something by shifting scale (zoom into the microscopic/
+// molecular, or out to the planetary/cosmic) rather than searching for
+// what's currently interesting — same source table/cadence as
+// SPECIAL_FIELDS, but kept out of that list for the same reason
+// QUOTE_FIELD/RIDDLE_FIELD are: its own dedicated card, placed right after
+// "Today" rather than grouped into that list (see
+// supabase/functions/generate-trending-topics' perspectivePrompt/
+// nextPerspectiveFocus for the Human/Nature/Space rotation this reads).
+const PERSPECTIVE_FIELD = "Perspective";
 
 // No longer rendered as hero chips (removed in favor of "Spin a thread"
 // taking that spot), but still the precomputed-cache lookup table for the
@@ -343,6 +352,8 @@ export default function Hyfax() {
   // Same idea, for the single Quote Of The Day card — a plain boolean since
   // there's only ever one of these on screen, unlike the indexed lists above.
   const [selectedQuote, setSelectedQuote] = useState(false);
+  // Same idea, for the single Perspective card.
+  const [selectedPerspective, setSelectedPerspective] = useState(false);
   // Riddle card: which decoy(s) the reader has already guessed wrong, so
   // that option can grey out and stay wrong instead of being re-clickable
   // (not a scored quiz — just stops a reader from immediately re-tapping
@@ -632,6 +643,7 @@ export default function Hyfax() {
       setSelectedNewsIdx(null);
       setSelectedTodayIdx(null);
       setSelectedQuote(false);
+      setSelectedPerspective(false);
       startTopic(inputVal, undefined, isSurprise ? "spin_a_thread" : "freeform");
     } catch (syncErr) {
       console.error("Hyfax: synchronous error on click", syncErr);
@@ -732,6 +744,7 @@ export default function Hyfax() {
       setSelectedNewsIdx(null);
       setSelectedTodayIdx(null);
       setSelectedQuote(false);
+      setSelectedPerspective(false);
       setRootError(e.message || "Something went wrong. Try again.");
     } finally {
       setRootLoading(false);
@@ -1227,6 +1240,7 @@ export default function Hyfax() {
   const todayTopics = latestByField(trendingTopics, SPECIAL_FIELDS);
   const quoteTopic = latestByField(trendingTopics, [QUOTE_FIELD])[0] || null;
   const riddleTopic = latestByField(trendingTopics, [RIDDLE_FIELD])[0] || null;
+  const perspectiveTopic = latestByField(trendingTopics, [PERSPECTIVE_FIELD])[0] || null;
   // Shuffled once per riddle (not per render) so the answer isn't always
   // in the same slot but also doesn't jump around while someone's staring
   // at it deciding.
@@ -1563,6 +1577,7 @@ export default function Hyfax() {
                       setSelectedQuote(true);
                       setSelectedNewsIdx(null);
                       setSelectedTodayIdx(null);
+                      setSelectedPerspective(false);
                       startTopic(quoteTopic.topic, quoteTopic.teaser, QUOTE_FIELD);
                     }}
                     disabled={rootLoading}
@@ -1608,6 +1623,7 @@ export default function Hyfax() {
                           setSelectedTodayIdx(i);
                           setSelectedNewsIdx(null);
                           setSelectedQuote(false);
+                          setSelectedPerspective(false);
                           startTopic(t.topic, t.teaser, t.field);
                         }}
                         disabled={rootLoading}
@@ -1631,6 +1647,60 @@ export default function Hyfax() {
                       </button>
                     );
                   })}
+                </div>
+              </div>
+            )}
+
+            {/* "Perspective" — same source table/cron cadence as "Today,"
+                but its own dedicated single-item card rather than grouped
+                into that list, same reasoning as Quote Of The Day/Riddle
+                above. Reframes one specific thing by shifting scale (zoom
+                in to the microscopic, or out to the cosmic) instead of
+                searching for recency — see perspectivePrompt in
+                generate-trending-topics. Rotates through a fixed
+                Human/Nature/Space sequence server-side (one per day, not
+                model-chosen — see nextPerspectiveFocus); the client doesn't
+                need to know which focus today's pick came from, same as it
+                doesn't surface Riddle's/Quote's category internally. Reuses
+                the "Today" feature toggle (todayVisible) rather than adding
+                a whole new one for a single field, same call Quote Of The
+                Day already made. */}
+            {perspectiveTopic && !trialExhausted && todayVisible && (
+              <div className="mt-10">
+                <div className="flex items-center justify-center gap-1.5 mb-6">
+                  <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
+                    Perspective
+                  </span>
+                </div>
+                <div className="max-w-md mx-auto">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedPerspective(true);
+                      setSelectedNewsIdx(null);
+                      setSelectedTodayIdx(null);
+                      setSelectedQuote(false);
+                      startTopic(perspectiveTopic.topic, perspectiveTopic.teaser, PERSPECTIVE_FIELD);
+                    }}
+                    disabled={rootLoading}
+                    className={`rh-chip text-left p-4 rounded-2xl border transition-colors w-full ${
+                      rootLoading && !selectedPerspective ? "opacity-40" : ""
+                    } ${rootLoading && selectedPerspective ? "cursor-default" : ""}`}
+                    style={{
+                      borderColor: selectedPerspective ? "#E3A73C" : "#4A3826",
+                      backgroundColor: selectedPerspective ? "#2A2015" : "#241B12",
+                    }}
+                  >
+                    <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
+                      Perspective
+                    </span>
+                    <div className="rh-body text-lg font-semibold mt-1" style={{ color: "#F1E6D3" }}>
+                      {perspectiveTopic.topic}
+                    </div>
+                    <p className="rh-body text-sm mt-1" style={{ color: "#B8A886" }}>
+                      {perspectiveTopic.teaser}
+                    </p>
+                  </button>
                 </div>
               </div>
             )}
@@ -1663,6 +1733,7 @@ export default function Hyfax() {
                       setSelectedNewsIdx(null);
                       setSelectedTodayIdx(null);
                       setSelectedQuote(false);
+                      setSelectedPerspective(false);
                       startTopic(riddleTopic.topic, riddleTopic.teaser, RIDDLE_FIELD);
                     }}
                     disabled={rootLoading}
@@ -1701,6 +1772,7 @@ export default function Hyfax() {
                                 setSelectedNewsIdx(null);
                                 setSelectedTodayIdx(null);
                                 setSelectedQuote(false);
+                                setSelectedPerspective(false);
                                 startTopic(riddleTopic.topic, riddleTopic.teaser, RIDDLE_FIELD);
                               } else {
                                 setRiddleWrongPicks((prev) => (prev.includes(choice) ? prev : [...prev, choice]));
@@ -1765,6 +1837,7 @@ export default function Hyfax() {
                           setSelectedNewsIdx(i);
                           setSelectedTodayIdx(null);
                           setSelectedQuote(false);
+                          setSelectedPerspective(false);
                           startTopic(t.topic, t.teaser, t.field);
                         }}
                         disabled={rootLoading}

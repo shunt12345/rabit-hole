@@ -7,11 +7,13 @@
 // mainstream picks + one offbeat wildcard — see TRENDING_MAINSTREAM_FIELDS/
 // TRENDING_WILDCARD_FIELD below; this replaced the original fixed World
 // News/Science/Technology beats) twice a day with a plain `{}` body; a
-// second runs once nightly with `{"fields": SPECIAL_FIELDS}` (This Day In
-// History, Word Of The Day, Quote Of The Day, Riddle) — those only change
-// once a day (or, for Word Of The Day/Quote Of The Day/Riddle, aren't tied
-// to the date at all), so there's no reason to re-run them on the trending
-// cadence too. Uses Claude's
+// second runs once nightly with a `"fields"` body naming every once-daily
+// field (This Day In History, Word Of The Day, Quote Of The Day, Riddle,
+// Perspective — SPECIAL_FIELDS plus RIDDLE_FIELD/PERSPECTIVE_FIELD, which
+// are kept out of that array so the client can give each its own card
+// rather than grouping it into "Today") — those only change once a day (or
+// aren't tied to the date at all), so there's no reason to re-run them on
+// the trending cadence too. Uses Claude's
 // web_search server tool with the same ANTHROPIC_API_KEY already used by
 // rabbit-hole-proxy, so no new vendor is needed (unlike the dormant
 // SerpApi-based trending-topics function this intentionally does not
@@ -75,7 +77,13 @@ const QUOTE_FIELD = "Quote Of The Day";
 // grouping it into the plain "Today" list — same reasoning as QUOTE_FIELD
 // on the client side.
 const RIDDLE_FIELD = "Riddle";
-const FIELDS = [...NEWS_FIELDS, ...SPECIAL_FIELDS, RIDDLE_FIELD];
+// Reframes something by shifting scale (zoom into the microscopic/
+// molecular, or out to the planetary/cosmic) rather than searching for
+// "what's interesting right now" — same once-nightly cadence as the rest
+// of these, but its own dedicated card (see App.jsx) rather than grouped
+// into "Today," same reasoning as QUOTE_FIELD/RIDDLE_FIELD above.
+const PERSPECTIVE_FIELD = "Perspective";
+const FIELDS = [...NEWS_FIELDS, ...SPECIAL_FIELDS, RIDDLE_FIELD, PERSPECTIVE_FIELD];
 // Overridable via `supabase secrets set MODEL=...` without a redeploy —
 // same reasoning as rabbit-hole-proxy's MODEL constant: lets a candidate
 // model get tried via a secret update instead of a code change, but
@@ -489,17 +497,70 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 {"topic": "...", "teaser": "...", "options": ["...", "..."], "category": "...", "source_url": "..."}`;
 }
 
+// Rotates through exactly these 3, one per run — a fixed small set rather
+// than something broader (adding "Technology," "Mind," etc.) so each focus
+// comes back around every 3rd day, not every 8th or 10th. The rotation
+// itself (nextPerspectiveFocus below) is deterministic, not model-chosen —
+// unlike RIDDLE_CATEGORIES/QUOTE_CATEGORIES above, which steer a free
+// choice, this one is FORCED into the prompt and echoed back into the
+// "category" column verbatim, same storage mechanism, different reason for
+// using it: here it's "what did we already decide today's focus is," not
+// "which of these did the model happen to pick."
+const PERSPECTIVE_FOCI = ["Human", "Nature", "Space"];
+
+// `lastFocus` is whatever fetchLastPerspectiveFocus found (or null if this
+// field has never run before) — advances exactly one step from there
+// rather than deriving a focus from the calendar date, so a missed run
+// (cron hiccup, a manual test skipped) never causes a focus to be skipped
+// or repeated out of turn; it just resumes from wherever the sequence
+// actually left off. indexOf returns -1 for null/an unrecognized value,
+// and -1 + 1 === 0, which conveniently starts the very first run at
+// PERSPECTIVE_FOCI[0] ("Human") with no special-case needed.
+function nextPerspectiveFocus(lastFocus: string | null): string {
+  const idx = PERSPECTIVE_FOCI.indexOf(lastFocus ?? "");
+  return PERSPECTIVE_FOCI[(idx + 1) % PERSPECTIVE_FOCI.length];
+}
+
+// Draws the actual reframing angle from exactly one of these per entry —
+// not all five at once. Free choice (unlike the focus rotation above),
+// since a single entry a day has no risk of colliding with a sibling the
+// way three-at-once would.
+const PERSPECTIVE_ANGLES = ["scale", "design", "function", "evolution", "major events"];
+
+function perspectivePrompt(excludeTopics: string[], focus: string): string {
+  const excludeBlock = excludeTopics.length
+    ? `\n\nAlready featured recently — pick something genuinely different from all of these, not a rephrasing of any of them: ${excludeTopics.join("; ")}.`
+    : "";
+  return `You have live web search — use it now.
+
+Today's focus is "${focus}." Pick ONE specific thing within that focus and reframe it by shifting scale — zoom all the way in to something microscopic, molecular, or cellular, or zoom all the way out to something planetary, cosmic, or civilizational — so the reader sees something ordinary, or something they thought they already understood, from a genuinely different magnitude than they normally think about it at. Draw your actual angle from exactly one of: ${PERSPECTIVE_ANGLES.join(", ")} — whichever actually fits this specific pick best, don't try to force all five into one entry.${excludeBlock}
+
+Search to confirm the real facts, figures, or mechanism you use are accurate — a wrong number here is exactly the kind of claim a reader can check in one glance, and being wrong there undermines the whole reframing.
+
+Once confirmed, produce:
+- "topic": a short, punchy 2-5 word label for the specific thing this is about (title case, no trailing punctuation)
+- "teaser": 2-3 sentences that actually deliver the scale-shift reframing itself, written to make someone curious to click — not a vague tease of it held back for the article
+- "source_url": the URL of a real source confirming the specific fact or figure you used — a specific page actually about it, not a homepage or unrelated page
+
+${SOURCE_URL_CHECK}
+
+Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
+{"topic": "...", "teaser": "...", "source_url": "..."}`;
+}
+
 function promptForField(
   field: string,
   excludeTopics: string[],
   recentRiddleCategories: string[] = [],
   recentQuoteCategories: string[] = [],
-  recentWordTeasers: { topic: string; teaser: string }[] = []
+  recentWordTeasers: { topic: string; teaser: string }[] = [],
+  perspectiveFocus: string | null = null
 ): string {
   if (field === "This Day In History") return thisDayInHistoryPrompt(excludeTopics);
   if (field === "Word Of The Day") return wordOfTheDayPrompt(excludeTopics, recentWordTeasers);
   if (field === QUOTE_FIELD) return quoteOfTheDayPrompt(excludeTopics, recentQuoteCategories);
   if (field === RIDDLE_FIELD) return riddlePrompt(excludeTopics, recentRiddleCategories);
+  if (field === PERSPECTIVE_FIELD) return perspectivePrompt(excludeTopics, perspectiveFocus || nextPerspectiveFocus(null));
   if (field === TRENDING_WILDCARD_FIELD) return trendingWildcardPrompt(excludeTopics);
   if (field === TRENDING_MAINSTREAM_FIELDS[0]) return trendingMainstreamPrompt(excludeTopics, "primary");
   if (field === TRENDING_MAINSTREAM_FIELDS[1]) return trendingMainstreamPrompt(excludeTopics, "secondary");
@@ -520,7 +581,8 @@ async function generateForField(
   excludeTopics: string[],
   recentRiddleCategories: string[] = [],
   recentQuoteCategories: string[] = [],
-  recentWordTeasers: { topic: string; teaser: string }[] = []
+  recentWordTeasers: { topic: string; teaser: string }[] = [],
+  perspectiveFocus: string | null = null
 ) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), PER_FIELD_TIMEOUT_MS);
@@ -556,7 +618,14 @@ async function generateForField(
         messages: [
           {
             role: "user",
-            content: promptForField(field, excludeTopics, recentRiddleCategories, recentQuoteCategories, recentWordTeasers),
+            content: promptForField(
+              field,
+              excludeTopics,
+              recentRiddleCategories,
+              recentQuoteCategories,
+              recentWordTeasers,
+              perspectiveFocus
+            ),
           },
         ],
       }),
@@ -635,6 +704,12 @@ async function generateForField(
     const validCategories = field === RIDDLE_FIELD ? RIDDLE_CATEGORIES : QUOTE_CATEGORIES;
     const rawCategory = String(parsed.category || "").trim().toLowerCase();
     category = validCategories.includes(rawCategory) ? rawCategory : undefined;
+  } else if (field === PERSPECTIVE_FIELD) {
+    // Not parsed from the model's response like Riddle/Quote above — the
+    // focus was already decided deterministically before the prompt was
+    // even built (see nextPerspectiveFocus), so it's stored straight from
+    // that known value rather than trusted to come back correctly in JSON.
+    category = perspectiveFocus || undefined;
   }
 
   // Real usage, not the estimate in the pricing spreadsheet — every field
@@ -769,6 +844,24 @@ async function fetchRecentQuoteCategories(): Promise<string[]> {
   return data.map((row) => row.category).filter(Boolean);
 }
 
+// Unlike fetchRecentRiddleCategories/fetchRecentQuoteCategories above (a
+// short history used to steer a free choice), this only needs the SINGLE
+// most recent row — nextPerspectiveFocus just advances one step past it.
+async function fetchLastPerspectiveFocus(): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("trending_topics_cache")
+    .select("category")
+    .eq("field", PERSPECTIVE_FIELD)
+    .not("category", "is", null)
+    .order("generated_at", { ascending: false })
+    .limit(1);
+  if (error) {
+    console.error("generate-trending-topics: failed to fetch last perspective focus", error);
+    return null;
+  }
+  return data?.[0]?.category ?? null;
+}
+
 // Word Of The Day specifically needs the past TEASERS, not just topic
 // strings — confirmed live that a topic-string-only exclude list (see
 // fetchRecentTopicsByField) let "Sphinx" through 5 days after "Sphincter,"
@@ -829,6 +922,9 @@ serve(async (req) => {
   const recentRiddleCategories = fieldsToRun.includes(RIDDLE_FIELD) ? await fetchRecentRiddleCategories() : [];
   const recentQuoteCategories = fieldsToRun.includes(QUOTE_FIELD) ? await fetchRecentQuoteCategories() : [];
   const recentWordTeasers = fieldsToRun.includes("Word Of The Day") ? await fetchRecentWordTeasers() : [];
+  const perspectiveFocus = fieldsToRun.includes(PERSPECTIVE_FIELD)
+    ? nextPerspectiveFocus(await fetchLastPerspectiveFocus())
+    : null;
 
   // Trending 1 and 2 specifically run SEQUENTIALLY, not concurrently with
   // everything else — confirmed live that running them in parallel (each
@@ -885,7 +981,8 @@ serve(async (req) => {
         recentByField[field]!,
         field === RIDDLE_FIELD ? recentRiddleCategories : undefined,
         field === QUOTE_FIELD ? recentQuoteCategories : undefined,
-        field === "Word Of The Day" ? recentWordTeasers : undefined
+        field === "Word Of The Day" ? recentWordTeasers : undefined,
+        field === PERSPECTIVE_FIELD ? perspectiveFocus : undefined
       );
     })
   );

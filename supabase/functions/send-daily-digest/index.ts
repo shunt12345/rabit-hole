@@ -45,12 +45,13 @@ const APP_ORIGIN = Deno.env.get("APP_ORIGIN") ?? "https://hyfax.app";
 const DIGEST_FROM = Deno.env.get("DIGEST_FROM_EMAIL") ?? "Hyfax <hello@hyfax.app>";
 
 // Same fields the hero page itself reads, in the SAME section order it
-// renders them (see App.jsx's QUOTE_FIELD/TODAY→RIDDLE→TRENDING order) —
-// kept as a literal copy here rather than a shared import, since edge
+// renders them (see App.jsx's QUOTE_FIELD/TODAY→PERSPECTIVE→RIDDLE→TRENDING
+// order) — kept as a literal copy here rather than a shared import, since edge
 // functions in this project don't share code across function directories
 // (each one is deployed independently by pasting its own file).
 const QUOTE_FIELD = "Quote Of The Day";
 const RIDDLE_FIELD = "Riddle";
+const PERSPECTIVE_FIELD = "Perspective";
 const TRENDING_FIELDS = ["Trending 1", "Trending 2", "Trending Wildcard"];
 const TODAY_FIELDS = ["This Day In History", "Word Of The Day"];
 const FIELD_LABELS: Record<string, string> = {
@@ -59,6 +60,7 @@ const FIELD_LABELS: Record<string, string> = {
   "Trending Wildcard": "Wildcard",
   "This Day In History": "This Day In History",
   "Word Of The Day": "Word Of The Day",
+  Perspective: "Perspective",
 };
 
 // The app's actual color tokens (App.jsx / AccountMenu.jsx) — copied here
@@ -206,17 +208,26 @@ function digestHtml(
   sections: {
     quote: { topic: string; teaser: string } | null;
     today: { field: string; topic: string; teaser: string }[];
+    perspective: { field: string; topic: string; teaser: string } | null;
     riddle: { topic: string; teaser: string } | null;
     trending: { field: string; topic: string; teaser: string }[];
   },
   asOfDate: Date | null,
   unsubscribeUrl: string
 ): string {
-  const { quote, today, riddle, trending } = sections;
+  const { quote, today, perspective, riddle, trending } = sections;
+  // Same section order as the hero page (App.jsx): Quote, Today,
+  // Perspective, Riddle, Trending — Perspective sits right after Today,
+  // same spot it has there. Generic topicRowHtml card, same as Today's own
+  // rows, rather than a bespoke treatment like quoteRowHtml/riddleRowHtml
+  // get — those two need custom layout because their "topic" IS the full
+  // quote/withheld riddle text; Perspective's shape (short label + teaser)
+  // is the same as every other plain topic card.
   const sectionsHtml = [
     asOfDate ? asOfHtml(asOfDate) : "",
     quote ? sectionHeadingHtml("Quote of the Day") + quoteRowHtml(quote) : "",
     today.length ? sectionHeadingHtml("Today") + today.map(topicRowHtml).join("\n") : "",
+    perspective ? sectionHeadingHtml("Perspective") + topicRowHtml(perspective) : "",
     riddle ? sectionHeadingHtml("Riddle me this....") + riddleRowHtml(riddle) : "",
     trending.length ? sectionHeadingHtml("Trending") + trending.map(topicRowHtml).join("\n") : "",
   ]
@@ -291,7 +302,7 @@ serve(async (req) => {
   const { data: topicRows, error: topicsError } = await supabase
     .from("trending_topics_cache")
     .select("field, topic, teaser, generated_at")
-    .in("field", [QUOTE_FIELD, RIDDLE_FIELD, ...TRENDING_FIELDS, ...TODAY_FIELDS])
+    .in("field", [QUOTE_FIELD, RIDDLE_FIELD, PERSPECTIVE_FIELD, ...TRENDING_FIELDS, ...TODAY_FIELDS])
     .order("generated_at", { ascending: false });
   if (topicsError) {
     return new Response(JSON.stringify({ error: `Failed to read topics: ${topicsError.message}` }), {
@@ -306,9 +317,16 @@ serve(async (req) => {
   type Topic = { field: string; topic: string; teaser: string };
   const quote = latestByField.get(QUOTE_FIELD) ?? null;
   const riddle = latestByField.get(RIDDLE_FIELD) ?? null;
+  const perspective = latestByField.get(PERSPECTIVE_FIELD) ?? null;
   const trending = TRENDING_FIELDS.map((f) => latestByField.get(f)).filter(Boolean) as Topic[];
   const today = TODAY_FIELDS.map((f) => latestByField.get(f)).filter(Boolean) as Topic[];
-  const allTopics = [...(quote ? [quote] : []), ...today, ...(riddle ? [riddle] : []), ...trending];
+  const allTopics = [
+    ...(quote ? [quote] : []),
+    ...today,
+    ...(perspective ? [perspective] : []),
+    ...(riddle ? [riddle] : []),
+    ...trending,
+  ];
   if (allTopics.length === 0) {
     return new Response(JSON.stringify({ error: "No topics available to send" }), {
       status: 502,
@@ -346,7 +364,7 @@ serve(async (req) => {
         resendApiKey,
         recipient.email,
         "Today's threads on Hyfax",
-        digestHtml({ quote, today, riddle, trending }, asOfDate, unsubscribeUrl)
+        digestHtml({ quote, today, perspective, riddle, trending }, asOfDate, unsubscribeUrl)
       );
       sent++;
       // Resend's rate limit is generous but not infinite — a small pause
