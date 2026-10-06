@@ -447,6 +447,21 @@ const RIDDLE_CATEGORIES = [
   "idea-or-concept",
 ];
 
+// No web_search for this field (see the tools array in generateForField,
+// and the missing source_url below) — unlike every other field, Riddle's
+// subjects are evergreen general knowledge (octopus cognition, the Silk
+// Road, bioluminescence), not current events or a quote's exact wording,
+// so there's much less real accuracy risk in answering from training
+// knowledge alone. Confirmed live this mattered beyond just cost: Riddle's
+// prompt is by far the longest/most complex of any field here (the worked
+// examples and rules below, plus generating 2 decoys on top of the normal
+// fields), and a manual trigger scoped to just this one field hit
+// Supabase's edge runtime WORKER_RESOURCE_LIMIT five times in a row —
+// "not having enough compute resources" — something every other,
+// much-shorter field call never ran into. Dropping the search tool call
+// (and the source_url it exists to produce) removes a real chunk of that
+// per-call resource footprint rather than just hoping a given run squeaks
+// under the ceiling.
 function riddlePrompt(excludeTopics: string[], recentCategories: string[]): string {
   const excludeBlock = excludeTopics.length
     ? `\n\nAlready featured recently — pick a different topic this time, not a repeat of any of these: ${excludeTopics.join("; ")}.`
@@ -460,9 +475,7 @@ function riddlePrompt(excludeTopics: string[], recentCategories: string[]): stri
   const categoryBlock = recentCategories.length
     ? `\n\nThe last few picks' categories, most recent first: ${recentCategories.join(", ")}. Do not pick from that same category again this time, especially if it's "animal" — actively favor whichever of these categories AREN'T in that recent list: ${RIDDLE_CATEGORIES.join(", ")}.`
     : "";
-  return `You have live web search — use it now.
-
-Pick a single real, genuinely interesting topic. It does NOT have to be an animal or living thing — deliberately range across ALL of these categories over time, not just the ones that come to mind first: ${RIDDLE_CATEGORIES.join(", ")}. Wide open, not tied to today's date or current events. Search to confirm every concrete detail you use about it is accurate.${excludeBlock}${categoryBlock}
+  return `Pick a single real, genuinely interesting topic. It does NOT have to be an animal or living thing — deliberately range across ALL of these categories over time, not just the ones that come to mind first: ${RIDDLE_CATEGORIES.join(", ")}. Wide open, not tied to today's date or current events. This runs from your own knowledge, not a live search — stick to well-established, widely-documented facts you're genuinely confident are accurate, not an obscure or disputed detail you can't verify from memory alone.${excludeBlock}${categoryBlock}
 
 Now write exactly ONE SENTENCE — a riddle, phrased as a single question that starts with the literal words "What is" and ends with a question mark — that describes this topic WITHOUT ever naming it. One sentence, one question mark, at the very end only — use dashes or commas to string clauses together the way the examples below do, not periods (or a second "?") to split it into several. But it must still be SOLVABLE — anchor it with 2-3 real, concrete, verifiable details about the topic (not just abstract mood), so a reader who knows the subject can actually place it. Do not over-abstract into pure metaphor with no verifiable facts left in it — that stops being a riddle and becomes unsolvable.
 
@@ -489,12 +502,9 @@ Produce:
 - "teaser": the riddle itself — the single "What is...?" question written above
 - "options": an array of exactly 2 decoy topics as described above
 - "category": exactly one of these strings, whichever actually fits your answer: ${RIDDLE_CATEGORIES.join(", ")}
-- "source_url": the URL of a real source confirming the concrete details you used in the riddle — a specific page actually about the topic, not a homepage or unrelated page
-
-${SOURCE_URL_CHECK}
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
-{"topic": "...", "teaser": "...", "options": ["...", "..."], "category": "...", "source_url": "..."}`;
+{"topic": "...", "teaser": "...", "options": ["...", "..."], "category": "..."}`;
 }
 
 // Rotates through exactly these 3, one per run — a fixed small set rather
@@ -607,14 +617,20 @@ async function generateForField(
         // no code-execution round trip, and one field took ~5s in testing.
         // allowed_domains only for the mainstream fields — see
         // TRUSTED_MAINSTREAM_DOMAINS above for why it's scoped that way.
-        tools: [
-          {
-            type: "web_search_20250305",
-            name: "web_search",
-            max_uses: 2,
-            ...(TRENDING_MAINSTREAM_FIELDS.includes(field) ? { allowed_domains: TRUSTED_MAINSTREAM_DOMAINS } : {}),
-          },
-        ],
+        // Omitted entirely for Riddle — see riddlePrompt's comment on why
+        // that field answers from training knowledge instead.
+        ...(field === RIDDLE_FIELD
+          ? {}
+          : {
+              tools: [
+                {
+                  type: "web_search_20250305",
+                  name: "web_search",
+                  max_uses: 2,
+                  ...(TRENDING_MAINSTREAM_FIELDS.includes(field) ? { allowed_domains: TRUSTED_MAINSTREAM_DOMAINS } : {}),
+                },
+              ],
+            }),
         messages: [
           {
             role: "user",
@@ -663,7 +679,9 @@ async function generateForField(
   // means that field just fails for this run (Promise.allSettled already
   // tolerates individual field failures) instead of shipping a broken
   // card to real users.
-  if (!topic || !teaser || !sourceUrl) {
+  // Riddle doesn't ask for (or get) a source_url — see riddlePrompt's
+  // comment on why that field skips web_search entirely.
+  if (!topic || !teaser || (field !== RIDDLE_FIELD && !sourceUrl)) {
     throw new Error(`Missing topic/teaser/source_url: ${cleaned.slice(0, 300)}`);
   }
 
@@ -729,7 +747,7 @@ async function generateForField(
     teaser,
     ...(options ? { options } : {}),
     ...(category ? { category } : {}),
-    source_url: sourceUrl,
+    source_url: sourceUrl || null,
     input_tokens: inputTokens,
     output_tokens: outputTokens,
     model: MODEL,
