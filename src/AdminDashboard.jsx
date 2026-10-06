@@ -363,18 +363,19 @@ export default function AdminDashboard() {
           real enforced limit. Testing done while signed out can't be told apart from a real anonymous visitor.
         </p>
 
-        {/* Review queue — the evergreen/date-anchored batch (This Day In
-            History, Word Of The Day, Quote, Riddle, Perspective) sits here
+        {/* Review queue — every field generate-trending-topics writes
+            (Trending 1/2/Wildcard included, see migration 0047) sits here
             as status='pending' (migration 0045) from the 15:00 UTC
             generation run until the admin approves/rejects it, or until a
             third cron job auto-approves anything still pending at 07:00
             UTC the next morning (migration 0046) — review is a real
             window, not a hard gate, so a day it's skipped still reaches
             the hero page and the 09:00 UTC digest with fresh content
-            instead of falling back to stale. Trending news isn't gated at
-            all (see generate-trending-topics' `needsReview` check) and
-            never shows up here. Placed above the usage stats since this is
-            the actually time-sensitive part of the page. */}
+            instead of falling back to stale. Trending picks can run up to
+            a day old by the time they're live now, an accepted tradeoff
+            for being able to catch a bad one first. Placed above the
+            usage stats since this is the actually time-sensitive part of
+            the page. */}
         <div className="rounded-2xl border p-4 mb-6" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
           <div className="flex items-center justify-between mb-1">
             <div className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: COLORS.dim }}>
