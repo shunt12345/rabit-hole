@@ -780,15 +780,43 @@ const RECENT_EXCLUDE_COUNT = 365;
 // duplicate-prevention safety net most needs real data to check against.
 // The caller below now treats `null` as "skip generating this field this
 // run" instead.
+// Defensive timeout for every Supabase query made while gathering exclude-
+// history/category data below — confirmed live (the Riddle miss on
+// 2026-10-06) that NONE of these had any timeout at all: if a query ever
+// genuinely hangs (a slow connection, a platform-side latency blip —
+// Supabase's own status page showed a just-resolved "intermittent latency
+// in Eastern US" incident spanning that exact day), nothing here would
+// notice. The whole invocation just sits there until Supabase's own
+// ~150s platform ceiling kills the worker outright — confirmed via
+// net._http_response and the function's own boot/shutdown logs, both
+// showing exactly 150s on 4 separate reproductions — silently taking out
+// whatever field was in that batch with no error to show for it, not even
+// reaching generateForField's own PER_FIELD_TIMEOUT_MS (which only guards
+// the Anthropic call, not this earlier setup step). Racing each query
+// against a plain timeout means a hang now fails fast and falls through
+// to the exact same "treat this as a fetch error" branch each function
+// below already has, rather than consuming the entire execution budget.
+const QUERY_TIMEOUT_MS = 15_000;
+function withTimeout<T>(query: PromiseLike<{ data: T | null; error: any }>): Promise<{ data: T | null; error: any }> {
+  return Promise.race([
+    Promise.resolve(query),
+    new Promise<{ data: T | null; error: any }>((resolve) =>
+      setTimeout(() => resolve({ data: null, error: new Error(`query timed out after ${QUERY_TIMEOUT_MS}ms`) }), QUERY_TIMEOUT_MS)
+    ),
+  ]);
+}
+
 async function fetchRecentTopicsByField(): Promise<Record<string, string[] | null>> {
   const entries = await Promise.all(
     FIELDS.map(async (field): Promise<[string, string[] | null]> => {
-      const { data, error } = await supabase
-        .from("trending_topics_cache")
-        .select("topic")
-        .eq("field", field)
-        .order("generated_at", { ascending: false })
-        .limit(RECENT_EXCLUDE_COUNT + 30);
+      const { data, error } = await withTimeout<{ topic: string }[]>(
+        supabase
+          .from("trending_topics_cache")
+          .select("topic")
+          .eq("field", field)
+          .order("generated_at", { ascending: false })
+          .limit(RECENT_EXCLUDE_COUNT + 30)
+      );
       if (error || !data) {
         console.error(`generate-trending-topics: failed to fetch recent topics for field "${field}"`, error);
         return [field, null];
@@ -811,13 +839,15 @@ async function fetchRecentTopicsByField(): Promise<Record<string, string[] | nul
 // immediate streak matters.
 const RECENT_RIDDLE_CATEGORY_COUNT = 5;
 async function fetchRecentRiddleCategories(): Promise<string[]> {
-  const { data, error } = await supabase
-    .from("trending_topics_cache")
-    .select("category")
-    .eq("field", RIDDLE_FIELD)
-    .not("category", "is", null)
-    .order("generated_at", { ascending: false })
-    .limit(RECENT_RIDDLE_CATEGORY_COUNT);
+  const { data, error } = await withTimeout<{ category: string }[]>(
+    supabase
+      .from("trending_topics_cache")
+      .select("category")
+      .eq("field", RIDDLE_FIELD)
+      .not("category", "is", null)
+      .order("generated_at", { ascending: false })
+      .limit(RECENT_RIDDLE_CATEGORY_COUNT)
+  );
   if (error || !data) {
     console.error("generate-trending-topics: failed to fetch recent riddle categories", error);
     return [];
@@ -830,13 +860,15 @@ async function fetchRecentRiddleCategories(): Promise<string[]> {
 // answer types.
 const RECENT_QUOTE_CATEGORY_COUNT = 5;
 async function fetchRecentQuoteCategories(): Promise<string[]> {
-  const { data, error } = await supabase
-    .from("trending_topics_cache")
-    .select("category")
-    .eq("field", QUOTE_FIELD)
-    .not("category", "is", null)
-    .order("generated_at", { ascending: false })
-    .limit(RECENT_QUOTE_CATEGORY_COUNT);
+  const { data, error } = await withTimeout<{ category: string }[]>(
+    supabase
+      .from("trending_topics_cache")
+      .select("category")
+      .eq("field", QUOTE_FIELD)
+      .not("category", "is", null)
+      .order("generated_at", { ascending: false })
+      .limit(RECENT_QUOTE_CATEGORY_COUNT)
+  );
   if (error || !data) {
     console.error("generate-trending-topics: failed to fetch recent quote categories", error);
     return [];
@@ -848,13 +880,15 @@ async function fetchRecentQuoteCategories(): Promise<string[]> {
 // short history used to steer a free choice), this only needs the SINGLE
 // most recent row — nextPerspectiveFocus just advances one step past it.
 async function fetchLastPerspectiveFocus(): Promise<string | null> {
-  const { data, error } = await supabase
-    .from("trending_topics_cache")
-    .select("category")
-    .eq("field", PERSPECTIVE_FIELD)
-    .not("category", "is", null)
-    .order("generated_at", { ascending: false })
-    .limit(1);
+  const { data, error } = await withTimeout<{ category: string }[]>(
+    supabase
+      .from("trending_topics_cache")
+      .select("category")
+      .eq("field", PERSPECTIVE_FIELD)
+      .not("category", "is", null)
+      .order("generated_at", { ascending: false })
+      .limit(1)
+  );
   if (error) {
     console.error("generate-trending-topics: failed to fetch last perspective focus", error);
     return null;
@@ -874,12 +908,14 @@ async function fetchLastPerspectiveFocus(): Promise<string | null> {
 // literal word strings.
 const RECENT_WORD_TEASER_COUNT = 30;
 async function fetchRecentWordTeasers(): Promise<{ topic: string; teaser: string }[]> {
-  const { data, error } = await supabase
-    .from("trending_topics_cache")
-    .select("topic, teaser")
-    .eq("field", "Word Of The Day")
-    .order("generated_at", { ascending: false })
-    .limit(RECENT_WORD_TEASER_COUNT);
+  const { data, error } = await withTimeout<{ topic: string; teaser: string }[]>(
+    supabase
+      .from("trending_topics_cache")
+      .select("topic, teaser")
+      .eq("field", "Word Of The Day")
+      .order("generated_at", { ascending: false })
+      .limit(RECENT_WORD_TEASER_COUNT)
+  );
   if (error || !data) {
     console.error("generate-trending-topics: failed to fetch recent word teasers", error);
     return [];
