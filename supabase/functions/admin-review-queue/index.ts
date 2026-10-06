@@ -135,14 +135,23 @@ serve(async (req) => {
     const action = typeof body?.action === "string" ? body.action : "list";
 
     if (action === "list") {
-      // Pending (the actual queue) plus anything already rejected, so a
-      // rejected pick doesn't just vanish with no record of the decision
-      // — approved rows are left out, they're already live on the hero
-      // page itself, nothing left to review there.
+      // Pending (the actual queue, no cutoff — a stale pending row is
+      // exactly what the 07:00 UTC auto-approve sweep is for, not
+      // something to hide here) plus RECENTLY rejected rows, so a reject
+      // doesn't just vanish from view with no confirmation it went
+      // through — but confirmed live this needs a real cutoff: with none,
+      // every reject ever made (including ones from testing) piles up in
+      // this list forever. Rejected rows are never deleted from the table
+      // itself (fetchRecentTopicsByField's exclude-history has no status
+      // filter and still needs them), this just stops the UI from
+      // showing ones from more than a day ago. Approved rows are left out
+      // entirely either way — they're already live on the hero page,
+      // nothing left to review there.
+      const rejectedCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const { data, error } = await supabase
         .from("trending_topics_cache")
         .select(REVIEW_COLUMNS)
-        .in("status", ["pending", "rejected"])
+        .or(`status.eq.pending,and(status.eq.rejected,generated_at.gte.${rejectedCutoff})`)
         .order("generated_at", { ascending: false })
         .limit(100);
       if (error) {
