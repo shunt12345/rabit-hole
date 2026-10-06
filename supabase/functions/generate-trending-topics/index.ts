@@ -991,16 +991,29 @@ serve(async (req) => {
 
   const rows: any[] = [];
   const errors: string[] = [];
+  const errorLogRows: { batch_date: string; field: string; error_message: string }[] = [];
   const today = new Date().toISOString().slice(0, 10);
 
   results.forEach((r, i) => {
     if (r.status === "fulfilled") {
       rows.push({ batch_date: today, ...r.value });
     } else {
+      const message = String((r.reason as any)?.message ?? r.reason).slice(0, 2000);
       console.error(`generate-trending-topics: field "${orderedFields[i]}" failed`, r.reason);
       errors.push(`${orderedFields[i]}: ${r.reason}`);
+      errorLogRows.push({ batch_date: today, field: orderedFields[i], error_message: message });
     }
   });
+
+  // Best-effort — queryable afterward with just the anon key (see migration
+  // 0043) instead of the real failure reason living only in function logs,
+  // reachable solely through the Supabase dashboard. Written even when
+  // every field failed (the early return just below), since that's exactly
+  // when knowing why matters most.
+  if (errorLogRows.length > 0) {
+    const { error: logError } = await supabase.from("generation_error_log").insert(errorLogRows);
+    if (logError) console.error("generate-trending-topics: failed to write error log", logError);
+  }
 
   if (rows.length === 0) {
     return new Response(JSON.stringify({ error: "All fields failed", details: errors }), {
@@ -1021,6 +1034,9 @@ serve(async (req) => {
   try {
     const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     await supabase.from("trending_topics_cache").delete().lt("batch_date", cutoff);
+    // Same cutoff reused for the error log (migration 0043) — no reason for
+    // it to live any longer or shorter than the content it explains.
+    await supabase.from("generation_error_log").delete().lt("batch_date", cutoff);
   } catch (e) {
     console.error("generate-trending-topics: cleanup failed", e);
   }
