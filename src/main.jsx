@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import Hyfax from "./App.jsx";
 import AdminDashboard from "./AdminDashboard.jsx";
+import ReviewQueue from "./ReviewQueue.jsx";
 import { initRedditPixel } from "./lib/redditPixel.js";
 import { captureAttribution } from "./lib/attribution.js";
 import "./index.css";
@@ -12,18 +13,22 @@ import "./index.css";
 // Slack show the real article instead of a generic card. This app never
 // renders that route client-side.
 //
-// /admin is the one other real client-side route (see AdminDashboard.jsx)
-// — no router pulled in for just this, since the main app itself has none
+// /admin (usage stats, AdminDashboard.jsx) and /queue (content review,
+// ReviewQueue.jsx) are the other real client-side routes — no router
+// pulled in for just these two, since the main app itself has none
 // either; vercel.json's catch-all rewrite already serves index.html for
 // any path, so this is just a plain pathname check at mount time.
-const isAdminRoute = window.location.pathname === "/admin";
+const path = window.location.pathname;
+const isAdminRoute = path === "/admin";
+const isQueueRoute = path === "/queue";
+const isOperatorRoute = isAdminRoute || isQueueRoute;
 
 // Before anything else reads it (App.jsx's Reddit entry-flow check, every
 // proxy request's attribution fields) — see lib/attribution.js.
 captureAttribution();
 
-if (!isAdminRoute) initRedditPixel();
+if (!isOperatorRoute) initRedditPixel();
 
 ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>{isAdminRoute ? <AdminDashboard /> : <Hyfax />}</React.StrictMode>
+  <React.StrictMode>{isAdminRoute ? <AdminDashboard /> : isQueueRoute ? <ReviewQueue /> : <Hyfax />}</React.StrictMode>
 );
