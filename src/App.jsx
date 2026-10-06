@@ -223,7 +223,7 @@ function nextId() {
 // pending/rejected row is unreadable with the anon key regardless of this
 // query string. Kept explicit anyway so this file's own intent reads
 // clearly without having to know the DB-side policy exists.
-const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,options,generated_at&status=eq.approved&order=generated_at.desc,id.desc&limit=24`;
+const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,options,category,direction,generated_at&status=eq.approved&order=generated_at.desc,id.desc&limit=24`;
 const NEWS_FIELDS = ["Trending 1", "Trending 2", "Trending Wildcard"];
 // What each internal field key actually displays as — kept separate from
 // the field key itself so latestByField (below) can still tell the two
@@ -1664,11 +1664,13 @@ export default function Hyfax() {
                 searching for recency — see perspectivePrompt in
                 generate-trending-topics. Rotates through a fixed
                 Human/Nature/Space sequence server-side (one per day, not
-                model-chosen — see nextPerspectiveFocus); the client doesn't
-                need to know which focus today's pick came from, same as it
-                doesn't surface Riddle's/Quote's category internally. Reuses
-                the "Today" feature toggle (todayVisible) rather than adding
-                a whole new one for a single field, same call Quote Of The
+                model-chosen — see nextPerspectiveFocus). Unlike Riddle/
+                Quote, this field's category (the Human/Nature/Space focus)
+                and direction (micro/macro, see migration 0048) ARE shown
+                here, in place of the badge just repeating the section
+                header's own "Perspective" label right above it. Reuses the
+                "Today" feature toggle (todayVisible) rather than adding a
+                whole new one for a single field, same call Quote Of The
                 Day already made. */}
             {perspectiveTopic && !trialExhausted && todayVisible && (
               <div className="mt-10">
@@ -1697,7 +1699,7 @@ export default function Hyfax() {
                     }}
                   >
                     <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
-                      Perspective
+                      {[perspectiveTopic.category, perspectiveTopic.direction].filter(Boolean).join(" · ") || "Perspective"}
                     </span>
                     <div className="rh-body text-lg font-semibold mt-1" style={{ color: "#F1E6D3" }}>
                       {perspectiveTopic.topic}

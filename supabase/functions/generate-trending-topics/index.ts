@@ -560,13 +560,14 @@ Search to confirm the real facts, figures, or mechanism you use are accurate —
 
 Once confirmed, produce:
 - "topic": a short, punchy 2-5 word label for the specific thing this is about (title case, no trailing punctuation)
-- "teaser": 2-3 sentences that actually deliver the scale-shift reframing itself, written to make someone curious to click — not a vague tease of it held back for the article
+- "teaser": one enticing sentence (max 20 words) that actually delivers the scale-shift reframing itself, written to make someone curious to click — not a vague tease of it held back for the article
+- "direction": "micro" if you zoomed in, "macro" if you zoomed out — whichever this entry actually did
 - "source_url": the URL of a real source confirming the specific fact or figure you used — a specific page actually about it, not a homepage or unrelated page
 
 ${SOURCE_URL_CHECK}
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
-{"topic": "...", "teaser": "...", "source_url": "..."}`;
+{"topic": "...", "teaser": "...", "direction": "...", "source_url": "..."}`;
 }
 
 function promptForField(
@@ -741,6 +742,17 @@ async function generateForField(
     category = perspectiveFocus || undefined;
   }
 
+  // Perspective-only (see migration 0048) — which way this entry actually
+  // shifted scale, so the hero card can show "Human · Micro" instead of
+  // just repeating the section header's own "Perspective" label. Same
+  // not-rejected-on-a-miss posture as category above: a malformed value
+  // just means the card falls back to showing the focus alone.
+  let direction: string | undefined;
+  if (field === PERSPECTIVE_FIELD) {
+    const rawDirection = String(parsed.direction || "").trim().toLowerCase();
+    direction = rawDirection === "micro" || rawDirection === "macro" ? rawDirection : undefined;
+  }
+
   // Real usage, not the estimate in the pricing spreadsheet — every field
   // call is non-streaming, so it's a single JSON response with usage
   // already attached, no SSE parsing needed (contrast rabbit-hole-proxy,
@@ -758,6 +770,7 @@ async function generateForField(
     teaser,
     ...(options ? { options } : {}),
     ...(category ? { category } : {}),
+    ...(direction ? { direction } : {}),
     source_url: sourceUrl || null,
     input_tokens: inputTokens,
     output_tokens: outputTokens,
