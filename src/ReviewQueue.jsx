@@ -84,7 +84,11 @@ function ReviewCard({ row, onDecide, busy }) {
               className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs disabled:opacity-40"
               style={{ borderColor: COLORS.bad, color: COLORS.bad }}
             >
-              <X size={13} /> Reject
+              {/* Rejecting also fires a fresh generation for this same
+                  field (see admin-review-queue's regenerateField), so it
+                  takes noticeably longer than approving — worth its own
+                  label rather than leaving the button just looking stuck. */}
+              <X size={13} /> {busy ? "Rejecting…" : "Reject"}
             </button>
           )}
         </div>
@@ -102,6 +106,10 @@ export default function ReviewQueue() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  // Separate from `error` — a soft notice (e.g. a reject's automatic
+  // replacement generation failing) that doesn't mean the action itself
+  // failed, just that part of what it tried to do didn't go through.
+  const [info, setInfo] = useState(null);
   // Which row id (or "all" for the bulk action) currently has an
   // in-flight approve/reject call — disables just that row's buttons
   // rather than freezing the whole queue while one decision is saving.
@@ -146,8 +154,19 @@ export default function ReviewQueue() {
 
   const decide = async (id, action) => {
     setBusyId(id);
+    setInfo(null);
     try {
-      await call(action, { id });
+      const result = await call(action, { id });
+      // A reject also fires a fresh generation for that same field (see
+      // admin-review-queue's regenerateField) — this is why a reject can
+      // take noticeably longer than an approve. Surface a failure there
+      // as an informational note, not an error: the reject itself still
+      // succeeded, the field just goes back to waiting on the next
+      // scheduled run instead of having an immediate replacement to
+      // review.
+      if (action === "reject" && result?.regenerated && !result.regenerated.ok) {
+        setInfo(`Rejected — couldn't generate a replacement (${result.regenerated.error || "unknown error"}). It'll pick up on the next scheduled run.`);
+      }
       await load();
     } catch (e) {
       setError(e.message || "That decision didn't save — try again.");
@@ -272,6 +291,15 @@ export default function ReviewQueue() {
           New picks land here around 11am ET. Anything still pending auto-approves at ~3am ET the next morning, before
           the digest sends — review is optional, not required for fresh content to go out.
         </p>
+
+        {info && (
+          <div
+            className="flex items-center gap-2 rounded-xl border p-4 mb-6 text-sm"
+            style={{ borderColor: COLORS.border, color: COLORS.dim, backgroundColor: COLORS.card }}
+          >
+            <AlertCircle size={15} /> {info}
+          </div>
+        )}
 
         {error && (
           <div

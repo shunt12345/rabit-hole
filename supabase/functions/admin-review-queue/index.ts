@@ -1,12 +1,17 @@
 // Supabase Edge Function: admin-review-queue
 //
-// Backs the review/approval UI on the admin dashboard (src/AdminDashboard.jsx,
-// served at /admin) — the one write path into trending_topics_cache.status
-// beyond generate-trending-topics itself (which only ever writes 'pending').
-// RLS on that table now only lets the anon key read status='approved' rows
-// (see migration 0045), so this function — using the service role, which
-// bypasses RLS — is also the only way to see what's sitting in the queue at
-// all; there's no other way to read a pending row's content.
+// Backs the review/approval UI (src/ReviewQueue.jsx, served at /queue) —
+// the one write path into trending_topics_cache.status beyond generate-
+// trending-topics itself (which only ever writes 'pending'). RLS on that
+// table only lets the anon key read status='approved' rows (see migration
+// 0045), so this function — using the service role, which bypasses RLS —
+// is also the only way to see what's sitting in the queue at all; there's
+// no other way to read a pending row's content.
+//
+// A reject doesn't just mark the row — it immediately calls generate-
+// trending-topics again for that same field (see regenerateField below),
+// so a replacement shows up to review right away instead of that field
+// sitting empty until the next scheduled run.
 //
 // Self-contained like every other function in this project (no shared
 // imports across functions) — the auth block below is a copy of
@@ -52,7 +57,58 @@ function unauthorized(corsHeaders: Record<string, string>) {
 }
 
 const REVIEW_COLUMNS =
-  "id, batch_date, field, topic, teaser, source_url, options, category, generated_at, input_tokens, output_tokens, model, cost_usd, status";
+  "id, batch_date, field, topic, teaser, source_url, options, category, direction, generated_at, input_tokens, output_tokens, model, cost_usd, status";
+
+// Same shared project secrets generate-trending-topics itself reads (every
+// function in this project draws from one pool, not per-function secrets
+// — see that function's DEPLOY STEPS comment) — lets this function call it
+// server-to-server the exact same way its own cron jobs do.
+const CRON_SECRET = Deno.env.get("CRON_SECRET");
+// Comfortably under generate-trending-topics' own ~150s platform ceiling
+// (see that function's PER_FIELD_TIMEOUT_MS comment) — this is a single
+// field, which should finish well inside that, but a hard cap here means
+// a stuck regeneration fails the reject's response cleanly instead of
+// this function itself running out the clock.
+const REGENERATE_TIMEOUT_MS = 120_000;
+
+// Fires immediately after a reject — rather than leaving that field with
+// nothing pending until the next scheduled run (or the 07:00 UTC auto-
+// approve sweep, which has nothing to approve for it either), this kicks
+// off a fresh generateForField call for the SAME field right away, so a
+// new option shows up in the queue to review in its place. Reuses the
+// exact same request shape generate-trending-topics' own cron jobs use.
+// The just-rejected row is left in the table (status='rejected', not
+// deleted) specifically so fetchRecentTopicsByField's exclude-history
+// query — which has no status filter — picks it up and steers the new
+// attempt away from repeating it.
+async function regenerateField(field: string): Promise<{ ok: boolean; error?: string }> {
+  if (!CRON_SECRET) return { ok: false, error: "CRON_SECRET is not set on this function" };
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REGENERATE_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-trending-topics`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-cron-secret": CRON_SECRET,
+      },
+      body: JSON.stringify({ fields: [field] }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      return { ok: false, error: `generate-trending-topics returned ${res.status}: ${(await res.text()).slice(0, 300)}` };
+    }
+    const data = await res.json();
+    if (!data.inserted) {
+      return { ok: false, error: Array.isArray(data.errors) && data.errors.length ? data.errors[0] : "No row generated" };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 serve(async (req) => {
   const corsHeaders = corsHeadersFor(req);
@@ -109,6 +165,20 @@ serve(async (req) => {
         });
       }
       const status = action === "approve" ? "approved" : "rejected";
+      // Need the row's field BEFORE updating it — fetched here rather
+      // than trusting a `field` the client might send, same reasoning as
+      // never trusting client-supplied data for a write.
+      const { data: existing, error: fetchErr } = await supabase
+        .from("trending_topics_cache")
+        .select("field")
+        .eq("id", id)
+        .maybeSingle();
+      if (fetchErr || !existing) {
+        return new Response(JSON.stringify({ error: fetchErr?.message || `No row with id ${id}` }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       const { error } = await supabase.from("trending_topics_cache").update({ status }).eq("id", id);
       if (error) {
         return new Response(JSON.stringify({ error: error.message }), {
@@ -116,7 +186,11 @@ serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      return new Response(JSON.stringify({ ok: true, id, status }), {
+      let regenerated: { ok: boolean; error?: string } | undefined;
+      if (action === "reject") {
+        regenerated = await regenerateField(existing.field);
+      }
+      return new Response(JSON.stringify({ ok: true, id, status, ...(regenerated ? { regenerated } : {}) }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
