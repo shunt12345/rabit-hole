@@ -1,30 +1,35 @@
 // Supabase Edge Function: generate-trending-topics
 //
-// Two scheduled jobs (see the pg_cron migrations), NOT called by the app
-// directly — the hero page's "Trending" + "Today" chips read the
-// trending_topics_cache table this writes to, instead of hitting search
-// live on every visit. One cron job runs the trending fields (two
+// Two scheduled jobs call this function (see the pg_cron migrations), NOT
+// called by the app directly — the hero page's "Trending" + "Today" chips
+// read the trending_topics_cache table this writes to, instead of hitting
+// search live on every visit. One cron job runs the trending fields (two
 // mainstream picks + one offbeat wildcard — see TRENDING_MAINSTREAM_FIELDS/
 // TRENDING_WILDCARD_FIELD below; this replaced the original fixed World
-// News/Science/Technology beats) twice a day with a plain `{}` body; a
-// second runs once nightly with a `"fields"` body naming every once-daily
-// field (This Day In History, Word Of The Day, Quote Of The Day, Riddle,
-// Perspective — SPECIAL_FIELDS plus RIDDLE_FIELD/PERSPECTIVE_FIELD, which
-// are kept out of that array so the client can give each its own card
-// rather than grouping it into "Today") — those only change once a day (or
-// aren't tied to the date at all), so there's no reason to re-run them on
-// the trending cadence too. Uses Claude's
-// web_search server tool with the same ANTHROPIC_API_KEY already used by
-// rabbit-hole-proxy, so no new vendor is needed (unlike the dormant
-// SerpApi-based trending-topics function this intentionally does not
-// reuse).
+// News/Science/Technology beats) once a day at 07:00 UTC with a plain `{}`
+// body; a second runs once a day at 15:00 UTC with a `"fields"` body naming
+// every once-daily field (This Day In History, Word Of The Day, Quote Of
+// The Day, Riddle, Perspective — SPECIAL_FIELDS plus RIDDLE_FIELD/
+// PERSPECTIVE_FIELD, which are kept out of that array so the client can
+// give each its own card rather than grouping it into "Today"). Uses
+// Claude's web_search server tool with the same ANTHROPIC_API_KEY already
+// used by rabbit-hole-proxy, so no new vendor is needed (unlike the
+// dormant SerpApi-based trending-topics function this intentionally does
+// not reuse).
 //
-// Every row this writes gets status='pending' (see migration 0045) —
-// nothing from here reaches the public hero page or the daily digest
-// until the admin reviews and approves it at /admin (admin-review-queue).
-// Visitors just keep seeing the latest already-approved pick for a field
-// until that happens, same graceful "show stale while waiting" posture
-// this app already uses for a field that failed to generate at all.
+// Review gate (migration 0045/0046): rows for the evergreen/date-anchored
+// batch (the 15:00 UTC job above) get status='pending' — nothing from
+// that batch reaches the public hero page or the daily digest until
+// either the admin approves it at /admin (admin-review-queue), or a THIRD
+// cron job (pure SQL, no function call — see migration 0046) auto-
+// approves anything still pending at 07:00 UTC the next morning, so a day
+// the admin doesn't get to reviewing never leaves visitors stuck on
+// stale content. NEWS_FIELDS is explicitly exempted from this (see the
+// `needsReview` check below) and keeps publishing immediately on its
+// existing 07:00 UTC run — reviewing a day ahead doesn't make sense for
+// content whose whole point is being current right now, which is also
+// why it stayed on the fast cadence while the evergreen batch moved to
+// 15:00 UTC to get a real review window first.
 //
 // One Claude call per field, run concurrently, rather than a single call
 // covering all of them — a combined call doing every field's search/lookup
@@ -1057,12 +1062,19 @@ serve(async (req) => {
 
   results.forEach((r, i) => {
     if (r.status === "fulfilled") {
-      // Explicit override, not reliance on the column default (see
-      // migration 0045) — this is the one write path in the app that
-      // needs review before going live; everything else (hand-authored
-      // seed inserts, future campaigns) stays on the 'approved' default
-      // since those are already reviewed by construction.
-      rows.push({ batch_date: today, status: "pending", ...r.value });
+      // Review ('pending') only applies to the evergreen/date-anchored
+      // batch (SPECIAL_FIELDS + RIDDLE_FIELD + PERSPECTIVE_FIELD) — see
+      // migration 0046. NEWS_FIELDS stays on the 'approved' column
+      // default (migration 0045) and keeps publishing immediately, same
+      // as before review existed: reviewing a day ahead doesn't make
+      // sense for something whose whole point is being current right
+      // now, and this run's own schedule confirms it — NEWS_FIELDS still
+      // runs on the fast 07:00 UTC cadence while the evergreen batch
+      // moved to 15:00 UTC specifically to get a real review window
+      // before its 07:00 UTC auto-approve-if-untouched sweep the next
+      // morning.
+      const needsReview = !NEWS_FIELDS.includes(r.value.field);
+      rows.push({ batch_date: today, ...(needsReview ? { status: "pending" } : {}), ...r.value });
     } else {
       const message = String((r.reason as any)?.message ?? r.reason).slice(0, 2000);
       console.error(`generate-trending-topics: field "${orderedFields[i]}" failed`, r.reason);

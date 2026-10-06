@@ -363,17 +363,20 @@ export default function AdminDashboard() {
           real enforced limit. Testing done while signed out can't be told apart from a real anonymous visitor.
         </p>
 
-        {/* Review queue — generate-trending-topics' nightly output sits
-            here as status='pending' (migration 0045) until it's approved
-            or rejected; nothing in it reaches the public hero page or the
-            daily digest email before that. Placed above the usage stats
-            since this is the part that's actually time-sensitive (the
-            digest sends at 09:00 UTC, 2 hours after the 07:00 UTC cron —
-            anything still unreviewed by then just means the digest falls
-            back to showing the previous day's already-approved pick for
-            that field, not a hard failure). */}
+        {/* Review queue — the evergreen/date-anchored batch (This Day In
+            History, Word Of The Day, Quote, Riddle, Perspective) sits here
+            as status='pending' (migration 0045) from the 15:00 UTC
+            generation run until the admin approves/rejects it, or until a
+            third cron job auto-approves anything still pending at 07:00
+            UTC the next morning (migration 0046) — review is a real
+            window, not a hard gate, so a day it's skipped still reaches
+            the hero page and the 09:00 UTC digest with fresh content
+            instead of falling back to stale. Trending news isn't gated at
+            all (see generate-trending-topics' `needsReview` check) and
+            never shows up here. Placed above the usage stats since this is
+            the actually time-sensitive part of the page. */}
         <div className="rounded-2xl border p-4 mb-6" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-1">
             <div className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: COLORS.dim }}>
               Review queue{reviewRows.some((r) => r.status === "pending") ? ` · ${reviewRows.filter((r) => r.status === "pending").length} pending` : ""}
             </div>
@@ -388,6 +391,10 @@ export default function AdminDashboard() {
               </button>
             )}
           </div>
+          <p className="text-xs mb-3" style={{ color: COLORS.dim }}>
+            New picks land here around 11am ET. Anything still pending auto-approves at ~3am ET the next morning, before
+            the digest sends — review is optional, not required for fresh content to go out.
+          </p>
 
           {reviewError && (
             <div className="flex items-center gap-2 text-sm mb-3" style={{ color: COLORS.bad }}>
