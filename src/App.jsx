@@ -218,7 +218,12 @@ function nextId() {
 // that's been renamed or retired (like the old "World News"/"Science"/
 // "Technology" beats this replaced) just stops rendering on its own
 // instead of lingering until its rows age out.
-const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,options,generated_at&order=generated_at.desc,id.desc&limit=24`;
+// status=eq.approved is belt-and-suspenders, not the real enforcement —
+// RLS itself only allows reading approved rows now (migration 0045), so a
+// pending/rejected row is unreadable with the anon key regardless of this
+// query string. Kept explicit anyway so this file's own intent reads
+// clearly without having to know the DB-side policy exists.
+const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,options,generated_at&status=eq.approved&order=generated_at.desc,id.desc&limit=24`;
 const NEWS_FIELDS = ["Trending 1", "Trending 2", "Trending Wildcard"];
 // What each internal field key actually displays as — kept separate from
 // the field key itself so latestByField (below) can still tell the two

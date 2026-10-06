@@ -19,6 +19,13 @@
 // SerpApi-based trending-topics function this intentionally does not
 // reuse).
 //
+// Every row this writes gets status='pending' (see migration 0045) —
+// nothing from here reaches the public hero page or the daily digest
+// until the admin reviews and approves it at /admin (admin-review-queue).
+// Visitors just keep seeing the latest already-approved pick for a field
+// until that happens, same graceful "show stale while waiting" posture
+// this app already uses for a field that failed to generate at all.
+//
 // One Claude call per field, run concurrently, rather than a single call
 // covering all of them — a combined call doing every field's search/lookup
 // in one request risked the edge runtime's execution limit (seen in
@@ -1050,7 +1057,12 @@ serve(async (req) => {
 
   results.forEach((r, i) => {
     if (r.status === "fulfilled") {
-      rows.push({ batch_date: today, ...r.value });
+      // Explicit override, not reliance on the column default (see
+      // migration 0045) — this is the one write path in the app that
+      // needs review before going live; everything else (hand-authored
+      // seed inserts, future campaigns) stays on the 'approved' default
+      // since those are already reviewed by construction.
+      rows.push({ batch_date: today, status: "pending", ...r.value });
     } else {
       const message = String((r.reason as any)?.message ?? r.reason).slice(0, 2000);
       console.error(`generate-trending-topics: field "${orderedFields[i]}" failed`, r.reason);

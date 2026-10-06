@@ -298,11 +298,18 @@ serve(async (req) => {
   }
 
   // Latest row per field — same "most recent per named field" semantics as
-  // the client's latestByField, just expressed as SQL here.
+  // the client's latestByField, just expressed as SQL here. Explicitly
+  // scoped to status='approved' (see migration 0045) even though this
+  // function uses the service-role key, which bypasses the RLS policy
+  // that enforces the same thing for the anon-key hero page — nothing
+  // pending review should ever go out in an email either, and service
+  // role sees everything regardless of RLS, so this filter is the only
+  // thing enforcing that here.
   const { data: topicRows, error: topicsError } = await supabase
     .from("trending_topics_cache")
     .select("field, topic, teaser, generated_at")
     .in("field", [QUOTE_FIELD, RIDDLE_FIELD, PERSPECTIVE_FIELD, ...TRENDING_FIELDS, ...TODAY_FIELDS])
+    .eq("status", "approved")
     .order("generated_at", { ascending: false });
   if (topicsError) {
     return new Response(JSON.stringify({ error: `Failed to read topics: ${topicsError.message}` }), {

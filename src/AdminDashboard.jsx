@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, AlertCircle, RefreshCw, LogOut } from "lucide-react";
+import { Loader2, AlertCircle, RefreshCw, LogOut, Check, X } from "lucide-react";
 import { getCurrentUser, onAuthStateChange, sendMagicLink, signOut, getAccessToken } from "./lib/auth.js";
 import MiniGauge from "./MiniGauge.jsx";
 
@@ -80,6 +80,77 @@ function usd(n) {
   return `$${Number(n || 0).toFixed(4)}`;
 }
 
+// One pending/rejected trending_topics_cache row, with its own
+// approve/reject buttons — deliberately a plain card per row rather than
+// a Table (above), since a teaser can run to a full sentence or two and a
+// table cell would truncate or wrap awkwardly compared to a card's full
+// width.
+function ReviewCard({ row, onDecide, busy }) {
+  const isRejected = row.status === "rejected";
+  return (
+    <div
+      className="rounded-2xl border p-4"
+      style={{
+        backgroundColor: COLORS.card,
+        borderColor: isRejected ? COLORS.bad : COLORS.border,
+        opacity: isRejected ? 0.7 : 1,
+      }}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="rh-mono rh-text-10 uppercase tracking-wider mb-1 flex items-center gap-2" style={{ color: COLORS.accent }}>
+            {row.field}
+            {isRejected && <span style={{ color: COLORS.bad }}>· rejected</span>}
+            {row.category && <span style={{ color: COLORS.dim }}>· {row.category}</span>}
+          </div>
+          <div className="text-base font-semibold" style={{ color: COLORS.text }}>
+            {row.topic}
+          </div>
+          <p className="text-sm mt-1" style={{ color: COLORS.dim }}>
+            {row.teaser}
+          </p>
+          {Array.isArray(row.options) && row.options.length > 0 && (
+            <p className="text-xs mt-1" style={{ color: COLORS.dim }}>
+              Decoys: {row.options.join(", ")}
+            </p>
+          )}
+          <div className="text-xs mt-2" style={{ color: COLORS.dim }}>
+            {new Date(row.generated_at).toLocaleString()}
+            {row.source_url && (
+              <>
+                {" · "}
+                <a href={row.source_url} target="_blank" rel="noreferrer" style={{ color: COLORS.dim, textDecoration: "underline" }}>
+                  source
+                </a>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => onDecide(row.id, "approve")}
+            disabled={busy}
+            className="flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-40"
+            style={{ backgroundColor: COLORS.accent, color: "#14100C" }}
+          >
+            <Check size={13} /> Approve
+          </button>
+          {!isRejected && (
+            <button
+              onClick={() => onDecide(row.id, "reject")}
+              disabled={busy}
+              className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs disabled:opacity-40"
+              style={{ borderColor: COLORS.bad, color: COLORS.bad }}
+            >
+              <X size={13} /> Reject
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const [user, setUser] = useState(undefined); // undefined = still checking, null = signed out
   const [email, setEmail] = useState("");
@@ -89,6 +160,19 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Review queue (trending_topics_cache rows awaiting a decision before
+  // generate-trending-topics' output reaches the public hero page/digest
+  // — see migration 0045 + admin-review-queue). Separate loading/error
+  // state from the usage stats above since these two sections load
+  // independently and a failure in one shouldn't block the other.
+  const [reviewRows, setReviewRows] = useState([]);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState(null);
+  // Which row id (or "all" for the bulk action) currently has an
+  // in-flight approve/reject call — disables just that row's buttons
+  // rather than freezing the whole queue while one decision is saving.
+  const [busyId, setBusyId] = useState(null);
 
   useEffect(() => {
     getCurrentUser().then(setUser);
@@ -122,8 +206,66 @@ export default function AdminDashboard() {
     }
   };
 
+  const callReviewQueue = async (action, extra) => {
+    const token = await getAccessToken();
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-review-queue`, {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ action, ...extra }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Request failed (${res.status}).`);
+    }
+    return res.json();
+  };
+
+  const loadReviewQueue = async () => {
+    setReviewLoading(true);
+    setReviewError(null);
+    try {
+      const { rows } = await callReviewQueue("list");
+      setReviewRows(rows || []);
+    } catch (e) {
+      setReviewError(e.message || "Failed to load the review queue.");
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
+  const decide = async (id, action) => {
+    setBusyId(id);
+    try {
+      await callReviewQueue(action, { id });
+      await loadReviewQueue();
+    } catch (e) {
+      setReviewError(e.message || "That decision didn't save — try again.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const approveAll = async () => {
+    setBusyId("all");
+    try {
+      await callReviewQueue("approveAll");
+      await loadReviewQueue();
+    } catch (e) {
+      setReviewError(e.message || "Approve all didn't go through — try again.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   useEffect(() => {
-    if (user) loadStats();
+    if (user) {
+      loadStats();
+      loadReviewQueue();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
@@ -196,12 +338,15 @@ export default function AdminDashboard() {
           </h1>
           <div className="flex items-center gap-2">
             <button
-              onClick={loadStats}
-              disabled={loading}
+              onClick={() => {
+                loadStats();
+                loadReviewQueue();
+              }}
+              disabled={loading || reviewLoading}
               className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs"
               style={{ borderColor: COLORS.border, color: COLORS.text }}
             >
-              <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> Refresh
+              <RefreshCw size={13} className={loading || reviewLoading ? "animate-spin" : ""} /> Refresh
             </button>
             <button
               onClick={() => signOut()}
@@ -217,6 +362,55 @@ export default function AdminDashboard() {
           Your own signed-in activity is excluded from every number below except the 24h cap gauge, which mirrors the
           real enforced limit. Testing done while signed out can't be told apart from a real anonymous visitor.
         </p>
+
+        {/* Review queue — generate-trending-topics' nightly output sits
+            here as status='pending' (migration 0045) until it's approved
+            or rejected; nothing in it reaches the public hero page or the
+            daily digest email before that. Placed above the usage stats
+            since this is the part that's actually time-sensitive (the
+            digest sends at 09:00 UTC, 2 hours after the 07:00 UTC cron —
+            anything still unreviewed by then just means the digest falls
+            back to showing the previous day's already-approved pick for
+            that field, not a hard failure). */}
+        <div className="rounded-2xl border p-4 mb-6" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: COLORS.dim }}>
+              Review queue{reviewRows.some((r) => r.status === "pending") ? ` · ${reviewRows.filter((r) => r.status === "pending").length} pending` : ""}
+            </div>
+            {reviewRows.some((r) => r.status === "pending") && (
+              <button
+                onClick={approveAll}
+                disabled={busyId !== null}
+                className="rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-40"
+                style={{ backgroundColor: COLORS.accent, color: "#14100C" }}
+              >
+                Approve all
+              </button>
+            )}
+          </div>
+
+          {reviewError && (
+            <div className="flex items-center gap-2 text-sm mb-3" style={{ color: COLORS.bad }}>
+              <AlertCircle size={15} /> {reviewError}
+            </div>
+          )}
+
+          {reviewLoading && reviewRows.length === 0 ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 size={18} className="animate-spin" style={{ color: COLORS.dim }} />
+            </div>
+          ) : reviewRows.length === 0 ? (
+            <div className="text-sm py-4 text-center" style={{ color: COLORS.dim }}>
+              Nothing waiting for review.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {reviewRows.map((row) => (
+                <ReviewCard key={row.id} row={row} onDecide={decide} busy={busyId === row.id || busyId === "all"} />
+              ))}
+            </div>
+          )}
+        </div>
 
         {error && (
           <div
