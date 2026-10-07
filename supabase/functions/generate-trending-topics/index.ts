@@ -185,20 +185,28 @@ const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPAB
 // find a genuinely different major story and specifically NOT the most
 // dominant one. Differently-framed prompts collide far less than
 // identically-framed ones searching independently for "the" top story.
-function trendingMainstreamPrompt(excludeTopics: string[], variant: "primary" | "secondary"): string {
+function trendingMainstreamPrompt(excludeTopics: string[], variant: "primary" | "secondary", seedIdea?: string | null): string {
   const today = new Date().toISOString().slice(0, 10);
   const excludeBlock = excludeTopics.length
     ? `\n\nAlready shown recently — pick something genuinely different from all of these, not a rephrasing of any of them: ${excludeTopics.join("; ")}.`
     : "";
-  const focusLine =
-    variant === "primary"
+  // seedIdea (suggest-a-topic, admin-review-queue's "suggest" action) hands
+  // this a specific story instead of an open search — swaps out only the
+  // "what to look for" framing below, keeping the rest of this prompt
+  // (register, output format, SOURCE_URL_CHECK) identical either way.
+  const focusLine = seedIdea
+    ? `Research this specific story, suggested by the app's operator: "${seedIdea}." Confirm via search that it's real and find the actual current details — don't invent specifics.`
+    : variant === "primary"
       ? `Search for the single biggest, most dominant story trending right now — whatever is getting the most attention today, in any category (politics, business, entertainment, sports, culture, tech — whatever is actually trending, not a fixed beat).`
       : `Search for a second, genuinely different major story trending right now — something else that's also getting real, widespread attention today, but NOT the single most dominant headline (assume that one's already covered elsewhere). Pick a different category if you can — if the biggest story is political, look at business, culture, sports, or tech instead.`;
+  const freshnessBlock = seedIdea
+    ? `Make sure the specific facts and details you use are accurate and current, confirmed via search — don't rely on memory alone for anything time-sensitive.`
+    : `The underlying EVENT itself has to be genuinely fresh — something that actually happened or was announced within roughly the last 48 hours, not an older story that's merely being reposted, re-discussed, or resurfacing as an anniversary. Check the actual date of the event you find, not just the date of the page reporting it — a page published today about something that happened weeks or months ago does NOT count as trending. If what you find turns out to be old once you check, search again with a more time-boxed query (add "today," "this week," or today's actual date to it) until you land on something truly current.`;
   return `Today's date is ${today}. You have live web search — use it now.
 
 ${focusLine} Use a specific, well-targeted query rather than a generic phrase like "trending today" — try a different angle or refine the query if the first search doesn't surface something with real current buzz behind it.${excludeBlock}
 
-The underlying EVENT itself has to be genuinely fresh — something that actually happened or was announced within roughly the last 48 hours, not an older story that's merely being reposted, re-discussed, or resurfacing as an anniversary. Check the actual date of the event you find, not just the date of the page reporting it — a page published today about something that happened weeks or months ago does NOT count as trending. If what you find turns out to be old once you check, search again with a more time-boxed query (add "today," "this week," or today's actual date to it) until you land on something truly current.
+${freshnessBlock}
 
 Current, specific, and fresh — no historical background or context. The topic and teaser must be about a specific thing that happened or was announced recently, not general facts about the subject. A reader should immediately understand what's NEW, not get a primer on the subject.
 
@@ -259,7 +267,7 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
 }
 
-function thisDayInHistoryPrompt(excludeTopics: string[]): string {
+function thisDayInHistoryPrompt(excludeTopics: string[], seedIdea?: string | null): string {
   const today = new Date();
   const monthDay = today.toLocaleDateString("en-US", { month: "long", day: "numeric" });
   const excludeBlock = excludeTopics.length
@@ -273,9 +281,16 @@ function thisDayInHistoryPrompt(excludeTopics: string[]): string {
   // first. Doesn't require textbook-famous, though — "significant but not
   // the single most overexposed event of the day" is the actual sweet
   // spot, same reasoning as quoteOfTheDayPrompt favoring insight over fame.
+  // seedIdea (suggest-a-topic) hands this a specific event instead of an
+  // open search for what happened on today's date — the admin's pick
+  // overrides the date anchor entirely, same swap-only-the-finding-
+  // instruction approach as trendingMainstreamPrompt above.
+  const searchBlock = seedIdea
+    ? `Research this specific historical event, suggested by the app's operator: "${seedIdea}." Confirm it's real and accurate via search, and find the real year and place it happened.`
+    : `Search for a real, verifiable event that happened specifically on ${monthDay} in history — any past year — with genuine historical significance: something that actually mattered beyond the place or people it happened to, not a pleasant but minor local-interest story. Favor moments with real weight: a meaningful scientific, medical, or technological breakthrough; a genuine first in exploration or human achievement; a milestone in civil rights or social progress; a landmark cultural or artistic debut; a turning point a reader would recognize as actually significant once they heard it. It does NOT have to be the single most famous event of the day — textbook-overexposed is its own problem, and a genuinely significant but less commonly retold moment is exactly the sweet spot — but it must clear a real bar of "this mattered," not just "this is a nice story." A small-town festival, a local business or landmark opening, a minor regional curiosity, or anything whose significance is purely local is NOT what this is asking for, however charming. It still needs to be historically accurate and confirmable via search, not misremembered trivia.`;
   return `Today's date is ${today.toISOString().slice(0, 10)}. You have live web search — use it now.
 
-Search for a real, verifiable event that happened specifically on ${monthDay} in history — any past year — with genuine historical significance: something that actually mattered beyond the place or people it happened to, not a pleasant but minor local-interest story. Favor moments with real weight: a meaningful scientific, medical, or technological breakthrough; a genuine first in exploration or human achievement; a milestone in civil rights or social progress; a landmark cultural or artistic debut; a turning point a reader would recognize as actually significant once they heard it. It does NOT have to be the single most famous event of the day — textbook-overexposed is its own problem, and a genuinely significant but less commonly retold moment is exactly the sweet spot — but it must clear a real bar of "this mattered," not just "this is a nice story." A small-town festival, a local business or landmark opening, a minor regional curiosity, or anything whose significance is purely local is NOT what this is asking for, however charming. It still needs to be historically accurate and confirmable via search, not misremembered trivia.
+${searchBlock}
 
 Keep this upbeat, not somber: favor a positive accomplishment, a breakthrough, an opening, a rescue with a good outcome, or another event with real weight that still lands as a pick-me-up rather than a memorial — not a disaster, death, accident, crime, war, or any other tragedy. Actively steer away from grim subject matter even when a tragic event is the most "notable" thing that happened on this date; keep searching for a significant but lighter one instead of settling for the dark option.
 
@@ -292,7 +307,11 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
 }
 
-function wordOfTheDayPrompt(excludeTopics: string[], recentTeasers: { topic: string; teaser: string }[] = []): string {
+function wordOfTheDayPrompt(
+  excludeTopics: string[],
+  recentTeasers: { topic: string; teaser: string }[] = [],
+  seedIdea?: string | null
+): string {
   const excludeBlock = excludeTopics.length
     ? `\n\nAlready featured recently — pick a different word this time, not a repeat of any of these: ${excludeTopics.join("; ")}.`
     : "";
@@ -307,9 +326,15 @@ function wordOfTheDayPrompt(excludeTopics: string[], recentTeasers: { topic: str
         .map((t) => `- "${t.topic}": ${t.teaser}`)
         .join("\n")}`
     : "";
+  // seedIdea (suggest-a-topic) hands this a specific word instead of an
+  // open choice — same swap-only-the-finding-instruction approach as the
+  // other fields above.
+  const pickBlock = seedIdea
+    ? `Use this specific word, suggested by the app's operator: "${seedIdea}." Search to confirm its real etymology or origin story, and present the most genuinely surprising, verifiable part of it you can find — not a popular folk etymology that turns out to be false.`
+    : `Pick a single real English word — common enough that most readers will already recognize it — with a genuinely surprising, verifiable etymology or origin story, the kind of thing that makes someone say "wait, really?" Avoid a word whose origin story is already common knowledge. Search to confirm the etymology is real and accurate, not a popular folk etymology that turns out to be false.`;
   return `You have live web search — use it now.
 
-Pick a single real English word — common enough that most readers will already recognize it — with a genuinely surprising, verifiable etymology or origin story, the kind of thing that makes someone say "wait, really?" Avoid a word whose origin story is already common knowledge. Search to confirm the etymology is real and accurate, not a popular folk etymology that turns out to be false.${excludeBlock}${factBlock}
+${pickBlock}${excludeBlock}${factBlock}
 
 Once you've confirmed a real one via search, produce:
 - "topic": the word itself, title case, no definition or extra text
@@ -359,7 +384,7 @@ const QUOTE_CATEGORIES = [
 // people) rather than FAME (is this the most-quoted line this person ever
 // said), which are different axes — a figure's single most iconic line is
 // often their most worn-out one, not their most substantive.
-function quoteOfTheDayPrompt(excludeTopics: string[], recentCategories: string[]): string {
+function quoteOfTheDayPrompt(excludeTopics: string[], recentCategories: string[], seedIdea?: string | null): string {
   const excludeBlock = excludeTopics.length
     ? `\n\nAlready featured recently — pick a different quote this time, not a repeat of any of these: ${excludeTopics.join("; ")}.`
     : "";
@@ -369,11 +394,17 @@ function quoteOfTheDayPrompt(excludeTopics: string[], recentCategories: string[]
   const categoryBlock = recentCategories.length
     ? `\n\nThe last few picks' categories, most recent first: ${recentCategories.join(", ")}. Do not pick from that same category again this time — actively favor whichever of these categories AREN'T in that recent list: ${QUOTE_CATEGORIES.join(", ")}.`
     : "";
+  // seedIdea (suggest-a-topic) hands this a specific quote, speaker, or
+  // theme instead of an open choice — same swap-only-the-finding-
+  // instruction approach as the other fields above.
+  const pickBlock = seedIdea
+    ? `Use this quote, speaker, or theme, suggested by the app's operator: "${seedIdea}." If it's already a specific quote, confirm its exact wording and attribution via search. If it's more of a person or theme, search for a real, correctly-attributed quote from them (or fitting that theme) that offers genuine insight into learning, education, creativity, problem-solving, curiosity, growth through failure, or working well with other people — not just their single most iconic, overexposed line.`
+    : `Pick a single real quote that offers genuine insight into learning, education, creativity, problem-solving, curiosity, growth through failure, or working well with other people — something a reader could actually turn over and apply, not just nod at. This is the actual selection criterion — fame is NOT: do not pick a quote just because it's iconic or the single most-quoted line the speaker is known for. In fact, treat "this is the most famous thing this person ever said" as a reason to look further, not a reason to pick it — everyone has already heard "that's one small step for man" or "ask not what your country can do for you" a hundred times, and a quote everyone can already recite offers a reader nothing new to sit with. A real person's LESS-repeated lines are usually where the actual substance is; search specifically for those instead of whatever comes up first. The quote must still be from a real historical or notable figure, not an anonymous "inspirational quote" graphic, but being well-known is neutral at best — insight is what matters.
+
+Deliberately range across ALL of these categories over time, not just the ones that come to mind first: ${QUOTE_CATEGORIES.join(", ")} — a scientist or philosopher is a perfectly fine pick sometimes, but so is a politician, an athlete, a tech founder, or a business leader; don't reach for the same kind of figure out of habit every time this runs.`;
   return `You have live web search — use it now.
 
-Pick a single real quote that offers genuine insight into learning, education, creativity, problem-solving, curiosity, growth through failure, or working well with other people — something a reader could actually turn over and apply, not just nod at. This is the actual selection criterion — fame is NOT: do not pick a quote just because it's iconic or the single most-quoted line the speaker is known for. In fact, treat "this is the most famous thing this person ever said" as a reason to look further, not a reason to pick it — everyone has already heard "that's one small step for man" or "ask not what your country can do for you" a hundred times, and a quote everyone can already recite offers a reader nothing new to sit with. A real person's LESS-repeated lines are usually where the actual substance is; search specifically for those instead of whatever comes up first. The quote must still be from a real historical or notable figure, not an anonymous "inspirational quote" graphic, but being well-known is neutral at best — insight is what matters.
-
-Deliberately range across ALL of these categories over time, not just the ones that come to mind first: ${QUOTE_CATEGORIES.join(", ")} — a scientist or philosopher is a perfectly fine pick sometimes, but so is a politician, an athlete, a tech founder, or a business leader; don't reach for the same kind of figure out of habit every time this runs. Search to confirm BOTH the exact wording AND the attribution are accurate — misattributed quotes are extremely common online (a large share of "Einstein said" or "Mark Twain said" quotes circulating online are fake or misattributed to them), so specifically check whether this one is a known fake before using it. If you can't confirm a real, correctly-attributed quote, pick a different one you can verify instead of using an unconfirmed one.${excludeBlock}${categoryBlock}
+${pickBlock} Search to confirm BOTH the exact wording AND the attribution are accurate — misattributed quotes are extremely common online (a large share of "Einstein said" or "Mark Twain said" quotes circulating online are fake or misattributed to them), so specifically check whether this one is a known fake before using it. If you can't confirm a real, correctly-attributed quote, pick a different one you can verify instead of using an unconfirmed one.${excludeBlock}${categoryBlock}
 
 Once you've confirmed a real, correctly-attributed quote via search, produce:
 - "topic": the quote itself, in quotation marks, exactly as verified — word for word, no paraphrasing. This can run longer than the usual short label; the whole point is showing the real quote.
@@ -446,7 +477,7 @@ const RIDDLE_CATEGORIES = [
 // (and the source_url it exists to produce) removes a real chunk of that
 // per-call resource footprint rather than just hoping a given run squeaks
 // under the ceiling.
-function riddlePrompt(excludeTopics: string[], recentCategories: string[]): string {
+function riddlePrompt(excludeTopics: string[], recentCategories: string[], seedIdea?: string | null): string {
   const excludeBlock = excludeTopics.length
     ? `\n\nAlready featured recently — pick a different topic this time, not a repeat of any of these: ${excludeTopics.join("; ")}.`
     : "";
@@ -459,7 +490,14 @@ function riddlePrompt(excludeTopics: string[], recentCategories: string[]): stri
   const categoryBlock = recentCategories.length
     ? `\n\nThe last few picks' categories, most recent first: ${recentCategories.join(", ")}. Do not pick from that same category again this time, especially if it's "animal" — actively favor whichever of these categories AREN'T in that recent list: ${RIDDLE_CATEGORIES.join(", ")}.`
     : "";
-  return `Pick a single real, genuinely interesting topic. It does NOT have to be an animal or living thing — deliberately range across ALL of these categories over time, not just the ones that come to mind first: ${RIDDLE_CATEGORIES.join(", ")}. Wide open, not tied to today's date or current events. This runs from your own knowledge, not a live search — stick to well-established, widely-documented facts you're genuinely confident are accurate, not an obscure or disputed detail you can't verify from memory alone.${excludeBlock}${categoryBlock}
+  // seedIdea (suggest-a-topic) hands this a specific subject instead of an
+  // open choice — same swap-only-the-finding-instruction approach as the
+  // other fields above; everything below (the register, worked examples,
+  // hard caps) is untouched either way.
+  const topicBlock = seedIdea
+    ? `Write this riddle about this specific topic, suggested by the app's operator: "${seedIdea}." Not tied to today's date or current events. This runs from your own knowledge, not a live search — stick to well-established, widely-documented facts you're genuinely confident are accurate, not an obscure or disputed detail you can't verify from memory alone.`
+    : `Pick a single real, genuinely interesting topic. It does NOT have to be an animal or living thing — deliberately range across ALL of these categories over time, not just the ones that come to mind first: ${RIDDLE_CATEGORIES.join(", ")}. Wide open, not tied to today's date or current events. This runs from your own knowledge, not a live search — stick to well-established, widely-documented facts you're genuinely confident are accurate, not an obscure or disputed detail you can't verify from memory alone.`;
+  return `${topicBlock}${excludeBlock}${categoryBlock}
 
 Now write exactly ONE SENTENCE — a riddle, phrased as a single question that starts with the literal words "What is" and ends with a question mark — that describes this topic WITHOUT ever naming it. One sentence, one question mark, at the very end only — use dashes or commas to string clauses together the way the examples below do, not periods (or a second "?") to split it into several. But it must still be SOLVABLE — anchor it with 2-3 real, concrete, verifiable details about the topic (not just abstract mood), so a reader who knows the subject can actually place it. Do not over-abstract into pure metaphor with no verifiable facts left in it — that stops being a riddle and becomes unsolvable.
 
@@ -521,13 +559,20 @@ function nextPerspectiveFocus(lastFocus: string | null): string {
 // way three-at-once would.
 const PERSPECTIVE_ANGLES = ["scale", "design", "function", "evolution", "major events"];
 
-function perspectivePrompt(excludeTopics: string[], focus: string): string {
+function perspectivePrompt(excludeTopics: string[], focus: string, seedIdea?: string | null): string {
   const excludeBlock = excludeTopics.length
     ? `\n\nAlready featured recently — pick something genuinely different from all of these, not a rephrasing of any of them: ${excludeTopics.join("; ")}.`
     : "";
+  // seedIdea (suggest-a-topic) hands this a specific thing to reframe
+  // instead of an open choice within the focus — the deterministic
+  // focus rotation (nextPerspectiveFocus) still applies either way, this
+  // only swaps which THING gets reframed within that focus.
+  const pickLine = seedIdea
+    ? `Today's focus is "${focus}." Reframe this specific thing, suggested by the app's operator: "${seedIdea}," by shifting scale`
+    : `Today's focus is "${focus}." Pick ONE specific thing within that focus and reframe it by shifting scale`;
   return `You have live web search — use it now.
 
-Today's focus is "${focus}." Pick ONE specific thing within that focus and reframe it by shifting scale — zoom all the way in to something microscopic, molecular, or cellular, or zoom all the way out to something planetary, cosmic, or civilizational — so the reader sees something ordinary, or something they thought they already understood, from a genuinely different magnitude than they normally think about it at. Draw your actual angle from exactly one of: ${PERSPECTIVE_ANGLES.join(", ")} — whichever actually fits this specific pick best, don't try to force all five into one entry.${excludeBlock}
+${pickLine} — zoom all the way in to something microscopic, molecular, or cellular, or zoom all the way out to something planetary, cosmic, or civilizational — so the reader sees something ordinary, or something they thought they already understood, from a genuinely different magnitude than they normally think about it at. Draw your actual angle from exactly one of: ${PERSPECTIVE_ANGLES.join(", ")} — whichever actually fits this specific pick best, don't try to force all five into one entry.${excludeBlock}
 
 Search to confirm the real facts, figures, or mechanism you use are accurate — a wrong number here is exactly the kind of claim a reader can check in one glance, and being wrong there undermines the whole reframing.
 
@@ -549,15 +594,22 @@ function promptForField(
   recentRiddleCategories: string[] = [],
   recentQuoteCategories: string[] = [],
   recentWordTeasers: { topic: string; teaser: string }[] = [],
-  perspectiveFocus: string | null = null
+  perspectiveFocus: string | null = null,
+  // Suggest-a-topic (admin-review-queue's "suggest" action, /queue) — a
+  // specific idea the operator typed in, instead of this field's normal
+  // open search/choice. Threaded through to whichever builder below
+  // actually handles this field; each one swaps only its own "what to
+  // look for" framing when this is set, keeping its tuned register/
+  // output-format instructions unchanged either way.
+  seedIdea: string | null = null
 ): string {
-  if (field === "This Day In History") return thisDayInHistoryPrompt(excludeTopics);
-  if (field === "Word Of The Day") return wordOfTheDayPrompt(excludeTopics, recentWordTeasers);
-  if (field === QUOTE_FIELD) return quoteOfTheDayPrompt(excludeTopics, recentQuoteCategories);
-  if (field === RIDDLE_FIELD) return riddlePrompt(excludeTopics, recentRiddleCategories);
-  if (field === PERSPECTIVE_FIELD) return perspectivePrompt(excludeTopics, perspectiveFocus || nextPerspectiveFocus(null));
-  if (field === TRENDING_MAINSTREAM_FIELDS[0]) return trendingMainstreamPrompt(excludeTopics, "primary");
-  if (field === TRENDING_MAINSTREAM_FIELDS[1]) return trendingMainstreamPrompt(excludeTopics, "secondary");
+  if (field === "This Day In History") return thisDayInHistoryPrompt(excludeTopics, seedIdea);
+  if (field === "Word Of The Day") return wordOfTheDayPrompt(excludeTopics, recentWordTeasers, seedIdea);
+  if (field === QUOTE_FIELD) return quoteOfTheDayPrompt(excludeTopics, recentQuoteCategories, seedIdea);
+  if (field === RIDDLE_FIELD) return riddlePrompt(excludeTopics, recentRiddleCategories, seedIdea);
+  if (field === PERSPECTIVE_FIELD) return perspectivePrompt(excludeTopics, perspectiveFocus || nextPerspectiveFocus(null), seedIdea);
+  if (field === TRENDING_MAINSTREAM_FIELDS[0]) return trendingMainstreamPrompt(excludeTopics, "primary", seedIdea);
+  if (field === TRENDING_MAINSTREAM_FIELDS[1]) return trendingMainstreamPrompt(excludeTopics, "secondary", seedIdea);
   return fieldPrompt(field, excludeTopics);
 }
 
@@ -576,7 +628,8 @@ async function generateForField(
   recentRiddleCategories: string[] = [],
   recentQuoteCategories: string[] = [],
   recentWordTeasers: { topic: string; teaser: string }[] = [],
-  perspectiveFocus: string | null = null
+  perspectiveFocus: string | null = null,
+  seedIdea: string | null = null
 ) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), PER_FIELD_TIMEOUT_MS);
@@ -624,7 +677,8 @@ async function generateForField(
               recentRiddleCategories,
               recentQuoteCategories,
               recentWordTeasers,
-              perspectiveFocus
+              perspectiveFocus,
+              seedIdea
             ),
           },
         ],
@@ -967,6 +1021,14 @@ serve(async (req) => {
     ? body.fields.filter((f: unknown) => typeof f === "string" && FIELDS.includes(f))
     : [];
   const fieldsToRun = requestedFields.length > 0 ? requestedFields : NEWS_FIELDS;
+  // Suggest-a-topic (admin-review-queue's "suggest" action) — a specific
+  // idea for the ONE field it names, forwarded from there the same way a
+  // reject's regenerateField forwards a plain `{ fields: [field] }`. Only
+  // meaningful alongside a single requested field; applied to every field
+  // in this invocation regardless (harmless in practice, since the real
+  // caller always requests exactly one).
+  const suggestion =
+    typeof body?.suggestion === "string" && body.suggestion.trim() ? body.suggestion.trim().slice(0, 300) : null;
 
   const recentByField = await fetchRecentTopicsByField();
   const recentRiddleCategories = fieldsToRun.includes(RIDDLE_FIELD) ? await fetchRecentRiddleCategories() : [];
@@ -1012,7 +1074,16 @@ serve(async (req) => {
       continue;
     }
     try {
-      const value = await generateForField(apiKey, field, [...recentByField[field]!, ...justPicked]);
+      const value = await generateForField(
+        apiKey,
+        field,
+        [...recentByField[field]!, ...justPicked],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        suggestion
+      );
       results.push({ status: "fulfilled", value });
       justPicked = [...justPicked, value.topic];
     } catch (reason) {
@@ -1032,7 +1103,8 @@ serve(async (req) => {
         field === RIDDLE_FIELD ? recentRiddleCategories : undefined,
         field === QUOTE_FIELD ? recentQuoteCategories : undefined,
         field === "Word Of The Day" ? recentWordTeasers : undefined,
-        field === PERSPECTIVE_FIELD ? perspectiveFocus : undefined
+        field === PERSPECTIVE_FIELD ? perspectiveFocus : undefined,
+        suggestion
       );
     })
   );

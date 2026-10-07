@@ -1,6 +1,21 @@
 import { useEffect, useState } from "react";
-import { Loader2, AlertCircle, RefreshCw, LogOut, Check, X } from "lucide-react";
+import { Loader2, AlertCircle, RefreshCw, LogOut, Check, X, Sparkles } from "lucide-react";
 import { getCurrentUser, onAuthStateChange, sendMagicLink, signOut, getAccessToken } from "./lib/auth.js";
+
+// Mirrors admin-review-queue's own SUGGESTIBLE_FIELDS allowlist — every
+// field slot "suggest a topic" (below) can seed. Kept as a literal copy
+// here, not fetched from the server, since it's a fixed, rarely-changing
+// list and this page already has no other reason to round-trip before
+// showing the form.
+const SUGGESTIBLE_FIELDS = [
+  "Trending 1",
+  "Trending 2",
+  "This Day In History",
+  "Word Of The Day",
+  "Quote Of The Day",
+  "Riddle",
+  "Perspective",
+];
 
 // Served at /queue (see main.jsx) — split out from AdminDashboard.jsx
 // (which stays at /admin for the usage-stats side of things) so the
@@ -115,6 +130,14 @@ export default function ReviewQueue() {
   // rather than freezing the whole queue while one decision is saving.
   const [busyId, setBusyId] = useState(null);
 
+  // "Suggest a topic" — its own small form, own state, independent of the
+  // list above. suggesting is a separate busy flag from busyId since this
+  // can run alongside the existing queue (nothing here is a row decision).
+  const [suggestField, setSuggestField] = useState(SUGGESTIBLE_FIELDS[0]);
+  const [suggestText, setSuggestText] = useState("");
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestError, setSuggestError] = useState(null);
+
   useEffect(() => {
     getCurrentUser().then(setUser);
     return onAuthStateChange(setUser);
@@ -184,6 +207,28 @@ export default function ReviewQueue() {
       setError(e.message || "Approve all didn't go through — try again.");
     } finally {
       setBusyId(null);
+    }
+  };
+
+  // Runs the same generateForField path a reject's automatic replacement
+  // does (admin-review-queue's regenerateField, now also accepting a
+  // suggestion), just triggered on demand with a raw idea instead of after
+  // a reject — so it takes the same ~minute-ish real Claude-call time, not
+  // an instant save, which is why this gets its own loading state/copy
+  // rather than reusing busyId's row-level "saving" framing.
+  const suggest = async (e) => {
+    e.preventDefault();
+    if (!suggestText.trim()) return;
+    setSuggesting(true);
+    setSuggestError(null);
+    try {
+      await call("suggest", { field: suggestField, suggestion: suggestText.trim() });
+      setSuggestText("");
+      await load();
+    } catch (e) {
+      setSuggestError(e.message === "__forbidden__" ? "This account isn't on the admin allowlist." : e.message || "Couldn't generate that suggestion — try again.");
+    } finally {
+      setSuggesting(false);
     }
   };
 
@@ -291,6 +336,56 @@ export default function ReviewQueue() {
           New picks land here around 11am ET. Anything still pending auto-approves at ~3am ET the next morning, before
           the digest sends — review is optional, not required for fresh content to go out.
         </p>
+
+        <form
+          onSubmit={suggest}
+          className="rounded-2xl border p-4 mb-6 flex flex-wrap items-end gap-3"
+          style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}
+        >
+          <label className="text-xs" style={{ color: COLORS.dim }}>
+            Suggest a topic for
+            <select
+              value={suggestField}
+              onChange={(e) => setSuggestField(e.target.value)}
+              disabled={suggesting}
+              className="block mt-1 rounded-lg border px-2 py-1.5 text-sm"
+              style={{ backgroundColor: COLORS.bg, borderColor: COLORS.border, color: COLORS.text }}
+            >
+              {SUGGESTIBLE_FIELDS.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs flex-1 min-w-[200px]" style={{ color: COLORS.dim }}>
+            Idea
+            <input
+              type="text"
+              value={suggestText}
+              onChange={(e) => setSuggestText(e.target.value)}
+              disabled={suggesting}
+              placeholder="e.g. the James Webb telescope's latest find"
+              maxLength={300}
+              className="block mt-1 w-full rounded-lg border px-2 py-1.5 text-sm"
+              style={{ backgroundColor: COLORS.bg, borderColor: COLORS.border, color: COLORS.text }}
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={suggesting || !suggestText.trim()}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-40"
+            style={{ backgroundColor: COLORS.accent, color: "#14100C" }}
+          >
+            {suggesting ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+            {suggesting ? "Writing…" : "Generate"}
+          </button>
+          {suggestError && (
+            <div className="basis-full flex items-center gap-1.5 text-xs" style={{ color: COLORS.bad }}>
+              <AlertCircle size={13} /> {suggestError}
+            </div>
+          )}
+        </form>
 
         {info && (
           <div

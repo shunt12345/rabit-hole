@@ -13,6 +13,11 @@
 // so a replacement shows up to review right away instead of that field
 // sitting empty until the next scheduled run.
 //
+// "suggest" (below) is the same mechanism run on demand instead of after a
+// reject — the operator picks a field slot and types a raw idea, and this
+// calls generate-trending-topics for that field with that idea as a seed,
+// landing a new 'pending' row to review just like any other pick.
+//
 // Self-contained like every other function in this project (no shared
 // imports across functions) — the auth block below is a copy of
 // admin-usage-stats' own (itself a smaller copy of rabbit-hole-proxy-v2's),
@@ -59,6 +64,22 @@ function unauthorized(corsHeaders: Record<string, string>) {
 const REVIEW_COLUMNS =
   "id, batch_date, field, topic, teaser, source_url, options, category, direction, generated_at, input_tokens, output_tokens, model, cost_usd, status";
 
+// The fields a suggestion can target — every named field generate-
+// trending-topics knows how to seed (see its own promptForField/seedIdea
+// threading), mirrored here as a literal list rather than imported (no
+// shared imports across functions in this project). Excludes nothing from
+// generate-trending-topics' own FIELDS except the generic fallback path
+// (fieldPrompt), which isn't exercised by any real field name today.
+const SUGGESTIBLE_FIELDS = [
+  "Trending 1",
+  "Trending 2",
+  "This Day In History",
+  "Word Of The Day",
+  "Quote Of The Day",
+  "Riddle",
+  "Perspective",
+];
+
 // Same shared project secrets generate-trending-topics itself reads (every
 // function in this project draws from one pool, not per-function secrets
 // — see that function's DEPLOY STEPS comment) — lets this function call it
@@ -81,7 +102,13 @@ const REGENERATE_TIMEOUT_MS = 120_000;
 // deleted) specifically so fetchRecentTopicsByField's exclude-history
 // query — which has no status filter — picks it up and steers the new
 // attempt away from repeating it.
-async function regenerateField(field: string): Promise<{ ok: boolean; error?: string }> {
+//
+// Also the engine behind the "suggest" action below — generate-trending-
+// topics' own `suggestion` body field (threaded into its per-field prompt
+// builders as seedIdea) is what turns the SAME one-field call into "write
+// about this specific idea" instead of its normal open search/choice;
+// `suggestion` just rides along as an optional extra here.
+async function regenerateField(field: string, suggestion?: string): Promise<{ ok: boolean; error?: string }> {
   if (!CRON_SECRET) return { ok: false, error: "CRON_SECRET is not set on this function" };
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REGENERATE_TIMEOUT_MS);
@@ -92,7 +119,7 @@ async function regenerateField(field: string): Promise<{ ok: boolean; error?: st
         "Content-Type": "application/json",
         "x-cron-secret": CRON_SECRET,
       },
-      body: JSON.stringify({ fields: [field] }),
+      body: JSON.stringify({ fields: [field], ...(suggestion ? { suggestion } : {}) }),
       signal: controller.signal,
     });
     if (!res.ok) {
@@ -200,6 +227,46 @@ serve(async (req) => {
         regenerated = await regenerateField(existing.field);
       }
       return new Response(JSON.stringify({ ok: true, id, status, ...(regenerated ? { regenerated } : {}) }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "suggest") {
+      // The "suggest a topic" agent (/queue) — writes a NEW pending row for
+      // an existing field slot, seeded from a raw idea the operator typed
+      // in, via the same generateForField call every other row in this
+      // table goes through (same review-before-publish posture, same
+      // duplicate-prevention against that field's exclude history). This
+      // is the one action in this function that creates a row rather than
+      // transitioning an existing one.
+      const field = typeof body?.field === "string" ? body.field : "";
+      const suggestion = typeof body?.suggestion === "string" ? body.suggestion.trim() : "";
+      if (!SUGGESTIBLE_FIELDS.includes(field)) {
+        return new Response(JSON.stringify({ error: `Unknown field "${field}"` }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (!suggestion) {
+        return new Response(JSON.stringify({ error: "suggestion is required" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (suggestion.length > 300) {
+        return new Response(JSON.stringify({ error: "suggestion is too long (300 characters max)" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const result = await regenerateField(field, suggestion);
+      if (!result.ok) {
+        return new Response(JSON.stringify({ error: result.error || "Failed to generate suggestion" }), {
+          status: 502,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
