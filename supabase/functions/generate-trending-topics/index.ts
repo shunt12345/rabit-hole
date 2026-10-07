@@ -5,9 +5,9 @@
 // read the trending_topics_cache table this writes to, instead of hitting
 // search live on every visit. Both run once a day at 15:00 UTC now (see
 // migration 0047): one with a plain `{}` body for the trending fields (two
-// mainstream picks + one offbeat wildcard — see TRENDING_MAINSTREAM_FIELDS/
-// TRENDING_WILDCARD_FIELD below; this replaced the original fixed World
-// News/Science/Technology beats), the other with a `"fields"` body naming
+// mainstream picks — see TRENDING_MAINSTREAM_FIELDS below; this replaced
+// the original fixed World News/Science/Technology beats), the other with
+// a `"fields"` body naming
 // every once-daily evergreen field (This Day In History, Word Of The Day,
 // Quote Of The Day, Riddle, Perspective — SPECIAL_FIELDS plus
 // RIDDLE_FIELD/PERSPECTIVE_FIELD, which are kept out of that array so the
@@ -56,16 +56,17 @@
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// Three picks per run, not three separate topical beats — two aimed at
-// whatever's genuinely trending/most-talked-about right now (mainstream),
-// one deliberately reaching for something more offbeat/under-the-radar
-// that's still real and actually trending today (see trendingWildcardPrompt
-// below). Kept as three distinct field keys (rather than one field with
-// three rows) because latestByField on the client picks exactly one row
-// per field name — three names is what gets three chips on screen.
+// Two picks per run, not one topical beat — both aimed at whatever's
+// genuinely trending/most-talked-about right now (mainstream), via two
+// differently-framed prompts (see trendingMainstreamPrompt's "primary"/
+// "secondary" variants) rather than one field with two rows, because
+// latestByField on the client picks exactly one row per field name — two
+// names is what gets two chips on screen. A third, deliberately offbeat
+// "Trending Wildcard" pick used to run alongside these — removed; its own
+// prompt function is gone too (see git history for trendingWildcardPrompt
+// if it's ever wanted back).
 const TRENDING_MAINSTREAM_FIELDS = ["Trending 1", "Trending 2"];
-const TRENDING_WILDCARD_FIELD = "Trending Wildcard";
-const NEWS_FIELDS = [...TRENDING_MAINSTREAM_FIELDS, TRENDING_WILDCARD_FIELD];
+const NEWS_FIELDS = [...TRENDING_MAINSTREAM_FIELDS];
 // Date-anchored, not news-search — same card treatment and cache table as
 // the news fields, but built from a different prompt (see promptForField)
 // since "recent development" doesn't apply to any of these. "Word Of The
@@ -203,34 +204,6 @@ Current, specific, and fresh — no historical background or context. The topic 
 
 Once you've found a real, currently-trending story, produce:
 - "topic": a short, punchy 2-5 word label suitable as a one-tap starting point for someone exploring the topic (title case, no trailing punctuation) — name the current event/development, not just the subject's name
-- "teaser": one enticing sentence (max 20 words) describing the specific development, written to make someone curious to click it
-- "source_url": the URL of the real source you found via search, supporting the story — must be a specific page that actually discusses THIS exact story, not a homepage, an unrelated video, or a generic live-updates/liveblog page that merely happens to be from a relevant outlet
-
-${SOURCE_URL_CHECK}
-
-Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
-{"topic": "...", "teaser": "...", "source_url": "..."}`;
-}
-
-// The one deliberately-offbeat pick — still real and actually trending
-// today, just not the single most obvious front-page story. This is what
-// gives the section its own personality instead of reading like a wire
-// feed (see the "In the news" -> "Trending" conversation this replaced).
-function trendingWildcardPrompt(excludeTopics: string[]): string {
-  const today = new Date().toISOString().slice(0, 10);
-  const excludeBlock = excludeTopics.length
-    ? `\n\nAlready shown recently — pick something genuinely different from all of these, not a rephrasing of any of them: ${excludeTopics.join("; ")}.`
-    : "";
-  return `Today's date is ${today}. You have live web search — use it now.
-
-Search for something genuinely trending right now that's a bit more offbeat or under-the-radar — still real and actually gaining attention today, just not the single most obvious headline everyone already knows. Think: a niche internet moment, an unusual story going viral in a specific community, a strange finding making the rounds, a quirky local story — something a curious person would be delighted to stumble onto rather than something they already saw on the front page. It still needs to be real, verifiable, and genuinely happening/trending today — not evergreen trivia dressed up as news.${excludeBlock}
-
-The underlying EVENT itself has to be genuinely fresh — something that actually started gaining attention within roughly the last 48 hours, not an old story resurfacing or an evergreen "weird fact" being passed off as current. Check the actual date of the event/moment you find, not just the date of the page reporting it — a page published today about something from weeks or months ago does NOT count as trending. If what you find turns out to be old once you check, search again with a more time-boxed query until you land on something truly current.
-
-Current, specific, and fresh — no historical background or context. Lead with the actual current development, not a primer on the subject.
-
-Once you've found a real, currently-trending story, produce:
-- "topic": a short, punchy 2-5 word label suitable as a one-tap starting point for someone exploring the topic (title case, no trailing punctuation)
 - "teaser": one enticing sentence (max 20 words) describing the specific development, written to make someone curious to click it
 - "source_url": the URL of the real source you found via search, supporting the story — must be a specific page that actually discusses THIS exact story, not a homepage, an unrelated video, or a generic live-updates/liveblog page that merely happens to be from a relevant outlet
 
@@ -583,7 +556,6 @@ function promptForField(
   if (field === QUOTE_FIELD) return quoteOfTheDayPrompt(excludeTopics, recentQuoteCategories);
   if (field === RIDDLE_FIELD) return riddlePrompt(excludeTopics, recentRiddleCategories);
   if (field === PERSPECTIVE_FIELD) return perspectivePrompt(excludeTopics, perspectiveFocus || nextPerspectiveFocus(null));
-  if (field === TRENDING_WILDCARD_FIELD) return trendingWildcardPrompt(excludeTopics);
   if (field === TRENDING_MAINSTREAM_FIELDS[0]) return trendingMainstreamPrompt(excludeTopics, "primary");
   if (field === TRENDING_MAINSTREAM_FIELDS[1]) return trendingMainstreamPrompt(excludeTopics, "secondary");
   return fieldPrompt(field, excludeTopics);

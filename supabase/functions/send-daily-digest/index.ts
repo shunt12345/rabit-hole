@@ -52,12 +52,11 @@ const DIGEST_FROM = Deno.env.get("DIGEST_FROM_EMAIL") ?? "Hyfax <hello@hyfax.app
 const QUOTE_FIELD = "Quote Of The Day";
 const RIDDLE_FIELD = "Riddle";
 const PERSPECTIVE_FIELD = "Perspective";
-const TRENDING_FIELDS = ["Trending 1", "Trending 2", "Trending Wildcard"];
+const TRENDING_FIELDS = ["Trending 1", "Trending 2"];
 const TODAY_FIELDS = ["This Day In History", "Word Of The Day"];
 const FIELD_LABELS: Record<string, string> = {
   "Trending 1": "Trending",
   "Trending 2": "Trending",
-  "Trending Wildcard": "Wildcard",
   "This Day In History": "This Day In History",
   "Word Of The Day": "Word Of The Day",
   Perspective: "Perspective",

@@ -211,28 +211,28 @@ function nextId() {
 
 // Real live topics now — see supabase/functions/generate-trending-topics.
 // A scheduled job (pg_cron, twice daily) does one Claude web-search call per
-// field — 2 mainstream-trending picks + 1 offbeat "wildcard" one, plus
-// date-anchored/evergreen fields ("This Day In History", "Word Of The
-// Day") — and caches each result in trending_topics_cache;
-// this just reads a batch of recent rows with the anon key. No live search
-// happens on the client or per page load. NEWS_FIELDS / SPECIAL_FIELDS
-// below pick the latest row per named field out of that batch, so a field
-// that's been renamed or retired (like the old "World News"/"Science"/
-// "Technology" beats this replaced) just stops rendering on its own
-// instead of lingering until its rows age out.
+// field — 2 mainstream-trending picks, plus date-anchored/evergreen fields
+// ("This Day In History", "Word Of The Day") — and caches each result in
+// trending_topics_cache; this just reads a batch of recent rows with the
+// anon key. No live search happens on the client or per page load.
+// NEWS_FIELDS / SPECIAL_FIELDS below pick the latest row per named field
+// out of that batch, so a field that's been renamed or retired (like the
+// old "World News"/"Science"/"Technology" beats this replaced, or the
+// "Trending Wildcard" offbeat pick) just stops rendering on its own instead
+// of lingering until its rows age out.
 // status=eq.approved is belt-and-suspenders, not the real enforcement —
 // RLS itself only allows reading approved rows now (migration 0045), so a
 // pending/rejected row is unreadable with the anon key regardless of this
 // query string. Kept explicit anyway so this file's own intent reads
 // clearly without having to know the DB-side policy exists.
 const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,options,category,direction,generated_at&status=eq.approved&order=generated_at.desc,id.desc&limit=24`;
-const NEWS_FIELDS = ["Trending 1", "Trending 2", "Trending Wildcard"];
+const NEWS_FIELDS = ["Trending 1", "Trending 2"];
 // What each internal field key actually displays as — kept separate from
 // the field key itself so latestByField (below) can still tell the two
 // mainstream picks apart for lookup purposes while both show the same
 // "Trending" badge on screen; a field with no entry here just falls back
 // to showing its raw key.
-const NEWS_FIELD_LABELS = { "Trending 1": "Trending", "Trending 2": "Trending", "Trending Wildcard": "Wildcard" };
+const NEWS_FIELD_LABELS = { "Trending 1": "Trending", "Trending 2": "Trending" };
 const SPECIAL_FIELDS = ["This Day In History", "Word Of The Day"];
 // Same source table/cron cadence as SPECIAL_FIELDS (see promptForField in
 // generate-trending-topics), but rendered as its own dedicated section
