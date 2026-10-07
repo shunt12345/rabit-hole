@@ -14,9 +14,11 @@ import {
 } from "./lib/api.js";
 import { HYFAX_SYSTEM, OBSCURITY_LEVELS, FIXED_OBSCURITY } from "./lib/hyfaxSystemPrompt.js";
 import { createPacedReveal } from "./lib/pacedReveal.js";
-import { getCurrentUser, onAuthStateChange } from "./lib/auth.js";
+import { getCurrentUser, onAuthStateChange, isNewAccount } from "./lib/auth.js";
 import { maybeReportSignUp, maybeReportLead } from "./lib/redditPixel.js";
 import { getAttribution, isRedditVisit } from "./lib/attribution.js";
+import { touchSession } from "./lib/visitor.js";
+import { trackEvent } from "./lib/track.js";
 import { recordChipTap, hasDismissedSignUpPrompt, dismissSignUpPrompt } from "./lib/chipTaps.js";
 import { getProfile, getLifetimeFundedUsd } from "./lib/profile.js";
 import AccountMenu from "./AccountMenu.jsx";
@@ -397,7 +399,26 @@ export default function Hyfax() {
       // account, no-ops for a returning sign-in or when no Reddit Pixel is
       // configured.
       maybeReportSignUp(u);
+      // Adoption analytics' own "signup" event (see lib/track.js) — same
+      // isNewAccount() check as the Reddit pixel above, just a separate
+      // concern (every signup counts here, Pixel-configured or not).
+      if (isNewAccount(u)) {
+        const { sessionId } = touchSession();
+        trackEvent("signup", { sessionId });
+      }
     });
+  }, []);
+
+  // Adoption analytics' "land" event (see lib/track.js + lib/visitor.js) —
+  // fires once per NEW session only (a session being a run of activity
+  // with no gap over 30 minutes), never on every mount/re-render. Runs
+  // once on first mount; touchSession() itself is what decides whether
+  // this is actually a new session or a continuation of one already in
+  // progress from an earlier page in the last 30 minutes.
+  useEffect(() => {
+    const { sessionId, isNewSession } = touchSession();
+    if (isNewSession) trackEvent("land", { sessionId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Swaps "continue exploring" over to the account tier once someone's
@@ -1160,8 +1181,17 @@ export default function Hyfax() {
     idCounter = 0;
   };
 
+  // The one place every chip/in-text-link/Explore-next tap funnels
+  // through — deliberately NOT called by startTopic/resumeExploredRoot
+  // (a fresh root doesn't count as a "tap" for the Adoption funnel's
+  // Activated stage, since starting any topic at all is nearly
+  // universal; a root's own article view still counts, server-side, via
+  // article_view).
   const jumpToNode = (nodeId) => {
     setSelectedId(nodeId);
+    const node = nodesRef.current.find((n) => n.id === nodeId);
+    const { sessionId } = touchSession();
+    trackEvent("tap", { page: node?.label, sessionId });
   };
 
   // Word-of-mouth growth tool — snapshots the currently-open article to a
@@ -1216,7 +1246,7 @@ export default function Hyfax() {
     setNodes(newNodes);
     setSelectionInfo(null);
     window.getSelection().removeAllRanges();
-    setSelectedId(child.id);
+    jumpToNode(child.id);
   };
 
   const renderLinked = (text, children) =>

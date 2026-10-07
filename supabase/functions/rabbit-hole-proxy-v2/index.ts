@@ -454,6 +454,17 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
 
+// Same allowlist admin-usage-stats/admin-review-queue/track-event read —
+// used here only to auto-flag is_test on the operator's own visitor_id
+// (see logArticleViewEvent below), never as an access gate.
+const ADMIN_USER_IDS = new Set(
+  (Deno.env.get("ADMIN_USER_IDS") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // Returns the inserted row's id (or null on failure) so the billing step
 // below can attach the real cost to this same row once the call finishes —
 // callers still fire this off unawaited at request start (before the
@@ -517,6 +528,64 @@ async function logRequest(
     // or even delaying a real user's request over
     console.error("rabbit-hole-proxy: failed to log request", e);
     return null;
+  }
+}
+
+// Server-side half of the Adoption analytics event log (migration 0049) —
+// the client (lib/track.js) logs land/tap/signup itself, but article_view
+// is logged here instead, piggybacking on this endpoint's own identity
+// resolution (userId) rather than a second client round-trip for every
+// article. Mirrors track-event's own visitor/session upsert logic (no
+// shared imports across functions in this project, so this is
+// intentionally a close duplicate, not a shared helper) — only called for
+// endpoint === "article", below. Never allowed to affect the real
+// response: every failure here is caught and swallowed, and the call
+// itself is fired unawaited.
+async function logArticleViewEvent(
+  visitorId: unknown,
+  sessionId: unknown,
+  page: string | null,
+  userId: string | null,
+  isTest: boolean,
+  attribution: { utmSource?: string; utmCampaign?: string; utmContent?: string }
+) {
+  try {
+    if (typeof visitorId !== "string" || typeof sessionId !== "string") return;
+    if (!UUID_RE.test(visitorId) || !UUID_RE.test(sessionId)) return;
+
+    const utmSource = typeof attribution.utmSource === "string" ? attribution.utmSource.slice(0, 60) : null;
+    const utmCampaign = typeof attribution.utmCampaign === "string" ? attribution.utmCampaign.slice(0, 120) : null;
+    const utmContent = typeof attribution.utmContent === "string" ? attribution.utmContent.slice(0, 120) : null;
+
+    const { error: visitorError } = await supabase
+      .from("visitors")
+      .insert({ visitor_id: visitorId, first_source: utmSource, first_campaign: utmCampaign, first_content: utmContent });
+    if (visitorError && visitorError.code !== "23505") {
+      console.error("rabbit-hole-proxy: article_view visitor insert failed", visitorError);
+    }
+
+    const { error: sessionError } = await supabase
+      .from("sessions")
+      .insert({ session_id: sessionId, visitor_id: visitorId, utm_source: utmSource, utm_campaign: utmCampaign, utm_content: utmContent });
+    if (sessionError && sessionError.code !== "23505") {
+      console.error("rabbit-hole-proxy: article_view session insert failed", sessionError);
+    }
+
+    const linkIsTest = isTest || (userId !== null && ADMIN_USER_IDS.has(userId));
+    if (userId || linkIsTest) {
+      const update: Record<string, unknown> = {};
+      if (userId) update.user_id = userId;
+      if (linkIsTest) update.is_test = true;
+      const { error: linkError } = await supabase.from("visitors").update(update).eq("visitor_id", visitorId);
+      if (linkError) console.error("rabbit-hole-proxy: article_view visitor link/is_test update failed", linkError);
+    }
+
+    const { error: eventError } = await supabase
+      .from("events")
+      .insert({ visitor_id: visitorId, session_id: sessionId, type: "article_view", page: page ? page.slice(0, 200) : null });
+    if (eventError) console.error("rabbit-hole-proxy: article_view event insert failed", eventError);
+  } catch (e) {
+    console.error("rabbit-hole-proxy: logArticleViewEvent failed", e);
   }
 }
 
@@ -987,7 +1056,11 @@ serve(async (req) => {
       heroSource,
       utmSource,
       utmCampaign,
+      utmContent,
       rdtCid,
+      visitorId,
+      visitorSessionId,
+      isTest,
     } = body;
     const effectiveTimeZone = isValidTimeZone(timeZone) ? timeZone : DEFAULT_TIME_ZONE;
 
@@ -1156,6 +1229,17 @@ serve(async (req) => {
       utmCampaign,
       rdtCid,
     });
+
+    // Adoption analytics (see logArticleViewEvent above) — only an
+    // "article" call counts as an article_view; root/expand/continuation
+    // calls aren't page views. Fire-and-forget, same as logRequest.
+    if (endpoint === "article") {
+      logArticleViewEvent(visitorId, visitorSessionId, newsCacheKey || nodeCacheKey || heroSource || null, userId, !!isTest, {
+        utmSource,
+        utmCampaign,
+        utmContent,
+      });
+    }
 
     if (nodeCacheKey && endpoint === "article") {
       // Branch-level equivalent of the newsCacheKey/"article" branch below

@@ -8,6 +8,7 @@
 import { getSessionId } from "./session.js";
 import { getAccessToken } from "./auth.js";
 import { getAttribution } from "./attribution.js";
+import { getVisitorId, touchSession, isTestMode } from "./visitor.js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -234,6 +235,16 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
         messages: [{ role: "user", content: prompt }],
         endpoint,
         sessionId: getSessionId(),
+        // Adoption analytics identity (see lib/visitor.js + migration 0049)
+        // — a SEPARATE id from sessionId above (that one's the long-lived
+        // free-trial rate-limit id and never expires; this one resets after
+        // a 30-minute gap). Attached to every call, same as the
+        // attribution fields below, so the proxy can log an article_view
+        // event server-side (see rabbit-hole-proxy-v2's logRequest) without
+        // a second, separate client round-trip for every article.
+        visitorId: getVisitorId(),
+        visitorSessionId: touchSession().sessionId,
+        isTest: isTestMode(),
         ...(newsCacheKey ? { newsCacheKey } : {}),
         // Branch-node equivalent of newsCacheKey, one level deeper — only
         // ever set for a branch's own article (see App.jsx's loadArticle),
@@ -254,6 +265,7 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
           return {
             ...(attr.utmSource ? { utmSource: attr.utmSource } : {}),
             ...(attr.utmCampaign ? { utmCampaign: attr.utmCampaign } : {}),
+            ...(attr.utmContent ? { utmContent: attr.utmContent } : {}),
             ...(attr.rdtCid ? { rdtCid: attr.rdtCid } : {}),
           };
         })(),

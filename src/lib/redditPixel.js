@@ -13,6 +13,8 @@
 // report-reddit-conversion edge function (Reddit's Conversions API) using
 // the SAME conversionId, so Reddit can dedupe the browser pixel fire
 // against the server-side one instead of double-counting one real sign-up.
+import { isNewAccount } from "./auth.js";
+
 const PIXEL_ID = import.meta.env.VITE_REDDIT_PIXEL_ID;
 
 export function initRedditPixel() {
@@ -88,10 +90,7 @@ export function maybeReportSignUp(user) {
     // storage unavailable — proceed rather than silently never reporting
   }
 
-  const createdAt = new Date(user.created_at).getTime();
-  const lastSignInAt = new Date(user.last_sign_in_at || user.created_at).getTime();
-  const isNewAccount = Number.isFinite(createdAt) && Math.abs(lastSignInAt - createdAt) <= 60_000;
-  if (!isNewAccount) return;
+  if (!isNewAccount(user)) return;
 
   try {
     localStorage.setItem(SIGNUP_REPORTED_KEY, "1");

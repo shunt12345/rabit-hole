@@ -79,7 +79,7 @@ export const PRIVACY_SECTIONS = [
   },
   {
     heading: "4. Local storage",
-    body: `The app stores small pieces of state on your device (such as cached news content and session info) to make repeat visits faster. This stays on your device and isn't a tracking mechanism for other sites.`,
+    body: `The app stores small pieces of state on your device (such as cached news content and session info) to make repeat visits faster. This stays on your device and isn't a tracking mechanism for other sites. Hyfax uses an anonymous ID stored in your browser to count return visits. It contains no personal information.`,
   },
   {
     heading: "5. Data retention",

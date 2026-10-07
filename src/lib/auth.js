@@ -40,6 +40,20 @@ export async function getAccessToken() {
   return session?.access_token ?? null;
 }
 
+// Supabase's magic-link flow fires the identical SIGNED_IN event for both
+// a brand-new account and an ordinary returning sign-in — there's no
+// event-type signal to tell them apart. created_at and last_sign_in_at
+// landing within a minute of each other is the real signal: that's only
+// true the very first time someone ever signs in. Shared by
+// lib/redditPixel.js's conversion tracking and App.jsx's "signup"
+// analytics event (see lib/track.js) — both need this exact same check.
+export function isNewAccount(user) {
+  if (!user) return false;
+  const createdAt = new Date(user.created_at).getTime();
+  const lastSignInAt = new Date(user.last_sign_in_at || user.created_at).getTime();
+  return Number.isFinite(createdAt) && Math.abs(lastSignInAt - createdAt) <= 60_000;
+}
+
 // Fires on sign-in, sign-out, and token refresh — callback receives the
 // current user (or null once signed out).
 export function onAuthStateChange(callback) {

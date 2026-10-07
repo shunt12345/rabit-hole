@@ -80,6 +80,24 @@ function usd(n) {
   return `$${Number(n || 0).toFixed(4)}`;
 }
 
+function usd2(n) {
+  return `$${Number(n || 0).toFixed(2)}`;
+}
+
+function pct(n) {
+  return n == null ? "—" : `${Math.round(n * 100)}%`;
+}
+
+// Default Adoption date range — 28 days, enough to see a full retention
+// cohort's Day 7 column fill in without the query spanning months of
+// visitors by default.
+function defaultSince() {
+  return new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+function defaultUntil() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function AdminDashboard() {
   const [user, setUser] = useState(undefined); // undefined = still checking, null = signed out
   const [email, setEmail] = useState("");
@@ -89,6 +107,55 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Adoption section (visitors/sessions/events — migration 0049) — its own
+  // fetch, filters, and loading/error state, entirely separate from the
+  // usage-stats panels above (different edge function, different table
+  // set, own date range rather than a handful of fixed windows).
+  const [adoptionFilters, setAdoptionFilters] = useState({
+    source: "",
+    campaign: "",
+    since: defaultSince(),
+    until: defaultUntil(),
+    includeTest: false,
+  });
+  const [adoptionStats, setAdoptionStats] = useState(null);
+  const [adoptionLoading, setAdoptionLoading] = useState(false);
+  const [adoptionError, setAdoptionError] = useState(null);
+  const [adSpend, setAdSpend] = useState("");
+
+  const loadAdoptionStats = async (filters) => {
+    setAdoptionLoading(true);
+    setAdoptionError(null);
+    try {
+      const token = await getAccessToken();
+      const params = new URLSearchParams();
+      if (filters.source) params.set("source", filters.source);
+      if (filters.campaign) params.set("campaign", filters.campaign);
+      if (filters.since) params.set("since", new Date(filters.since).toISOString());
+      if (filters.until) params.set("until", new Date(filters.until + "T23:59:59").toISOString());
+      if (filters.includeTest) params.set("includeTest", "1");
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-adoption-stats?${params.toString()}`, {
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (res.status === 403) {
+        setAdoptionError("This account isn't on the admin allowlist.");
+        return;
+      }
+      if (!res.ok) {
+        setAdoptionError(`Request failed (${res.status}).`);
+        return;
+      }
+      setAdoptionStats(await res.json());
+    } catch (e) {
+      setAdoptionError(e.message || "Failed to load adoption stats.");
+    } finally {
+      setAdoptionLoading(false);
+    }
+  };
 
   useEffect(() => {
     getCurrentUser().then(setUser);
@@ -124,6 +191,11 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (user) loadStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  useEffect(() => {
+    if (user) loadAdoptionStats(adoptionFilters);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
@@ -374,6 +446,217 @@ export default function AdminDashboard() {
                 ]}
                 rows={stats.topIps}
                 emptyText="No requests in the last 24h."
+              />
+            </div>
+          </>
+        )}
+
+        <div className="flex items-center justify-between mt-10 mb-4">
+          <h2 className="rh-display text-xl" style={{ color: COLORS.text }}>
+            Adoption
+          </h2>
+          <button
+            onClick={() => loadAdoptionStats(adoptionFilters)}
+            disabled={adoptionLoading}
+            className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs"
+            style={{ borderColor: COLORS.border, color: COLORS.text }}
+          >
+            <RefreshCw size={13} className={adoptionLoading ? "animate-spin" : ""} /> Refresh
+          </button>
+        </div>
+
+        <div
+          className="rounded-2xl border p-4 mb-6 flex flex-wrap items-end gap-3"
+          style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}
+        >
+          <label className="text-xs" style={{ color: COLORS.dim }}>
+            Source
+            <select
+              value={adoptionFilters.source}
+              onChange={(e) => setAdoptionFilters((f) => ({ ...f, source: e.target.value }))}
+              className="block mt-1 rounded-lg border px-2 py-1.5 text-sm"
+              style={{ backgroundColor: COLORS.bg, borderColor: COLORS.border, color: COLORS.text }}
+            >
+              <option value="">All</option>
+              <option value="reddit">Reddit</option>
+              <option value="direct">Direct</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label className="text-xs" style={{ color: COLORS.dim }}>
+            Campaign (utm_campaign)
+            <input
+              type="text"
+              value={adoptionFilters.campaign}
+              onChange={(e) => setAdoptionFilters((f) => ({ ...f, campaign: e.target.value }))}
+              placeholder="kitchen-crystals"
+              className="block mt-1 rounded-lg border px-2 py-1.5 text-sm"
+              style={{ backgroundColor: COLORS.bg, borderColor: COLORS.border, color: COLORS.text }}
+            />
+          </label>
+          <label className="text-xs" style={{ color: COLORS.dim }}>
+            Since
+            <input
+              type="date"
+              value={adoptionFilters.since}
+              onChange={(e) => setAdoptionFilters((f) => ({ ...f, since: e.target.value }))}
+              className="block mt-1 rounded-lg border px-2 py-1.5 text-sm"
+              style={{ backgroundColor: COLORS.bg, borderColor: COLORS.border, color: COLORS.text }}
+            />
+          </label>
+          <label className="text-xs" style={{ color: COLORS.dim }}>
+            Until
+            <input
+              type="date"
+              value={adoptionFilters.until}
+              onChange={(e) => setAdoptionFilters((f) => ({ ...f, until: e.target.value }))}
+              className="block mt-1 rounded-lg border px-2 py-1.5 text-sm"
+              style={{ backgroundColor: COLORS.bg, borderColor: COLORS.border, color: COLORS.text }}
+            />
+          </label>
+          <label className="flex items-center gap-1.5 text-xs" style={{ color: COLORS.dim }}>
+            <input
+              type="checkbox"
+              checked={adoptionFilters.includeTest}
+              onChange={(e) => setAdoptionFilters((f) => ({ ...f, includeTest: e.target.checked }))}
+            />
+            Include my own testing
+          </label>
+          <button
+            onClick={() => loadAdoptionStats(adoptionFilters)}
+            disabled={adoptionLoading}
+            className="rounded-lg px-3 py-1.5 text-sm font-medium"
+            style={{ backgroundColor: COLORS.accent, color: "#14100C" }}
+          >
+            Apply
+          </button>
+        </div>
+
+        {adoptionError && (
+          <div
+            className="flex items-center gap-2 rounded-xl border p-4 mb-6 text-sm"
+            style={{ borderColor: COLORS.bad, color: COLORS.bad }}
+          >
+            <AlertCircle size={15} /> {adoptionError}
+          </div>
+        )}
+
+        {adoptionStats && (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <StatCard label="Landed" value={adoptionStats.funnel.landed} />
+              <StatCard
+                label="Activated"
+                value={adoptionStats.funnel.activated}
+                sub={`${pct(adoptionStats.funnel.activatedPct)} of landed`}
+              />
+              <StatCard label="Deep" value={adoptionStats.funnel.deep} sub={`${pct(adoptionStats.funnel.deepPct)} of landed`} />
+              <StatCard
+                label="Signed up"
+                value={adoptionStats.funnel.signedUp}
+                sub={`${pct(adoptionStats.funnel.signedUpPct)} of landed`}
+              />
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4 mb-6">
+              <div className="rounded-2xl border p-4" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
+                <div className="rh-mono rh-text-10 uppercase tracking-wider mb-2" style={{ color: COLORS.dim }}>
+                  Depth
+                </div>
+                <div className="text-sm" style={{ color: COLORS.text }}>
+                  Avg {adoptionStats.depth.avgPagesPerSession.toFixed(1)} pages/session · Median{" "}
+                  {adoptionStats.depth.medianPagesPerSession.toFixed(1)}
+                </div>
+                <div className="text-xs mt-1" style={{ color: COLORS.dim }}>
+                  Across {adoptionStats.depth.sessionCount} session{adoptionStats.depth.sessionCount === 1 ? "" : "s"}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border p-4" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
+                <div className="rh-mono rh-text-10 uppercase tracking-wider mb-2" style={{ color: COLORS.dim }}>
+                  North star — weekly 3+ page visitors
+                </div>
+                <div className="rh-display text-2xl" style={{ color: COLORS.text }}>
+                  {adoptionStats.northStar.thisWeekCount}
+                </div>
+                <div className="text-xs mt-1" style={{ color: COLORS.dim }}>
+                  {adoptionStats.northStar.changePct == null
+                    ? `${adoptionStats.northStar.lastWeekCount} last week`
+                    : `${adoptionStats.northStar.changePct >= 0 ? "+" : ""}${Math.round(
+                        adoptionStats.northStar.changePct * 100
+                      )}% vs. last week (${adoptionStats.northStar.lastWeekCount})`}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border p-4 mb-6" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
+              <div className="rh-mono rh-text-10 uppercase tracking-wider mb-2" style={{ color: COLORS.dim }}>
+                Cost helper
+              </div>
+              <label className="text-xs block mb-3" style={{ color: COLORS.dim }}>
+                Ad spend for this filter
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={adSpend}
+                  onChange={(e) => setAdSpend(e.target.value)}
+                  placeholder="0.00"
+                  className="block mt-1 rounded-lg border px-2 py-1.5 text-sm w-40"
+                  style={{ backgroundColor: COLORS.bg, borderColor: COLORS.border, color: COLORS.text }}
+                />
+              </label>
+              {Number(adSpend) > 0 ? (
+                <Table
+                  columns={[
+                    { key: "stage", label: "Stage" },
+                    { key: "count", label: "Visitors" },
+                    { key: "cost", label: "Cost/visitor", render: (r) => (r.count ? usd2(Number(adSpend) / r.count) : "—") },
+                  ]}
+                  rows={[
+                    { stage: "Landed", count: adoptionStats.funnel.landed },
+                    { stage: "Activated", count: adoptionStats.funnel.activated },
+                    { stage: "Deep", count: adoptionStats.funnel.deep },
+                    { stage: "Signed up", count: adoptionStats.funnel.signedUp },
+                  ]}
+                  emptyText="No funnel data for this filter."
+                />
+              ) : (
+                <div className="text-xs" style={{ color: COLORS.dim }}>
+                  Enter ad spend above to see cost per landed/activated/deep/signed-up visitor for the selected filters.
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border p-4 mb-6" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
+              <div className="rh-mono rh-text-10 uppercase tracking-wider mb-2" style={{ color: COLORS.dim }}>
+                New vs. returning visitors per day
+              </div>
+              <Table
+                columns={[
+                  { key: "day", label: "Day" },
+                  { key: "new", label: "New" },
+                  { key: "returning", label: "Returning" },
+                ]}
+                rows={adoptionStats.newVsReturning}
+                emptyText="No activity in this date range."
+              />
+            </div>
+
+            <div className="rounded-2xl border p-4 mb-6" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
+              <div className="rh-mono rh-text-10 uppercase tracking-wider mb-2" style={{ color: COLORS.dim }}>
+                Retention cohort (America/New York)
+              </div>
+              <Table
+                columns={[
+                  { key: "week", label: "First-seen week" },
+                  { key: "cohortSize", label: "Cohort" },
+                  { key: "day1Pct", label: "Day 1", render: (r) => pct(r.day1Pct) },
+                  { key: "day7Pct", label: "Day 7", render: (r) => pct(r.day7Pct) },
+                  { key: "day30Pct", label: "Day 30", render: (r) => pct(r.day30Pct) },
+                ]}
+                rows={adoptionStats.retentionCohort}
+                emptyText="No cohorts in this date range."
               />
             </div>
           </>

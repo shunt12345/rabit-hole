@@ -13,13 +13,18 @@ function readFromUrl() {
     const params = new URLSearchParams(window.location.search);
     const utmSource = params.get("utm_source");
     const utmCampaign = params.get("utm_campaign");
+    // Standard UTM param, not previously captured here — added for the
+    // visitor-tracking tables (migration 0049), which want it for
+    // first_content/sessions.utm_content. Harmless no-op for every
+    // existing use of this file that doesn't look at it.
+    const utmContent = params.get("utm_content");
     // Reddit's own click-id param, distinct from utm_source — present on a
     // real Reddit-served ad click regardless of whether the campaign also
     // sets utm_source=reddit, so worth capturing independently rather than
     // assuming the two always travel together.
     const rdtCid = params.get("rdt_cid");
-    if (!utmSource && !utmCampaign && !rdtCid) return null;
-    return { utmSource, utmCampaign, rdtCid };
+    if (!utmSource && !utmCampaign && !utmContent && !rdtCid) return null;
+    return { utmSource, utmCampaign, utmContent, rdtCid };
   } catch (_) {
     return null;
   }

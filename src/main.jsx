@@ -5,6 +5,7 @@ import AdminDashboard from "./AdminDashboard.jsx";
 import ReviewQueue from "./ReviewQueue.jsx";
 import { initRedditPixel } from "./lib/redditPixel.js";
 import { captureAttribution } from "./lib/attribution.js";
+import { applyTestModeFromUrl } from "./lib/visitor.js";
 import "./index.css";
 
 // /s/:id (a shared-article link, see lib/share.js) is served entirely by
@@ -27,7 +28,14 @@ const isOperatorRoute = isAdminRoute || isQueueRoute;
 // proxy request's attribution fields) — see lib/attribution.js.
 captureAttribution();
 
-if (!isOperatorRoute) initRedditPixel();
+// Before the first "land" event (see App.jsx) can fire — ?hyfax_test=1/0
+// needs to be applied before anything reads isTestMode(). Skipped on the
+// operator routes (/admin, /queue) since those aren't part of the
+// visitor-tracking flow at all — no events ever fire there.
+if (!isOperatorRoute) {
+  applyTestModeFromUrl();
+  initRedditPixel();
+}
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>{isAdminRoute ? <AdminDashboard /> : isQueueRoute ? <ReviewQueue /> : <Hyfax />}</React.StrictMode>
