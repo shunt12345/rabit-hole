@@ -133,7 +133,7 @@ Today's date is ${today}.
 Path so far: ${path.join(" → ")}
 Topic: "${topicLabel}"${newsNote}${branchNote}${openerNote}`;
 
-  return streamTextFromPrompt(HYFAX_SYSTEM, userContent, 700, 30000, "article", onChunk, nodeType, articleCacheKey, nodeCacheKey, onUsage);
+  return streamTextFromPrompt(HYFAX_SYSTEM, userContent, 450, 30000, "article", onChunk, nodeType, articleCacheKey, nodeCacheKey, onUsage);
 }
 
 // "Dig deeper" — this app is entertainment, not a research tool, so this is
