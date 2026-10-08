@@ -8,10 +8,10 @@
 // is also the only way to see what's sitting in the queue at all; there's
 // no other way to read a pending row's content.
 //
-// A reject doesn't just mark the row — it immediately calls generate-
-// trending-topics again for that same field (see regenerateField below),
-// so a replacement shows up to review right away instead of that field
-// sitting empty until the next scheduled run.
+// A reject deletes the row and immediately calls generate-trending-topics
+// again for that same field (see regenerateField below), so a replacement
+// shows up to review right away instead of that field sitting empty until
+// the next scheduled run.
 //
 // "suggest" (below) is the same mechanism run on demand instead of after a
 // reject — the operator picks a field slot and types a raw idea, and this
@@ -98,10 +98,10 @@ const REGENERATE_TIMEOUT_MS = 120_000;
 // off a fresh generateForField call for the SAME field right away, so a
 // new option shows up in the queue to review in its place. Reuses the
 // exact same request shape generate-trending-topics' own cron jobs use.
-// The just-rejected row is left in the table (status='rejected', not
-// deleted) specifically so fetchRecentTopicsByField's exclude-history
-// query — which has no status filter — picks it up and steers the new
-// attempt away from repeating it.
+// The just-rejected row is still in the table (status='rejected') while
+// this runs, so fetchRecentTopicsByField's exclude-history query — which
+// has no status filter — picks it up and steers the new attempt away from
+// repeating it. The reject action deletes it once this returns.
 //
 // Also the engine behind the "suggest" action below — generate-trending-
 // topics' own `suggestion` body field (threaded into its per-field prompt
@@ -187,23 +187,12 @@ serve(async (req) => {
     const action = typeof body?.action === "string" ? body.action : "list";
 
     if (action === "list") {
-      // Pending (the actual queue, no cutoff — a stale pending row is
-      // exactly what the 07:00 UTC auto-approve sweep is for, not
-      // something to hide here) plus RECENTLY rejected rows, so a reject
-      // doesn't just vanish from view with no confirmation it went
-      // through — but confirmed live this needs a real cutoff: with none,
-      // every reject ever made (including ones from testing) piles up in
-      // this list forever. Rejected rows are never deleted from the table
-      // itself (fetchRecentTopicsByField's exclude-history has no status
-      // filter and still needs them), this just stops the UI from
-      // showing ones from more than a day ago. Approved rows are left out
-      // entirely either way — they're already live on the hero page,
-      // nothing left to review there.
-      const rejectedCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      // Just the queue itself — approved rows are scheduled or live, and
+      // rejected rows are deleted on reject.
       const { data, error } = await supabase
         .from("trending_topics_cache")
         .select(REVIEW_COLUMNS)
-        .or(`status.eq.pending,and(status.eq.rejected,generated_at.gte.${rejectedCutoff})`)
+        .eq("status", "pending")
         .order("generated_at", { ascending: false })
         .limit(100);
       if (error) {
@@ -250,6 +239,11 @@ serve(async (req) => {
       let regenerated: { ok: boolean; error?: string } | undefined;
       if (action === "reject") {
         regenerated = await regenerateField(existing.field);
+        // A rejected pick is deleted, not kept — but only after its
+        // replacement is generated, since that run reads the field's past
+        // picks (rejected ones included) to avoid offering it again.
+        const { error: deleteErr } = await supabase.from("trending_topics_cache").delete().eq("id", id);
+        if (deleteErr) console.error("admin-review-queue: failed to delete rejected row", deleteErr);
       }
       return new Response(JSON.stringify({ ok: true, id, status, ...(regenerated ? { regenerated } : {}) }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
