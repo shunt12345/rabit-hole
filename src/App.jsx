@@ -888,12 +888,15 @@ export default function Hyfax() {
   // on the hero page over what's a nice-to-have, not core functionality.
   useEffect(() => {
     let cancelled = false;
-    fetch(TRENDING_TOPICS_URL, {
-      headers: {
-        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-      },
-    })
+    const headers = {
+      apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+    };
+    // Falls back to the query without publish_at if the database doesn't
+    // have that column yet (migration 0053), so the hero picks never
+    // depend on a migration having run.
+    fetch(TRENDING_TOPICS_URL, { headers })
+      .then((res) => (res.ok ? res : fetch(TRENDING_TOPICS_URL.replace(",publish_at", ""), { headers })))
       .then((res) => (res.ok ? res.json() : []))
       .then((rows) => {
         if (!cancelled) setTrendingTopics(Array.isArray(rows) ? rows : []);
