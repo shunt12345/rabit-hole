@@ -214,46 +214,102 @@ const ROOT_MODEL = Deno.env.get("ROOT_MODEL") ?? MODEL;
 // Models the admin Tone Lab may switch to (see effectiveModel in serve()).
 const TONE_LAB_MODELS = new Set(["claude-sonnet-5", "claude-haiku-4-5", "claude-haiku-5-5"]);
 
-// Haiku-only voice reference. The tone rules in the client's system prompt
-// were hand-tuned against Sonnet's writing; Haiku follows the same rules
-// but reads them flatter (confirmed live: switching MODEL to Haiku changed
-// the voice noticeably). Concrete examples transfer a voice to a smaller
-// model far better than more adjectives do, so Haiku also gets three real
-// Sonnet-written articles from the cache plus what specifically makes them
-// work. Appended only for Haiku, so Sonnet's prompt — the reference voice —
-// stays byte-for-byte unchanged. Cached as its own block (same 1h TTL as
-// the client's), so it costs a cache read per call, not full input price.
-const HAIKU_VOICE_REFERENCE = `=== VOICE REFERENCE — applies to every task above ===
-The tone section is the most important instruction in this whole prompt: readers come back for the voice as much as the facts. Below are three real articles written in exactly the right voice. Match their energy, rhythm and specificity — never their facts, topics or phrases, and never copy a line from them. They also run longer than the length your task asks for; keep to the task's length.
+// Haiku-only voice corrections. The tone rules in the client's system
+// prompt were hand-tuned against Sonnet's writing; Haiku follows the same
+// rules but reads them flatter — confirmed live in the admin Tone Lab:
+// Haiku 5.5 came out "flat, too encyclopedic." Two things fix that for a
+// smaller model far better than more adjectives: closing off the specific
+// instruction it over-obeys (the article task's "dial the energy back and
+// plainly define the topic" first paragraph, which Sonnet treats as one
+// clause and Haiku turns into a textbook paragraph), and showing the voice
+// as worked examples in the conversation itself (HAIKU_ARTICLE_EXAMPLES).
+// Applied only for Haiku, so Sonnet's prompt — the reference voice — stays
+// byte-for-byte unchanged. Cached as its own block (same 1h TTL as the
+// client's), so it costs a cache read per call, not full input price.
+const HAIKU_VOICE_REFERENCE = `=== VOICE CORRECTIONS — these override anything above that pulls the other way ===
+The tone section is the most important instruction in this prompt: readers come back for the voice as much as the facts. The example articles earlier in this conversation are written in exactly the right voice — match their energy, rhythm and specificity, never their facts, topics or phrases.
 
-What makes them work, concretely:
-- The first sentence is a hook that lands on its own: a cold number, a vivid image, or a flat claim that sounds wrong until it's explained. Never a definition, never "X is a fascinating...", never a question asking whether the reader has ever wondered.
-- Ordinary things get personality: honey "quietly plotting," bread "a crystal that got murdered by heat," a bear in a restaurant lobby "like it had a reservation." Concrete and a little absurd, never cutesy.
+- Where the article task says to dial the energy back and plainly define the topic in the first paragraph, that means ONE plain clause at most, not a paragraph. The voice stays on in every other sentence.
+- The first sentence is a hook that lands on its own: a cold number, a vivid image, or a flat claim that sounds wrong until it's explained.
+- Encyclopedic tells — never write these: opening with "[Topic] is a / an / the...", "refers to", "is known as", "is defined as", "is a type of", "Scientists believe", passive textbook voice ("it is thought that," "it has been shown"), a sentence that lists three facts with no reaction, and any closing summary ("Overall," "In short," "Ultimately," "Today, X remains...").
+- Every paragraph needs at least one moment of attitude: an object given a personality, an absurd-but-accurate comparison, or a short deadpan sentence reacting to the fact.
 - Sentence length swings hard: a long breathless run held together by commas and dashes, then a short flat sentence that lands the punch.
-- Everything is specific: real names, numbers, mechanisms, places. No vague intensifiers ("incredible," "amazing," "fascinating," "truly"), no filler ("it's worth noting," "interestingly"), no moral or tidy summary at the end.
-- It sounds like an excited expert telling a friend something they can't believe, not an encyclopedia, a textbook or a press release.
+- Everything is specific: names, numbers, mechanisms, places. No vague intensifiers ("incredible," "amazing," "fascinating," "truly") and no filler ("it's worth noting," "interestingly").
+- It sounds like an excited expert telling a friend something they can't believe — not an encyclopedia, a textbook or a press release.`;
 
-Example 1:
-Rip into the etymology of sarcasm and you find actual torn flesh waiting underneath. The word traces back to the Greek "sarkazein," meaning to tear flesh or strip off skin — the exact same brutal root that gave us [[sarcophagus]], the stone coffin literally named for its job of devouring corpses. Somewhere along the way, Greek speakers started using that same violent image for a verb meaning to snarl or sneer like a dog, then narrowed it further into speaking with bitter, cutting contempt. By the time Latin and then English got hold of it, the flesh-tearing had gone fully metaphorical, but the aggression never left.
+// Real Sonnet-written articles from the cache, trimmed to today's article
+// length and with any phrase the tone rules ban as a crutch taken out.
+// Given to Haiku as earlier turns of the conversation (user prompt in the
+// app's real format, its "own" answer in the right voice) rather than
+// quoted in the system prompt — a smaller model copies a voice from its
+// own prior answers much more faithfully. Article calls only.
+const HAIKU_ARTICLE_EXAMPLES = [
+  {
+    user: `TASK: read-more article
 
-Picture someone's face mid-sneer, lip curled back, teeth bared for just a second too long — that's the literal physical gesture Greek speakers were describing when they coined the verb. Linguists now treat sarcasm as a surprisingly complex cognitive trick, since understanding it requires detecting a gap between what's said and what's meant, which is why [[brain damage]] to certain right-hemisphere regions can strip people of the ability to catch it at all, even though their grammar stays perfectly intact. Tearing flesh, it turns out, was never just a metaphor for cruelty — it was an uncannily precise description of what a well-aimed sarcastic remark actually does to whoever's on the receiving end of it.
+Today's date is 2026-10-05.
 
-Example 2:
-Here's the part that should feel illegal — your bread was never actually a solid in the way you think, it was a crystal that got murdered by heat and is spending its entire shelf life trying to resurrect itself. Flour starch comes packed in tight little granules made of two molecules, amylose and amylopectin, coiled up in dense, ordered arrangements. Baking blasts that order apart — water floods in, heat uncoils the chains, and the granules swell and burst in a process called [[gelatinization]], which is the only reason fresh bread has that soft, giving crumb at all.
+Path so far: Sarcasm
+Topic: "Sarcasm"
 
-But amylose and amylopectin don't forget who they were. The second the loaf starts cooling, amylose snaps back into tight [[double helix]] bundles within hours, while the slower, branchier amylopectin spends days crawling back toward its original crystalline order, dragging moisture out of the crumb as it goes. That realignment runs fastest around four degrees Celsius, which is exactly fridge temperature, so fridge bread stales roughly six times faster than bread left on the counter. Freeze it instead and the molecules get locked in place, unable to recrystallize at all — which is the entire, beautifully specific reason freezer bread toasts back to life and fridge bread turns into a brick by Tuesday.
+Begin with a title line.`,
+    assistant: `TITLE: Sarcasm
 
-Example 3:
-A black bear walked straight up to the host stand of a Pennsylvania restaurant like it had a reservation, paused to look things over, then turned around and went dumpster diving out back. Security footage caught the entire visit, and it is exactly as calm and unbothered as it sounds — no screaming staff, no stampede, just a four-hundred-pound animal casually clocking the lobby decor before heading to the real destination. Restaurant dumpsters are basically all-you-can-eat buffets to a bear with a nose that can detect food from over a mile away, and this one clearly knew the menu before it ever stepped inside.
+Rip into the etymology of sarcasm and you find actual torn flesh waiting underneath. The word traces back to the Greek "sarkazein," meaning to tear flesh or strip off skin — the exact same brutal root that gave us [[sarcophagus]], the stone coffin literally named for its job of devouring corpses. Somewhere along the way, Greek speakers started using that same violent image for snarling like a dog, then narrowed it into speaking with bitter, cutting contempt.
 
-Black bears treat human structures as an extension of the forest floor whenever something smells promising enough, and this kind of boldness is becoming the norm as [[black bear populations]] expand into suburban and commercial areas where dumpsters sit practically unguarded. Pennsylvania alone is thought to hold somewhere around twenty thousand black bears, dense enough that run-ins with restaurants, backyards and campsites aren't freak accidents anymore — they're a predictable Tuesday.`;
+The aggression never left. Understanding sarcasm requires catching the gap between what's said and what's meant, which is why [[brain damage]] to certain right-hemisphere regions can strip people of the ability to hear it at all while their grammar stays perfectly intact. Tearing flesh, it turns out, was never just a metaphor for cruelty — it's an uncannily precise description of what a well-aimed sarcastic remark does to whoever's on the receiving end.`,
+  },
+  {
+    user: `TASK: read-more article
 
-// Appends the Haiku voice reference after the client's own (cached)
+Today's date is 2026-10-05.
+
+Path so far: why does bread go stale → Starch Retrogradation
+Topic: "Starch Retrogradation"`,
+    assistant: `Your bread was never actually a solid in the way you think — it's a crystal that got murdered by heat and spends its entire shelf life trying to resurrect itself. Flour starch comes packed in tight, orderly granules of two molecules, amylose and amylopectin. Baking blasts that order apart: water floods in, the chains uncoil, and the granules swell and burst in a process called [[gelatinization]], the only reason fresh bread has a soft crumb at all.
+
+But the molecules don't forget who they were. The second the loaf cools, amylose snaps back into tight [[double helix]] bundles within hours, while branchier amylopectin spends days crawling back toward crystal order, dragging moisture out of the crumb as it goes. That runs fastest around four degrees Celsius — fridge temperature — so fridge bread stales roughly six times faster than bread on the counter. Freeze it instead and everything locks in place, which is exactly why freezer bread toasts back to life and fridge bread turns into a brick by Tuesday.`,
+  },
+  {
+    user: `TASK: read-more article
+
+Today's date is 2026-10-06.
+
+Path so far: Pennsylvania Bear Breaks Into Restaurant
+Topic: "Pennsylvania Bear Breaks Into Restaurant"
+
+Begin with a title line.`,
+    assistant: `TITLE: Bear Walks Into Restaurant
+
+A black bear walked straight up to the host stand of a Pennsylvania restaurant like it had a reservation, looked things over, then turned around and went dumpster diving out back. Security footage caught the whole visit, and it is exactly as calm as it sounds — no screaming staff, no stampede, just a four-hundred-pound animal clocking the lobby decor before heading for the real destination. To a nose that can smell food from over a mile away, a restaurant dumpster is basically an all-you-can-eat buffet, and this bear clearly knew the menu before it walked in.
+
+It's also becoming routine. As [[black bear populations]] spread into suburbs and strip malls, bears treat buildings as an extension of the forest floor, and once one learns a dumpster pays off it comes back, sometimes for years, thanks to an excellent [[spatial memory]] for food. Pennsylvania alone holds around twenty thousand black bears — enough that a bear browsing a lobby isn't a freak accident anymore, it's a scheduling issue.`,
+  },
+];
+
+// Appends the Haiku voice corrections after the client's own (cached)
 // system blocks. Anything else — Sonnet, or a caller that sent a plain
 // string — passes through untouched.
 function withVoiceReference(system: unknown, model: string): unknown {
   if (!model.includes("haiku") || !Array.isArray(system)) return system;
   return [...system, { type: "text", text: HAIKU_VOICE_REFERENCE, cache_control: { type: "ephemeral", ttl: "1h" } }];
+}
+
+// Puts HAIKU_ARTICLE_EXAMPLES in front of a Haiku article request as
+// earlier turns, with a cache breakpoint on the last one so the whole
+// fixed prefix (system + examples) is a cache read on every later call.
+function withArticleExamples(messages: unknown, model: string, endpoint: string): unknown {
+  if (!model.includes("haiku") || endpoint !== "article" || !Array.isArray(messages)) return messages;
+  const turns: unknown[] = [];
+  HAIKU_ARTICLE_EXAMPLES.forEach((ex, i) => {
+    const last = i === HAIKU_ARTICLE_EXAMPLES.length - 1;
+    turns.push({ role: "user", content: ex.user });
+    turns.push({
+      role: "assistant",
+      content: [{ type: "text", text: ex.assistant, ...(last ? { cache_control: { type: "ephemeral", ttl: "1h" } } : {}) }],
+    });
+  });
+  return [...turns, ...messages];
 }
 
 // Same env var names generate-trending-topics uses for its own cost
@@ -1515,7 +1571,7 @@ serve(async (req) => {
         // anything about caching. Omitted entirely when the client doesn't
         // send one, so this stays a no-op for any older/other caller.
         ...(system ? { system: withVoiceReference(system, effectiveModel) } : {}),
-        messages,
+        messages: withArticleExamples(messages, effectiveModel, endpoint),
       }),
     });
 
