@@ -130,6 +130,18 @@ function cleanStrayBrackets(text) {
   return out + (text || "").slice(last).replace(/\[\[|\]\]/g, "");
 }
 
+// Article length is held by the token cap (the model reliably overshoots
+// a word count it's only asked to keep), so a capped article usually stops
+// mid-sentence — cut it back to its last complete sentence. Leaves text
+// alone if it already ends cleanly or has no sentence end to cut back to.
+function trimToLastSentence(text) {
+  const t = (text || "").trimEnd();
+  if (/[.!?]["'”’)\]]*$/.test(t)) return t;
+  let cut = -1;
+  for (const m of t.matchAll(/[.!?]["'”’)\]]*(?=\s)/g)) cut = m.index + m[0].length;
+  return cut > 0 ? t.slice(0, cut) : t;
+}
+
 function linkLabelsIn(text) {
   return [...(text || "").matchAll(LINK_MARKER_RE)].map((m) => toLinkLabel(m[1])).filter(Boolean);
 }
@@ -181,7 +193,7 @@ Today's date is ${today}.
 Path so far: ${path.join(" → ")}
 Topic: "${topicLabel}"${newsNote}${titleNote}${openerNote}`;
 
-  return streamTextFromPrompt(HYFAX_SYSTEM, userContent, 700, 30000, "article", onChunk, nodeType, articleCacheKey, nodeCacheKey, onUsage, heroSource);
+  return streamTextFromPrompt(HYFAX_SYSTEM, userContent, 400, 30000, "article", onChunk, nodeType, articleCacheKey, nodeCacheKey, onUsage, heroSource);
 }
 
 // "Dig deeper" — this app is entertainment, not a research tool, so this is
@@ -1079,7 +1091,11 @@ export default function Hyfax() {
         },
         node.type === "root" ? node.heroSource || undefined : undefined
       );
-      const { title, body: finalBody } = splitTitleLine(finalText);
+      const { title, body: rawBody } = splitTitleLine(finalText);
+      const finalBody = trimToLastSentence(rawBody);
+      // What gets cached is the trimmed text, title line included for a
+      // topic page, so later visitors get the same clean ending.
+      const cacheText = title ? `TITLE: ${title}\n\n${finalBody}` : finalBody;
       takeTitle(title);
       addLinkChildren(finalBody);
       // Chips start the moment the article's text is in hand — not after
@@ -1090,8 +1106,8 @@ export default function Hyfax() {
       node.article = stripMarkdown(cleanStrayBrackets(finalBody));
       node.articleStreaming = false;
       node.articleLoading = false;
-      if (articleCacheKey) writeNewsArticleCache(articleCacheKey, finalText, nodeUsage, node.label);
-      if (nodeCacheKey) writeNodeArticleCache(nodeCacheKey, finalText, nodeUsage);
+      if (articleCacheKey) writeNewsArticleCache(articleCacheKey, cacheText, nodeUsage, node.label);
+      if (nodeCacheKey) writeNodeArticleCache(nodeCacheKey, cacheText, nodeUsage);
       if (node.type === "root" && !node.resumed) {
         recordRoot(node);
         // Reddit Ads conversion tracking — the first successful topic page
@@ -1139,8 +1155,9 @@ export default function Hyfax() {
         },
         node.type
       );
-      await reveal.finish(finalText);
-      node.article = `${baseArticle}\n\n${stripMarkdown(finalText)}`;
+      const trimmed = trimToLastSentence(finalText);
+      await reveal.finish(trimmed);
+      node.article = `${baseArticle}\n\n${stripMarkdown(trimmed)}`;
       node.articleStreaming = false;
       node.deepened = true;
     } catch (e) {
