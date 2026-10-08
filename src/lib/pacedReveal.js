@@ -10,15 +10,6 @@
 // display whatever's buffered.
 const READING_CHARS_PER_SEC = 22;
 
-// The slow pace exists to show progress while the model is still
-// generating. Once the whole response is already in hand (a cache hit, or
-// a teaser that's known locally), there's nothing left to wait on, so the
-// rest of the opening sentence finishes within this budget instead.
-// Measured on cached articles: median first sentences run ~150-170 chars,
-// ~7s each at the base pace — ~14s of pure animation per cached topic
-// (overview, then article) with no generation actually behind it.
-const ALREADY_LOADED_MAX_MS = 1200;
-
 // The opening beat reveals at the base pace so it visibly "types" and
 // signals the app is alive; once the first sentence is on screen that's
 // established, so the rest is dumped on screen immediately rather than
@@ -35,7 +26,6 @@ export function createPacedReveal(onReveal, charsPerSecond = READING_CHARS_PER_S
   let target = "";
   let revealed = "";
   let done = false;
-  let doneAt = null;
   let raf = null;
   let lastTs = null;
   let carry = 0;
@@ -61,14 +51,7 @@ export function createPacedReveal(onReveal, charsPerSecond = READING_CHARS_PER_S
         onReveal(revealed);
       }
     } else {
-      let rate = charsPerSecond;
-      if (done) {
-        if (doneAt == null) doneAt = ts;
-        const end = boundary === -1 ? target.length : boundary;
-        const timeLeftSec = Math.max((ALREADY_LOADED_MAX_MS - (ts - doneAt)) / 1000, dt);
-        rate = Math.max(charsPerSecond, (end - revealed.length) / timeLeftSec);
-      }
-      carry += dt * rate;
+      carry += dt * charsPerSecond;
       const grow = Math.floor(carry);
       if (grow > 0 && revealed.length < target.length) {
         carry -= grow;
