@@ -266,7 +266,7 @@ function nextId() {
 // pending/rejected row is unreadable with the anon key regardless of this
 // query string. Kept explicit anyway so this file's own intent reads
 // clearly without having to know the DB-side policy exists.
-const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,options,category,direction,generated_at&status=eq.approved&order=generated_at.desc,id.desc&limit=24`;
+const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,options,category,direction,generated_at,publish_at&status=eq.approved&order=generated_at.desc,id.desc&limit=24`;
 const NEWS_FIELDS = ["Trending 1", "Trending 2"];
 // What each internal field key actually displays as — kept separate from
 // the field key itself so latestByField (below) can still tell the two
@@ -326,8 +326,13 @@ const STARTER_QUESTIONS = [
 // that field just kept showing indefinitely as if it were current —
 // exactly the kind of thing "Trending" can't afford to get wrong.
 const MAX_STALE_HOURS = 36;
+// When a pick went public: its scheduled publish time (migration 0053),
+// or its generation time for rows from before that existed.
+function liveSince(row) {
+  return new Date(row.publish_at || row.generated_at).getTime();
+}
 function isFresh(row) {
-  return Date.now() - new Date(row.generated_at).getTime() <= MAX_STALE_HOURS * 60 * 60 * 1000;
+  return Date.now() - liveSince(row) <= MAX_STALE_HOURS * 60 * 60 * 1000;
 }
 
 // The "as of" badge's actual date — the max across all rows, not just
@@ -337,7 +342,7 @@ function isFresh(row) {
 // fresh from today, so a naive rows[0] read showed yesterday's date even
 // though most of the section was current.
 function mostRecentDate(rows) {
-  return new Date(Math.max(...rows.map((r) => new Date(r.generated_at).getTime())));
+  return new Date(Math.max(...rows.map(liveSince)));
 }
 
 // Picks the single most recent row for each field in `fields`, in that

@@ -62,7 +62,7 @@ function unauthorized(corsHeaders: Record<string, string>) {
 }
 
 const REVIEW_COLUMNS =
-  "id, batch_date, field, topic, teaser, source_url, options, category, direction, generated_at, input_tokens, output_tokens, model, cost_usd, status";
+  "id, batch_date, field, topic, teaser, source_url, options, category, direction, generated_at, input_tokens, output_tokens, model, cost_usd, status, publish_at";
 
 // The fields a suggestion can target — every named field generate-
 // trending-topics knows how to seed (see its own promptForField/seedIdea
@@ -108,6 +108,31 @@ const REGENERATE_TIMEOUT_MS = 120_000;
 // builders as seedIdea) is what turns the SAME one-field call into "write
 // about this specific idea" instead of its normal open search/choice;
 // `suggestion` just rides along as an optional extra here.
+// "Generate new batch" on /queue — the same two requests the 15:00 UTC
+// cron jobs make (migrations 0046/0047: the news fields, then everything
+// else), for when a batch needs replacing outside that schedule. A full
+// run takes a couple of minutes, longer than this request should wait, so
+// both run in the background and the new rows simply appear in the queue
+// once they land. Like a scheduled batch, they go public at the next
+// 07:00 UTC (publish_at, migration 0053), not when approved.
+const BATCH_REQUESTS = [{}, { fields: ["This Day In History", "Word Of The Day", "Quote Of The Day", "Riddle", "Perspective"] }];
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
+
+function startBatchGeneration() {
+  const runs = Promise.allSettled(
+    BATCH_REQUESTS.map((body) =>
+      fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-trending-topics`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-cron-secret": CRON_SECRET! },
+        body: JSON.stringify(body),
+      }).then(async (res) => {
+        if (!res.ok) console.error("admin-review-queue: batch generation failed", res.status, (await res.text()).slice(0, 300));
+      })
+    )
+  );
+  if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(runs);
+}
+
 async function regenerateField(field: string, suggestion?: string): Promise<{ ok: boolean; error?: string }> {
   if (!CRON_SECRET) return { ok: false, error: "CRON_SECRET is not set on this function" };
   const controller = new AbortController();
@@ -267,6 +292,19 @@ serve(async (req) => {
         });
       }
       return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "generateBatch") {
+      if (!CRON_SECRET) {
+        return new Response(JSON.stringify({ error: "CRON_SECRET is not set on this function" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      startBatchGeneration();
+      return new Response(JSON.stringify({ ok: true, started: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

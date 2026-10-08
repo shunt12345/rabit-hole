@@ -73,6 +73,12 @@ function ReviewCard({ row, onDecide, busy }) {
           )}
           <div className="text-xs mt-2" style={{ color: COLORS.dim }}>
             {new Date(row.generated_at).toLocaleString()}
+            {row.publish_at && !isRejected && (
+              <span style={{ color: COLORS.text }}>
+                {" · goes live "}
+                {new Date(row.publish_at).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}
+              </span>
+            )}
             {row.source_url && (
               <>
                 {" · "}
@@ -193,6 +199,24 @@ export default function ReviewQueue() {
       await load();
     } catch (e) {
       setError(e.message || "That decision didn't save — try again.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // A whole new batch for every field, outside the 15:00 UTC schedule —
+  // runs in the background (a couple of minutes), so the queue reloads
+  // itself a few times to pick the new rows up as they land.
+  const generateBatch = async () => {
+    if (!window.confirm("Generate a new batch for every field? It takes about 3 minutes, and the picks go live at the next 07:00 UTC once approved.")) return;
+    setBusyId("batch");
+    setError(null);
+    try {
+      await call("generateBatch");
+      setInfo("Generating a new batch — new picks will appear here over the next few minutes.");
+      [60, 120, 180, 240].forEach((s) => setTimeout(load, s * 1000));
+    } catch (e) {
+      setError(e.message || "Couldn't start a new batch — try again.");
     } finally {
       setBusyId(null);
     }
@@ -404,6 +428,15 @@ export default function ReviewQueue() {
             <AlertCircle size={15} /> {error}
           </div>
         )}
+
+        <button
+          onClick={generateBatch}
+          disabled={busyId !== null}
+          className="rounded-full border px-3 py-1.5 text-xs font-medium disabled:opacity-40 mb-4"
+          style={{ borderColor: COLORS.accent, color: COLORS.accent }}
+        >
+          Generate new batch
+        </button>
 
         {loading && rows.length === 0 ? (
           <div className="flex items-center justify-center py-12">

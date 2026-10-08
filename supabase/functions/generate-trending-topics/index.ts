@@ -267,9 +267,20 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 {"topic": "...", "teaser": "...", "source_url": "..."}`;
 }
 
+// When a batch generated now goes public: the next 07:00 UTC (see
+// migration 0053's publish_at). Approval on /queue no longer publishes a
+// pick on the spot — it waits for this.
+function nextPublishAt(now: Date = new Date()): Date {
+  const at = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 7));
+  if (at.getTime() <= now.getTime()) at.setUTCDate(at.getUTCDate() + 1);
+  return at;
+}
+
 function thisDayInHistoryPrompt(excludeTopics: string[], seedIdea?: string | null): string {
-  const today = new Date();
-  const monthDay = today.toLocaleDateString("en-US", { month: "long", day: "numeric" });
+  // Anchored to the day the pick is shown, not the day it's generated —
+  // the afternoon batch goes public the next morning.
+  const today = nextPublishAt();
+  const monthDay = today.toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
   const excludeBlock = excludeTopics.length
     ? `\n\nAlready shown recently — pick a genuinely different event from all of these, not a rephrasing of any of them: ${excludeTopics.join("; ")}.`
     : "";
@@ -1149,6 +1160,7 @@ serve(async (req) => {
   const errors: string[] = [];
   const errorLogRows: { batch_date: string; field: string; error_message: string }[] = [];
   const today = new Date().toISOString().slice(0, 10);
+  const publishAt = nextPublishAt().toISOString();
 
   results.forEach((r, i) => {
     if (r.status === "fulfilled") {
@@ -1160,7 +1172,9 @@ serve(async (req) => {
       // tradeoff here). Everything else (hand-authored seed inserts,
       // future campaigns) stays on the 'approved' default since those are
       // already reviewed by construction.
-      rows.push({ batch_date: today, status: "pending", ...r.value });
+      // publish_at: approved or not, the row stays off the public hero
+      // page until the next 07:00 UTC (migration 0053).
+      rows.push({ batch_date: today, status: "pending", publish_at: publishAt, ...r.value });
     } else {
       const message = String((r.reason as any)?.message ?? r.reason).slice(0, 2000);
       console.error(`generate-trending-topics: field "${orderedFields[i]}" failed`, r.reason);
@@ -1205,7 +1219,7 @@ serve(async (req) => {
     console.error("generate-trending-topics: cleanup failed", e);
   }
 
-  return new Response(JSON.stringify({ inserted: rows.length, batch_date: today, errors }), {
+  return new Response(JSON.stringify({ inserted: rows.length, batch_date: today, publish_at: publishAt, errors }), {
     headers: { "Content-Type": "application/json" },
   });
 });

@@ -309,6 +309,9 @@ serve(async (req) => {
     .select("field, topic, teaser, generated_at")
     .in("field", [QUOTE_FIELD, RIDDLE_FIELD, PERSPECTIVE_FIELD, ...TRENDING_FIELDS, ...TODAY_FIELDS])
     .eq("status", "approved")
+    // Same "not public until its publish time" rule as the hero page's
+    // read policy (migration 0053).
+    .or(`publish_at.is.null,publish_at.lte.${new Date().toISOString()}`)
     .order("generated_at", { ascending: false });
   if (topicsError) {
     return new Response(JSON.stringify({ error: `Failed to read topics: ${topicsError.message}` }), {
