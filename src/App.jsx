@@ -947,11 +947,16 @@ export default function Hyfax() {
       const taken = new Set(ownLinkLabels.map((l) => l.toLowerCase()));
       // A chip named outright in a new-format article (one with [[links]])
       // only repeats what the reader just read, so it's dropped. Older
-      // cached articles mention their chips by design, so they keep them.
+      // cached articles mention their chips by design, so they keep them,
+      // as does a hand-authored cached chip marked `pinned` (the Reddit
+      // landing's article points at its cards by name — migration 0042).
       const article = articleText ?? node.article ?? "";
       const articlePlain = linkLabelsIn(article).length ? stripLinkMarkers(article).toLowerCase() : "";
       const fresh = normalizeChildren(data.children).filter(
-        (c) => c?.label && !taken.has(c.label.toLowerCase()) && !(articlePlain && articlePlain.includes(c.label.toLowerCase()))
+        (c) =>
+          c?.label &&
+          !taken.has(c.label.toLowerCase()) &&
+          (c.pinned || !(articlePlain && articlePlain.includes(c.label.toLowerCase())))
       );
       const children = placeChildren(node, fresh);
       node.loading = false;
@@ -1261,15 +1266,15 @@ export default function Hyfax() {
   // closed yet (mid-stream) is held back rather than shown as raw brackets.
   // With no linkable children (trial exhausted), markers render as plain
   // text.
-  const renderLinked = (rawText, children) => {
+  const renderLinked = (rawText, children, articleHasMarkers = false) => {
     let text = rawText || "";
     const open = text.lastIndexOf("[[");
     if (open !== -1 && text.length - open < 60 && text.indexOf("]]", open) === -1) text = text.slice(0, open);
     const byLabel = new Map((children || []).map((c) => [c.label.toLowerCase(), c]));
-    // Plain-name matching is only for chips (how pre-[[link]] cached
-    // articles got their links); a [[link]] page is linked once, where the
-    // article marked it, not again at every later mention.
-    const chipsOnly = (children || []).filter((c) => !c.fromLink);
+    // Plain-name matching is only for chips in pre-[[link]] cached articles
+    // (how those got their links). A [[link]] article links only what it
+    // marked, once, so a pinned card it also names stays a card.
+    const chipsOnly = articleHasMarkers ? [] : (children || []).filter((c) => !c.fromLink);
     const pieces = [];
     let last = 0;
     for (const m of text.matchAll(LINK_MARKER_RE)) {
@@ -2116,7 +2121,7 @@ export default function Hyfax() {
                       .map((para, i, arr) => (
                         <Fragment key={i}>
                           <p>
-                            {renderLinked(para, linkableChildren)}
+                            {renderLinked(para, linkableChildren, (selected.article || "").includes("[["))}
                             {selected.articleStreaming && i === arr.length - 1 ? (
                               <span className="rh-cursor-blink" style={{ color: "#E3A73C" }}>
                                 {"▌"}
