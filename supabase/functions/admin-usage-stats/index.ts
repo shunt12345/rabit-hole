@@ -97,6 +97,8 @@ serve(async (req) => {
           .from("rabbit_hole_request_logs")
           .select("created_at, session_id, endpoint, node_type, cost_usd, latency_ms, user_id, ip_address, funded, hero_source, utm_source")
           .gte("created_at", since30d)
+          // The operator's own ?hyfax_test=1 traffic (migration 0052).
+          .eq("is_test", false)
           .order("created_at", { ascending: false })
           .limit(50000),
         supabase.rpc("get_recent_spend_usd", { since: since24h }),

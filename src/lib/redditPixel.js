@@ -14,11 +14,19 @@
 // the SAME conversionId, so Reddit can dedupe the browser pixel fire
 // against the server-side one instead of double-counting one real sign-up.
 import { isNewAccount } from "./auth.js";
+import { isTestMode } from "./visitor.js";
 
 const PIXEL_ID = import.meta.env.VITE_REDDIT_PIXEL_ID;
 
+// A ?hyfax_test=1 browser (the operator's own testing) never reports to
+// Reddit — neither the Pixel nor the server-side conversion — so test runs
+// can't show up as real Leads or SignUps in the ad account.
+function reportingEnabled() {
+  return !!PIXEL_ID && !isTestMode();
+}
+
 export function initRedditPixel() {
-  if (!PIXEL_ID || typeof window === "undefined") return;
+  if (!reportingEnabled() || typeof window === "undefined") return;
   if (window.rdt) return; // already initialized (React.StrictMode double-invoke in dev)
 
   /* eslint-disable */
@@ -46,7 +54,7 @@ export function initRedditPixel() {
 // call so Reddit can dedupe the two instead of counting one real sign-up
 // twice.
 function trackSignUp(conversionId) {
-  if (!PIXEL_ID || typeof window.rdt !== "function") return;
+  if (!reportingEnabled() || typeof window.rdt !== "function") return;
   window.rdt("track", "SignUp", { conversionId });
 }
 
@@ -83,7 +91,7 @@ const SIGNUP_REPORTED_KEY = "hyfax-reddit-signup-reported";
 // other is the real signal: that's only true the very first time someone
 // ever signs in.
 export function maybeReportSignUp(user) {
-  if (!PIXEL_ID || !user) return;
+  if (!reportingEnabled() || !user) return;
   try {
     if (localStorage.getItem(SIGNUP_REPORTED_KEY) === "1") return;
   } catch (_) {
@@ -120,7 +128,7 @@ const LEAD_REPORTED_KEY = "hyfax-reddit-lead-reported";
 // omitted from the CAPI payload when there isn't one (see App.jsx's
 // startTopic, which passes the signed-in user's email when it has one).
 export function maybeReportLead(email) {
-  if (!PIXEL_ID) return;
+  if (!reportingEnabled()) return;
   try {
     if (sessionStorage.getItem(LEAD_REPORTED_KEY) === "1") return;
     sessionStorage.setItem(LEAD_REPORTED_KEY, "1");

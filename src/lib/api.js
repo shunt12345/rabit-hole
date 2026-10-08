@@ -145,6 +145,8 @@ async function fetchClaudeText(system, prompt, maxTokens, endpoint, nodeCacheKey
         // A cached topic's own chips (see App.jsx's expandNode) — read from
         // that topic's news_root_cache row instead of generated per visitor.
         ...(newsCacheKey ? { newsCacheKey } : {}),
+        // Keeps the operator's own test traffic out of /admin usage.
+        isTest: isTestMode(),
         ...(await authField()),
         ...timeZoneField(),
       }),

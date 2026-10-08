@@ -604,7 +604,8 @@ async function logRequest(
   // position; these three always travel together anyway (see
   // lib/attribution.js, which captures/reads them as one unit).
   attribution?: { utmSource?: string; utmCampaign?: string; rdtCid?: string },
-  cacheHit = false
+  cacheHit = false,
+  isTest = false
 ): Promise<number | null> {
   try {
     const { data, error } = await supabase
@@ -635,6 +636,9 @@ async function logRequest(
         // Served from cache (migration 0051) — still billed, but not
         // counted against the free daily limit (see countSearches).
         cache_hit: cacheHit,
+        // The operator's own ?hyfax_test=1 traffic (migration 0052), left
+        // out of admin-usage-stats.
+        is_test: isTest,
       })
       .select("id")
       .single();
@@ -1450,7 +1454,7 @@ serve(async (req) => {
       utmSource,
       utmCampaign,
       rdtCid,
-    }, cacheHit);
+    }, cacheHit, !!isTest);
 
     // Adoption analytics (see logArticleViewEvent above) — only an
     // "article" call counts as an article_view; root/expand/continuation
