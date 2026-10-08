@@ -406,7 +406,7 @@ export default function Hyfax() {
   // hiding/disabling News/Today/Dig Deeper once the trial's used up.
   // Starts optimistic (assume within trial) since the real status isn't
   // known until after the first proxy call of the session.
-  const [trialStatus, setTrialStatus] = useState({ searchesUsed: 0, searchLimit: 6, funded: false });
+  const [trialStatus, setTrialStatus] = useState({ searchesUsed: 0, searchLimit: 4, funded: false });
   const syncActionsToday = () => {
     const n = getLastActionsToday();
     if (n != null) setActionsToday(n);

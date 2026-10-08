@@ -167,11 +167,11 @@ function usageHeaders(count: number | null) {
 // deliberately not in this set; see the top-of-file note.
 const GATED_ENDPOINTS = new Set(["expand", "article", "continuation"]);
 
-// Overridable without a redeploy, same pattern as DAILY_REQUEST_LIMIT —
-// matches the monetization outline doc's Section 14.1 ("6 searches",
-// explicitly flagged there as a placeholder to tune once real behavior
-// data exists).
-const FREE_SEARCH_LIMIT = Number(Deno.env.get("FREE_SEARCH_LIMIT") ?? "6");
+// Overridable without a redeploy, same pattern as DAILY_REQUEST_LIMIT.
+// Started at 6 (the monetization outline's Section 14.1 placeholder);
+// lowered to 4 once real data showed 90% of anonymous readers open 2 or
+// fewer fresh pages a day.
+const FREE_SEARCH_LIMIT = Number(Deno.env.get("FREE_SEARCH_LIMIT") ?? "4");
 // A free account gets more than an anonymous visitor, so signing up is
 // worth something — the limit's own message offers exactly that. Unlike
 // an anonymous visitor's, an account's count includes cached pages.
