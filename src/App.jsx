@@ -2186,8 +2186,8 @@ export default function Hyfax() {
                     {!selected.articleStreaming && !selected.articleLoading && !selected.deepened && !trialExhausted && digDeeperVisible && (
                       <button
                         onClick={() => deepenArticle(selected.id)}
-                        className="flex items-center gap-1.5 text-sm font-medium transition-colors rh-link-accent"
-                        style={{ color: "#A89478" }}
+                        className="flex items-center gap-1.5 text-sm font-semibold transition-colors rh-link-accent"
+                        style={{ color: "#E3A73C" }}
                       >
                         <ChevronDown size={15} /> Dig deeper
                       </button>
