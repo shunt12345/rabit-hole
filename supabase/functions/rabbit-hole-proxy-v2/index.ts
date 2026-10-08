@@ -197,22 +197,10 @@ function trialHeaders(searchesUsed: number, funded: boolean) {
 // `supabase secrets set PROXY_MODEL=claude-sonnet-5` to switch back
 // without a redeploy.
 const MODEL = Deno.env.get("PROXY_MODEL") ?? "claude-haiku-4-5";
-// Root's output is short, structured JSON (a label, one overview
-// paragraph, a handful of one-sentence teasers) — a meaningfully different
-// task from a full article's prose, and root is specifically the thing a
-// Reddit visitor is waiting on before any chip appears at all (avg ~6.7s
-// measured live). Worth being able to try a faster model for JUST this
-// endpoint without touching the model everything else uses, which was
-// already chosen over Haiku 4.5 after a real side-by-side quality check
-// for the article/full-prose case (see the handoff README) — that
-// decision doesn't automatically transfer to root's much shorter, more
-// structured output. Defaults to MODEL (zero behavior change) until
-// explicitly set.
+// The legacy separate "root" call (overview + chips) — the app no longer
+// makes it (topic pages start with their article), kept only for any old
+// client still calling it. Overridable separately via ROOT_MODEL.
 const ROOT_MODEL = Deno.env.get("ROOT_MODEL") ?? MODEL;
-// If this ever actually gets set to a non-Sonnet model, INPUT_PRICE_PER_M/
-// OUTPUT_PRICE_PER_M below (named and priced for Sonnet specifically) would
-// silently mis-cost every root call at the wrong per-token rate — same
-// trap the comment on those two already flags for MODEL itself.
 
 // Models the admin Tone Lab may switch to (see effectiveModel in serve()).
 const TONE_LAB_MODELS = new Set(["claude-sonnet-5", "claude-haiku-4-5", "claude-haiku-5-5"]);
