@@ -181,19 +181,22 @@ function trialHeaders(searchesUsed: number, funded: boolean) {
   };
 }
 
-// Fixed server-side, deliberately not read from the client request — chosen
-// over Haiku 4.5 after a real side-by-side comparison, see the handoff
-// README. Don't let a client-supplied model override this.
+// Fixed server-side, deliberately not read from the client request (the
+// admin Tone Lab's modelOverride is the one exception, admin-only).
 //
-// Overridable via `supabase secrets set MODEL=...` without a code
-// change/redeploy, same pattern as INPUT_PRICE_PER_M/OUTPUT_PRICE_PER_M
-// below — swapping in a new model to try is a secret update, not a code
-// edit. Still requires a real side-by-side quality check before actually
-// switching for good: a newer/smarter model can still shift tone in ways
-// that fight the carefully-tuned "unhinged" voice prompt, so this is
-// meant for deliberate, eyeballed model changes, not auto-upgrading to
-// "whatever's newest."
-const MODEL = Deno.env.get("MODEL") ?? "claude-sonnet-5";
+// Haiku 4.5, chosen in a blind side-by-side in the admin Tone Lab against
+// Sonnet 5 and Haiku 5.5 once Haiku had its own voice corrections and
+// example turns (see HAIKU_VOICE_REFERENCE / HAIKU_ARTICLE_EXAMPLES): same
+// voice to the operator's eye, faster and about half the price. Sonnet 5
+// was the model before that.
+//
+// Its own secret name, PROXY_MODEL, NOT the shared "MODEL" secret —
+// generate-trending-topics reads "MODEL" too (secrets are project-wide),
+// and the daily hero picks (live web search, fact-checking) should stay on
+// Sonnet regardless of what reader-facing text runs on. Set
+// `supabase secrets set PROXY_MODEL=claude-sonnet-5` to switch back
+// without a redeploy.
+const MODEL = Deno.env.get("PROXY_MODEL") ?? "claude-haiku-4-5";
 // Root's output is short, structured JSON (a label, one overview
 // paragraph, a handful of one-sentence teasers) — a meaningfully different
 // task from a full article's prose, and root is specifically the thing a
@@ -315,10 +318,9 @@ function withArticleExamples(messages: unknown, model: string, endpoint: string)
 // Same env var names generate-trending-topics uses for its own cost
 // calculation — Supabase secrets are project-wide, so one value covers
 // both functions. A future Anthropic price change only needs setting once.
-// Named for Sonnet specifically (this app's current model) rather than
-// generically — if MODEL above ever actually gets switched to a
-// different model family, update these two alongside it, or every
-// billed/logged cost silently keeps using the old model's per-token rate.
+// These are Sonnet's rates; Haiku models are priced from
+// MODEL_PRICES_PER_M below instead, so the PROXY_MODEL switch to Haiku
+// bills at Haiku's own rates with no secret change needed.
 const INPUT_PRICE_PER_M = Number(Deno.env.get("SONNET_INPUT_PRICE_PER_M") ?? "2.00");
 const OUTPUT_PRICE_PER_M = Number(Deno.env.get("SONNET_OUTPUT_PRICE_PER_M") ?? "10.00");
 // Anthropic's published multipliers for a 1h cache TTL (this app's
