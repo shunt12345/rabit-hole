@@ -242,7 +242,7 @@ Do not repeat or closely rephrase any of these already-shown labels: ${
 // What a free account gets per day, shown in the limit's sign-up offer.
 // Mirrors the proxy's SIGNED_IN_SEARCH_LIMIT default; the proxy's own
 // response headers stay the source of truth once a call comes back.
-const SIGNED_IN_PAGE_LIMIT = 20;
+const SIGNED_IN_PAGE_LIMIT = 10;
 
 let idCounter = 0;
 function nextId() {
@@ -551,12 +551,13 @@ export default function Hyfax() {
   // to fetch chips) that would otherwise see a stale render's value.
   const trialExhaustedRef = useRef(trialExhausted);
   trialExhaustedRef.current = trialExhausted;
-  // Pages that can be served from cache (a hero topic's page and its
-  // first-level threads) stay open past the free limit, since the proxy
-  // doesn't count cached pages. One that isn't cached yet is refused by
-  // the proxy and shows the limit message like any other page.
+  // For an anonymous visitor, pages that can be served from cache (a hero
+  // topic's page and its first-level threads) stay open past the free
+  // limit, since the proxy doesn't count them. One that isn't cached yet is
+  // refused by the proxy and shows the limit message like any other page.
+  // An account's limit counts cached pages too, so this never applies.
   const isCacheEligible = (node) => {
-    if (!node) return false;
+    if (!node || user) return false;
     if (node.type === "root") return !!node.newsContext;
     if (node.depth !== 1) return false;
     return !!nodesRef.current.find((n) => n.id === node.parentId)?.newsContext;

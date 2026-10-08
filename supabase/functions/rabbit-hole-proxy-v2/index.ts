@@ -173,8 +173,9 @@ const GATED_ENDPOINTS = new Set(["expand", "article", "continuation"]);
 // data exists).
 const FREE_SEARCH_LIMIT = Number(Deno.env.get("FREE_SEARCH_LIMIT") ?? "6");
 // A free account gets more than an anonymous visitor, so signing up is
-// worth something — the limit's own message offers exactly that.
-const SIGNED_IN_SEARCH_LIMIT = Number(Deno.env.get("SIGNED_IN_SEARCH_LIMIT") ?? "20");
+// worth something — the limit's own message offers exactly that. Unlike
+// an anonymous visitor's, an account's count includes cached pages.
+const SIGNED_IN_SEARCH_LIMIT = Number(Deno.env.get("SIGNED_IN_SEARCH_LIMIT") ?? "10");
 
 function searchLimitFor(userId: string | null) {
   return userId ? SIGNED_IN_SEARCH_LIMIT : FREE_SEARCH_LIMIT;
@@ -861,9 +862,10 @@ async function countSearches(userId: string | null, sessionId: string, timeZone:
     .from("rabbit_hole_request_logs")
     .select("*", { count: "exact", head: true })
     .eq("endpoint", "article")
-    .eq("cache_hit", false)
     .gte("created_at", since);
-  query = userId ? query.eq("user_id", userId) : query.eq("session_id", sessionId || "unknown");
+  // Cached pages are free for an anonymous visitor but count for an
+  // account (see SIGNED_IN_SEARCH_LIMIT).
+  query = userId ? query.eq("user_id", userId) : query.eq("session_id", sessionId || "unknown").eq("cache_hit", false);
   const { count, error } = await query;
   if (error) {
     console.error("rabbit-hole-proxy: search count check failed, allowing request", error);
@@ -1390,10 +1392,13 @@ serve(async (req) => {
     // standalone page for whatever was just typed in.
     const isRootArticle = endpoint === "article" && nodeType === "root";
     const searchLimit = searchLimitFor(userId);
+    // A cached page is exempt from (and doesn't count toward) an anonymous
+    // visitor's limit only; for an account it counts like any other page.
+    const cacheExempt = cacheHit && !userId;
     const trialBlocked =
       !funded &&
       !isAdmin &&
-      !cacheHit &&
+      !cacheExempt &&
       searchCount !== null &&
       searchCount >= searchLimit &&
       GATED_ENDPOINTS.has(endpoint) &&
@@ -1411,8 +1416,8 @@ serve(async (req) => {
     // A root article allowed through past the limit legitimately can push
     // the displayed count above the limit (e.g. 7/6) — that's real, not a
     // bug, since it's the one call that's always allowed to go through.
-    // A cached page doesn't count, so it doesn't get the +1 either.
-    const displaySearchCount = (searchCount ?? 0) + (!trialBlocked && !cacheHit && endpoint === "article" ? 1 : 0);
+    // A page that doesn't count doesn't get the +1 either.
+    const displaySearchCount = (searchCount ?? 0) + (!trialBlocked && !cacheExempt && endpoint === "article" ? 1 : 0);
     const responseHeaders = { ...corsHeaders, ...usageHeaders(count), ...trialHeaders(displaySearchCount, funded, searchLimit) };
 
     if (trialBlocked) {
