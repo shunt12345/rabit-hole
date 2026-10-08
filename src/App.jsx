@@ -22,7 +22,7 @@ import { recordChipTap, hasDismissedSignUpPrompt, dismissSignUpPrompt } from "./
 import { getProfile, getLifetimeFundedUsd } from "./lib/profile.js";
 import AccountMenu from "./AccountMenu.jsx";
 import LegalModal from "./LegalModal.jsx";
-import { nextOpenerShape } from "./lib/openerVariety.js";
+import { articleUserPrompt, ARTICLE_MAX_TOKENS } from "./lib/articlePrompt.js";
 import { nextSurpriseTopic } from "./lib/surpriseTopics.js";
 import UsageGauge from "./UsageGauge.jsx";
 import MiniGauge from "./MiniGauge.jsx";
@@ -169,31 +169,8 @@ function splitTitleLine(raw) {
 // with the accumulated text so far after every delta, so the screen can
 // render it growing in real time rather than sitting on a spinner.
 async function fetchArticleTextStreaming(topicLabel, path, onChunk, newsContext, nodeType, articleCacheKey, nodeCacheKey, onUsage, heroSource) {
-  const today = new Date().toISOString().slice(0, 10);
-  const titleNote = nodeType === "root" ? "\n\nBegin with a title line." : "";
-  const newsNote = newsContext
-    ? `\n\nThis topic comes with specific context worth reflecting accurately, picked from one of the hero page's live feeds: "${newsContext}". Don't spell out the exact calendar date this happened (e.g., "On August 8, 2025") unless the date itself is the actual point of the story — a "this day in history"/anniversary framing, or the date is what makes it notable. For an ordinary current news pick, just write it as recent/current instead ("recently," "this week," etc.) — a hardcoded date reads as stale the moment it's read after the fact, which defeats the point of it being "trending." (This date guidance doesn't apply if the context above is a quote's attribution rather than a news event — just use it accurately as given.)`
-    : "";
-  // Today's date is real grounding, not decoration — without it, "current"
-  // in the model's own training data can be a year or more stale by the
-  // time this actually runs (confirmed live: an ordinary, non-news topic
-  // wrote "Apple is expected to unveil its first foldable iPhone" framed
-  // as upcoming, dated September 2025 — a full year in the past by the
-  // time a reader actually saw it). See the shared system prompt's note on
-  // checking date-relative framing against this.
-  // Assigns the second paragraph's opener a specific shape rather than
-  // leaving "vary it" to the model — see lib/openerVariety.js for why a
-  // stateless per-call instruction alone wasn't producing real variety
-  // across separate articles for one active user.
-  const openerNote = `\n\nFor the second paragraph's opening sentence specifically, use this exact approach: ${nextOpenerShape()}.`;
-  const userContent = `TASK: read-more article
-
-Today's date is ${today}.
-
-Path so far: ${path.join(" → ")}
-Topic: "${topicLabel}"${newsNote}${titleNote}${openerNote}`;
-
-  return streamTextFromPrompt(HYFAX_SYSTEM, userContent, 400, 30000, "article", onChunk, nodeType, articleCacheKey, nodeCacheKey, onUsage, heroSource);
+  const userContent = articleUserPrompt({ topicLabel, path, newsContext, nodeType });
+  return streamTextFromPrompt(HYFAX_SYSTEM, userContent, ARTICLE_MAX_TOKENS, 30000, "article", onChunk, nodeType, articleCacheKey, nodeCacheKey, onUsage, heroSource);
 }
 
 // "Dig deeper" — this app is entertainment, not a research tool, so this is

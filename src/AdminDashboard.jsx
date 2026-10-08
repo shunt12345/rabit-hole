@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
-import { Loader2, AlertCircle, RefreshCw, LogOut } from "lucide-react";
+import { Loader2, AlertCircle, RefreshCw, LogOut, Eye } from "lucide-react";
 import { getCurrentUser, onAuthStateChange, sendMagicLink, signOut, getAccessToken } from "./lib/auth.js";
 import MiniGauge from "./MiniGauge.jsx";
+import { streamTextFromPrompt } from "./lib/api.js";
+import { HYFAX_SYSTEM } from "./lib/hyfaxSystemPrompt.js";
+import { articleUserPrompt, ARTICLE_MAX_TOKENS } from "./lib/articlePrompt.js";
 
 // Served at /admin (see main.jsx) — a completely separate mount from the
 // main Hyfax app, not a route inside it, since this app has no router and
@@ -23,6 +26,173 @@ const COLORS = {
   accent: "#E3A73C",
   bad: "#D98A6E",
 };
+
+// Tone Lab: the same topic page article from each model, side by side,
+// labelled A/B/C in a shuffled order until revealed, so the voice can be
+// judged before knowing which model wrote it. Every model gets the exact
+// same prompt (one articleUserPrompt call per run, so even the assigned
+// second-paragraph opener matches). The proxy only honours modelOverride
+// for an ADMIN_USER_IDS account.
+const TONE_LAB_MODELS = [
+  { id: "claude-sonnet-5", name: "Sonnet 5 (current)" },
+  { id: "claude-haiku-4-5", name: "Haiku 4.5" },
+  { id: "claude-haiku-5-5", name: "Haiku 5.5" },
+];
+
+function splitTitle(raw) {
+  const m = (raw || "").match(/^\s*TITLE:\s*(.*)\n+/);
+  return m ? { title: m[1].trim(), body: raw.slice(m[0].length) } : { title: null, body: raw || "" };
+}
+
+// Same rule as the live app: a capped article ends at its last complete
+// sentence, so the comparison shows what a reader would actually see.
+function trimToLastSentence(text) {
+  const t = (text || "").trimEnd();
+  if (/[.!?]["'”’)\]]*$/.test(t)) return t;
+  let cut = -1;
+  for (const m of t.matchAll(/[.!?]["'”’)\]]*(?=\s)/g)) cut = m.index + m[0].length;
+  return cut > 0 ? t.slice(0, cut) : t;
+}
+
+function ToneLabText({ text }) {
+  return (
+    <div className="space-y-3 text-sm leading-relaxed" style={{ color: COLORS.text }}>
+      {text
+        .split(/\n\s*\n/)
+        .filter((p) => p.trim())
+        .map((para, i) => (
+          <p key={i}>
+            {para.split(/(\[\[[^[\]]+?\]\])/).map((piece, j) =>
+              /^\[\[.*\]\]$/.test(piece) ? (
+                <span key={j} style={{ color: COLORS.accent, textDecoration: "underline", textDecorationStyle: "dotted" }}>
+                  {piece.slice(2, -2)}
+                </span>
+              ) : (
+                <span key={j}>{piece}</span>
+              )
+            )}
+          </p>
+        ))}
+    </div>
+  );
+}
+
+function ToneLab() {
+  const [topic, setTopic] = useState("");
+  const [runs, setRuns] = useState([]);
+  const [revealed, setRevealed] = useState(false);
+  const running = runs.some((r) => r.loading);
+
+  const generate = (e) => {
+    e.preventDefault();
+    const t = topic.trim();
+    if (!t || running) return;
+    setRevealed(false);
+    const prompt = articleUserPrompt({ topicLabel: t, path: [t], nodeType: "root" });
+    const order = [...TONE_LAB_MODELS].sort(() => Math.random() - 0.5);
+    const initial = order.map((m, i) => ({ ...m, slot: "ABC"[i], text: "", ttftMs: null, totalMs: null, error: null, loading: true }));
+    setRuns(initial);
+    initial.forEach((run) => {
+      const startedAt = performance.now();
+      let firstAt = null;
+      const update = (patch) => setRuns((prev) => prev.map((r) => (r.slot === run.slot ? { ...r, ...patch } : r)));
+      streamTextFromPrompt(
+        HYFAX_SYSTEM,
+        prompt,
+        ARTICLE_MAX_TOKENS,
+        60000,
+        "article",
+        (partial) => {
+          if (firstAt == null) {
+            firstAt = performance.now();
+            update({ ttftMs: firstAt - startedAt });
+          }
+          update({ text: partial });
+        },
+        "root",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { modelOverride: run.id }
+      )
+        .then((finalText) => update({ text: finalText, totalMs: performance.now() - startedAt, loading: false }))
+        .catch((err) => update({ error: err.message || "Generation failed", loading: false }));
+    });
+  };
+
+  return (
+    <div className="rounded-2xl border p-4 mb-6" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
+      <form onSubmit={generate} className="flex flex-wrap items-end gap-3 mb-4">
+        <label className="text-xs flex-1 min-w-[220px]" style={{ color: COLORS.dim }}>
+          Topic
+          <input
+            type="text"
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            placeholder="why do cats knead"
+            className="block mt-1 w-full rounded-lg border px-2 py-1.5 text-sm"
+            style={{ backgroundColor: COLORS.bg, borderColor: COLORS.border, color: COLORS.text }}
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={running || !topic.trim()}
+          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-40"
+          style={{ backgroundColor: COLORS.accent, color: "#14100C" }}
+        >
+          {running && <Loader2 size={14} className="animate-spin" />} Compare
+        </button>
+        {runs.length > 0 && !running && (
+          <button
+            type="button"
+            onClick={() => setRevealed((v) => !v)}
+            className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm"
+            style={{ borderColor: COLORS.border, color: COLORS.text }}
+          >
+            <Eye size={14} /> {revealed ? "Hide models" : "Reveal models"}
+          </button>
+        )}
+      </form>
+      {runs.length > 0 && (
+        <div className="grid md:grid-cols-3 gap-3">
+          {runs.map((r) => {
+            const { title, body } = splitTitle(r.text);
+            const shown = r.loading ? body : trimToLastSentence(body);
+            const words = shown.split(/\s+/).filter(Boolean).length;
+            return (
+              <div key={r.slot} className="rounded-xl border p-3" style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: COLORS.accent }}>
+                    {r.slot}
+                    {revealed ? ` · ${r.name}` : ""}
+                  </span>
+                  {r.loading && <Loader2 size={13} className="animate-spin" style={{ color: COLORS.dim }} />}
+                </div>
+                <div className="text-xs mb-3" style={{ color: COLORS.dim }}>
+                  first words {r.ttftMs != null ? `${(r.ttftMs / 1000).toFixed(1)}s` : "…"} · done{" "}
+                  {r.totalMs != null ? `${(r.totalMs / 1000).toFixed(1)}s` : "…"} · {words} words
+                </div>
+                {title && (
+                  <div className="rh-display italic text-lg mb-2" style={{ color: COLORS.text }}>
+                    {title}
+                  </div>
+                )}
+                {r.error ? (
+                  <div className="flex items-center gap-1.5 text-xs" style={{ color: COLORS.bad }}>
+                    <AlertCircle size={13} /> {r.error}
+                  </div>
+                ) : (
+                  <ToneLabText text={shown} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function StatCard({ label, value, sub }) {
   return (
@@ -661,6 +831,16 @@ export default function AdminDashboard() {
             </div>
           </>
         )}
+
+        <div className="flex items-baseline justify-between mt-10 mb-4">
+          <h2 className="rh-display text-xl" style={{ color: COLORS.text }}>
+            Tone Lab
+          </h2>
+          <span className="text-xs" style={{ color: COLORS.dim }}>
+            Same prompt, three models, names hidden until revealed
+          </span>
+        </div>
+        <ToneLab />
       </div>
     </div>
   );

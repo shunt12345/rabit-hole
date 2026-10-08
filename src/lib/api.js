@@ -223,7 +223,7 @@ export async function callClaude(system, prompt, endpoint, nodeCacheKey, onUsage
 // API's server-sent-event chunks, and calls onChunk with the accumulated
 // text so far after every delta. Returns the final raw accumulated text —
 // callers apply their own cleanup/parsing on top (plain prose vs. JSON).
-async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey, nodeCacheKey, nodeType, onUsage, heroSource) {
+async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey, nodeCacheKey, nodeType, onUsage, heroSource, extraBody) {
   const controller = new AbortController();
   let timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   let res;
@@ -274,6 +274,9 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
         })(),
         ...(await authField()),
         ...timeZoneField(),
+        // Admin Tone Lab only (e.g. { modelOverride }) — the proxy ignores
+        // it for anyone not on its ADMIN_USER_IDS list.
+        ...(extraBody || {}),
       }),
       signal: controller.signal,
     });
@@ -402,8 +405,8 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
 // request purely for analysis — which branch types people actually choose
 // to read, so the obscurity mix (hyfaxSystemPrompt.js's OBSCURITY_LEVELS)
 // can eventually be tuned toward what resonates instead of a guess.
-export async function streamTextFromPrompt(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, nodeType, newsCacheKey, nodeCacheKey, onUsage, heroSource) {
-  const fullText = await streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey, nodeCacheKey, nodeType, onUsage, heroSource);
+export async function streamTextFromPrompt(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, nodeType, newsCacheKey, nodeCacheKey, onUsage, heroSource, extraBody) {
+  const fullText = await streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey, nodeCacheKey, nodeType, onUsage, heroSource, extraBody);
   return fullText.replace(/```/g, "").trim();
 }
 

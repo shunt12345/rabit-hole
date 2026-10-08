@@ -211,6 +211,51 @@ const ROOT_MODEL = Deno.env.get("ROOT_MODEL") ?? MODEL;
 // silently mis-cost every root call at the wrong per-token rate — same
 // trap the comment on those two already flags for MODEL itself.
 
+// Models the admin Tone Lab may switch to (see effectiveModel in serve()).
+const TONE_LAB_MODELS = new Set(["claude-sonnet-5", "claude-haiku-4-5", "claude-haiku-5-5"]);
+
+// Haiku-only voice reference. The tone rules in the client's system prompt
+// were hand-tuned against Sonnet's writing; Haiku follows the same rules
+// but reads them flatter (confirmed live: switching MODEL to Haiku changed
+// the voice noticeably). Concrete examples transfer a voice to a smaller
+// model far better than more adjectives do, so Haiku also gets three real
+// Sonnet-written articles from the cache plus what specifically makes them
+// work. Appended only for Haiku, so Sonnet's prompt — the reference voice —
+// stays byte-for-byte unchanged. Cached as its own block (same 1h TTL as
+// the client's), so it costs a cache read per call, not full input price.
+const HAIKU_VOICE_REFERENCE = `=== VOICE REFERENCE — applies to every task above ===
+The tone section is the most important instruction in this whole prompt: readers come back for the voice as much as the facts. Below are three real articles written in exactly the right voice. Match their energy, rhythm and specificity — never their facts, topics or phrases, and never copy a line from them. They also run longer than the length your task asks for; keep to the task's length.
+
+What makes them work, concretely:
+- The first sentence is a hook that lands on its own: a cold number, a vivid image, or a flat claim that sounds wrong until it's explained. Never a definition, never "X is a fascinating...", never a question asking whether the reader has ever wondered.
+- Ordinary things get personality: honey "quietly plotting," bread "a crystal that got murdered by heat," a bear in a restaurant lobby "like it had a reservation." Concrete and a little absurd, never cutesy.
+- Sentence length swings hard: a long breathless run held together by commas and dashes, then a short flat sentence that lands the punch.
+- Everything is specific: real names, numbers, mechanisms, places. No vague intensifiers ("incredible," "amazing," "fascinating," "truly"), no filler ("it's worth noting," "interestingly"), no moral or tidy summary at the end.
+- It sounds like an excited expert telling a friend something they can't believe, not an encyclopedia, a textbook or a press release.
+
+Example 1:
+Rip into the etymology of sarcasm and you find actual torn flesh waiting underneath. The word traces back to the Greek "sarkazein," meaning to tear flesh or strip off skin — the exact same brutal root that gave us [[sarcophagus]], the stone coffin literally named for its job of devouring corpses. Somewhere along the way, Greek speakers started using that same violent image for a verb meaning to snarl or sneer like a dog, then narrowed it further into speaking with bitter, cutting contempt. By the time Latin and then English got hold of it, the flesh-tearing had gone fully metaphorical, but the aggression never left.
+
+Picture someone's face mid-sneer, lip curled back, teeth bared for just a second too long — that's the literal physical gesture Greek speakers were describing when they coined the verb. Linguists now treat sarcasm as a surprisingly complex cognitive trick, since understanding it requires detecting a gap between what's said and what's meant, which is why [[brain damage]] to certain right-hemisphere regions can strip people of the ability to catch it at all, even though their grammar stays perfectly intact. Tearing flesh, it turns out, was never just a metaphor for cruelty — it was an uncannily precise description of what a well-aimed sarcastic remark actually does to whoever's on the receiving end of it.
+
+Example 2:
+Here's the part that should feel illegal — your bread was never actually a solid in the way you think, it was a crystal that got murdered by heat and is spending its entire shelf life trying to resurrect itself. Flour starch comes packed in tight little granules made of two molecules, amylose and amylopectin, coiled up in dense, ordered arrangements. Baking blasts that order apart — water floods in, heat uncoils the chains, and the granules swell and burst in a process called [[gelatinization]], which is the only reason fresh bread has that soft, giving crumb at all.
+
+But amylose and amylopectin don't forget who they were. The second the loaf starts cooling, amylose snaps back into tight [[double helix]] bundles within hours, while the slower, branchier amylopectin spends days crawling back toward its original crystalline order, dragging moisture out of the crumb as it goes. That realignment runs fastest around four degrees Celsius, which is exactly fridge temperature, so fridge bread stales roughly six times faster than bread left on the counter. Freeze it instead and the molecules get locked in place, unable to recrystallize at all — which is the entire, beautifully specific reason freezer bread toasts back to life and fridge bread turns into a brick by Tuesday.
+
+Example 3:
+A black bear walked straight up to the host stand of a Pennsylvania restaurant like it had a reservation, paused to look things over, then turned around and went dumpster diving out back. Security footage caught the entire visit, and it is exactly as calm and unbothered as it sounds — no screaming staff, no stampede, just a four-hundred-pound animal casually clocking the lobby decor before heading to the real destination. Restaurant dumpsters are basically all-you-can-eat buffets to a bear with a nose that can detect food from over a mile away, and this one clearly knew the menu before it ever stepped inside.
+
+Black bears treat human structures as an extension of the forest floor whenever something smells promising enough, and this kind of boldness is becoming the norm as [[black bear populations]] expand into suburban and commercial areas where dumpsters sit practically unguarded. Pennsylvania alone is thought to hold somewhere around twenty thousand black bears, dense enough that run-ins with restaurants, backyards and campsites aren't freak accidents anymore — they're a predictable Tuesday.`;
+
+// Appends the Haiku voice reference after the client's own (cached)
+// system blocks. Anything else — Sonnet, or a caller that sent a plain
+// string — passes through untouched.
+function withVoiceReference(system: unknown, model: string): unknown {
+  if (!model.includes("haiku") || !Array.isArray(system)) return system;
+  return [...system, { type: "text", text: HAIKU_VOICE_REFERENCE, cache_control: { type: "ephemeral", ttl: "1h" } }];
+}
+
 // Same env var names generate-trending-topics uses for its own cost
 // calculation — Supabase secrets are project-wide, so one value covers
 // both functions. A future Anthropic price change only needs setting once.
@@ -239,21 +284,34 @@ const BILLING_MARKUP_MULTIPLIER = 1 / (1 - MARGIN_TARGET);
 // shape whether it came from a non-streamed response or was reconstructed
 // from an SSE stream's message_start/message_delta events (see
 // extractUsageAndBill below).
-function computeCostUsd(usage: {
-  input_tokens?: number;
-  output_tokens?: number;
-  cache_creation_input_tokens?: number;
-  cache_read_input_tokens?: number;
-}) {
+//
+// Haiku models have their own published per-MTok rates; anything else
+// (today's Sonnet) uses the SONNET_*_PRICE_PER_M secrets above. Keyed by
+// exact model id so a MODEL secret switch to a Haiku bills correctly
+// without touching those secrets.
+const MODEL_PRICES_PER_M: Record<string, { input: number; output: number }> = {
+  "claude-haiku-4-5": { input: 1.0, output: 5.0 },
+  "claude-haiku-5-5": { input: 0.1, output: 0.5 },
+};
+function computeCostUsd(
+  usage: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+  },
+  model: string = MODEL
+) {
+  const prices = MODEL_PRICES_PER_M[model] ?? { input: INPUT_PRICE_PER_M, output: OUTPUT_PRICE_PER_M };
   const input = usage.input_tokens ?? 0;
   const output = usage.output_tokens ?? 0;
   const cacheWrite = usage.cache_creation_input_tokens ?? 0;
   const cacheRead = usage.cache_read_input_tokens ?? 0;
   return (
-    (input / 1_000_000) * INPUT_PRICE_PER_M +
-    (output / 1_000_000) * OUTPUT_PRICE_PER_M +
-    (cacheWrite / 1_000_000) * INPUT_PRICE_PER_M * CACHE_WRITE_MULTIPLIER +
-    (cacheRead / 1_000_000) * INPUT_PRICE_PER_M * CACHE_READ_MULTIPLIER
+    (input / 1_000_000) * prices.input +
+    (output / 1_000_000) * prices.output +
+    (cacheWrite / 1_000_000) * prices.input * CACHE_WRITE_MULTIPLIER +
+    (cacheRead / 1_000_000) * prices.input * CACHE_READ_MULTIPLIER
   );
 }
 
@@ -346,16 +404,17 @@ async function billAndLog(
   usage: { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number },
   logRowIdPromise: Promise<number | null>,
   userId: string | null,
-  latencyMs: number | null
+  latencyMs: number | null,
+  model: string = MODEL
 ) {
-  const costUsd = computeCostUsd(usage);
+  const costUsd = computeCostUsd(usage, model);
 
   const rowId = await logRowIdPromise;
   if (rowId != null) {
     const { error } = await supabase
       .from("rabbit_hole_request_logs")
       .update({
-        model: MODEL,
+        model,
         input_tokens: usage.input_tokens ?? 0,
         output_tokens: usage.output_tokens ?? 0,
         cost_usd: costUsd,
@@ -384,7 +443,8 @@ async function extractUsageAndBill(
   logRowIdPromise: Promise<number | null>,
   userId: string | null,
   anthropicCallStartedAt: number,
-  cacheContext?: { newsCacheKey: string; endpoint: string }
+  cacheContext?: { newsCacheKey: string; endpoint: string },
+  model: string = MODEL
 ) {
   try {
     const contentType = meterRes.headers.get("Content-Type") || "";
@@ -398,7 +458,7 @@ async function extractUsageAndBill(
     if (!usage) return;
 
     const latencyMs = Date.now() - anthropicCallStartedAt;
-    await billAndLog(usage, logRowIdPromise, userId, latencyMs);
+    await billAndLog(usage, logRowIdPromise, userId, latencyMs, model);
 
     if (cacheContext?.endpoint === "article" && cacheContext.newsCacheKey) {
       const { error } = await supabase
@@ -1097,6 +1157,7 @@ serve(async (req) => {
       visitorId,
       visitorSessionId,
       isTest,
+      modelOverride,
     } = body;
     const effectiveTimeZone = isValidTimeZone(timeZone) ? timeZone : DEFAULT_TIME_ZONE;
 
@@ -1135,6 +1196,16 @@ serve(async (req) => {
         : Promise.resolve({ count: null as number | null, error: null as Error | null }),
     ]);
     const { userId, funded, featureDigDeeper } = identity;
+    // The operator's Tone Lab (/admin) compares models on the same prompt.
+    // Only an ADMIN_USER_IDS account can pick the model, and only from this
+    // fixed list; everyone else always gets the configured MODEL.
+    const isAdmin = !!userId && ADMIN_USER_IDS.has(userId);
+    const effectiveModel =
+      isAdmin && typeof modelOverride === "string" && TONE_LAB_MODELS.has(modelOverride)
+        ? modelOverride
+        : endpoint === "root"
+          ? ROOT_MODEL
+          : MODEL;
     const { count, error: countError } = sessionCountResult;
     const { count: ipCount, error: ipCountError } = ipCountResult;
 
@@ -1212,7 +1283,7 @@ serve(async (req) => {
     // standalone page for whatever was just typed in.
     const isRootArticle = endpoint === "article" && nodeType === "root";
     const trialBlocked =
-      !funded && searchCount !== null && searchCount >= FREE_SEARCH_LIMIT && GATED_ENDPOINTS.has(endpoint) && !isRootArticle;
+      !funded && !isAdmin && searchCount !== null && searchCount >= FREE_SEARCH_LIMIT && GATED_ENDPOINTS.has(endpoint) && !isRootArticle;
     // +1 only when THIS call is itself an "article" call that's actually
     // going to be allowed through — countSearches queried
     // rabbit_hole_request_logs before logRequest() below inserts this
@@ -1428,20 +1499,22 @@ serve(async (req) => {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: endpoint === "root" ? ROOT_MODEL : MODEL,
+        model: effectiveModel,
         max_tokens: max_tokens || 1200,
         stream: !!stream,
-        // claude-sonnet-5 runs adaptive thinking by default; left enabled,
-        // thinking tokens can consume the whole max_tokens budget before any
-        // actual output is written (empty response, broken JSON parsing
-        // client-side). This app has no need for reasoning depth.
-        thinking: { type: "disabled" },
+        // claude-sonnet-5 (and Haiku 5.5) run adaptive thinking by default;
+        // left enabled, thinking tokens can consume the whole max_tokens
+        // budget before any actual output is written (empty response,
+        // broken JSON parsing client-side). This app has no need for
+        // reasoning depth. Haiku 4.5 doesn't think unless asked, so it gets
+        // no thinking field at all.
+        ...(effectiveModel.startsWith("claude-haiku-4-5") ? {} : { thinking: { type: "disabled" } }),
         // Optional prompt-caching support: the client builds the full
         // Anthropic `system` array itself (text + cache_control), this just
         // forwards it through untouched — no logic here needs to know
         // anything about caching. Omitted entirely when the client doesn't
         // send one, so this stays a no-op for any older/other caller.
-        ...(system ? { system } : {}),
+        ...(system ? { system: withVoiceReference(system, effectiveModel) } : {}),
         messages,
       }),
     });
@@ -1460,7 +1533,8 @@ serve(async (req) => {
           logRowIdPromise,
           userId,
           anthropicCallStartedAt,
-          newsCacheKey ? { newsCacheKey, endpoint } : undefined
+          newsCacheKey ? { newsCacheKey, endpoint } : undefined,
+          effectiveModel
         )
       );
     }
