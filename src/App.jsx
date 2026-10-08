@@ -37,6 +37,7 @@ import {
   migrateLocalHistoryToAccount,
 } from "./lib/exploredHistory.js";
 import { shareArticle } from "./lib/share.js";
+import { savePendingThread, takePendingThread } from "./lib/pendingThread.js";
 
 const TYPE_COLOR = {
   root: "#C1552E",
@@ -238,6 +239,11 @@ Do not repeat or closely rephrase any of these already-shown labels: ${
   }${articleNote}`;
 }
 
+// What a free account gets per day, shown in the limit's sign-up offer.
+// Mirrors the proxy's SIGNED_IN_SEARCH_LIMIT default; the proxy's own
+// response headers stay the source of truth once a call comes back.
+const SIGNED_IN_PAGE_LIMIT = 20;
+
 let idCounter = 0;
 function nextId() {
   idCounter += 1;
@@ -416,6 +422,14 @@ export default function Hyfax() {
     return onAuthStateChange((u) => {
       setUser(u);
       if (u) setShowSignUpPrompt(false);
+      // A free account counts its own pages, so a visitor who just signed
+      // up at the limit can keep going in this tab right away. The next
+      // proxy response replaces this with the account's real count.
+      if (u) {
+        setTrialStatus((prev) =>
+          prev.funded || prev.searchLimit >= SIGNED_IN_PAGE_LIMIT ? prev : { searchesUsed: 0, searchLimit: SIGNED_IN_PAGE_LIMIT, funded: false }
+        );
+      }
       // Reddit Ads conversion tracking (see lib/redditPixel.js) — reports a
       // "SignUp" event the first time this fires for a genuinely new
       // account, no-ops for a returning sign-in or when no Reddit Pixel is
@@ -537,6 +551,18 @@ export default function Hyfax() {
   // to fetch chips) that would otherwise see a stale render's value.
   const trialExhaustedRef = useRef(trialExhausted);
   trialExhaustedRef.current = trialExhausted;
+  // Pages that can be served from cache (a hero topic's page and its
+  // first-level threads) stay open past the free limit, since the proxy
+  // doesn't count cached pages. One that isn't cached yet is refused by
+  // the proxy and shows the limit message like any other page.
+  const isCacheEligible = (node) => {
+    if (!node) return false;
+    if (node.type === "root") return !!node.newsContext;
+    if (node.depth !== 1) return false;
+    return !!nodesRef.current.find((n) => n.id === node.parentId)?.newsContext;
+  };
+  // Whether this page's threads (its chips and their pages) can be opened.
+  const threadsOpenFor = (node) => !trialExhaustedRef.current || (node?.type === "root" && isCacheEligible(node));
 
   // House-ad staging (Section H) — every AdCard placement below is
   // already gated on `!funded` (funded accounts don't see ads at all), so
@@ -790,6 +816,21 @@ export default function Hyfax() {
     );
   };
 
+  // Back from the sign-in link: reopens the thread saved when "Sign up" was
+  // tapped at the free limit (see lib/pendingThread.js), on the page they
+  // were reading. Runs before the ?topic= and Reddit landing effects below,
+  // which both stand down once a thread is open.
+  useEffect(() => {
+    const saved = takePendingThread();
+    if (!saved || nodesRef.current.length > 0) return;
+    idCounter = Math.max(0, ...saved.nodes.map((n) => n.id));
+    nodesRef.current = saved.nodes;
+    setNodes(saved.nodes);
+    if (saved.topic) setTopic(saved.topic);
+    setSelectedId(saved.nodes.some((n) => n.id === saved.selectedId) ? saved.selectedId : saved.nodes[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Reads a starting topic straight from the URL on load, e.g.
   // ?topic=octopus%20cognition — the foundation piece for anything that
   // wants to hand off INTO Hyfax from somewhere else (a bookmarklet,
@@ -999,7 +1040,9 @@ export default function Hyfax() {
     // the moment the call completes (correcting it back down if the call
     // was actually blocked, e.g. trial exhausted), so it can't drift
     // permanently wrong.
-    setTrialStatus((prev) => ({ ...prev, searchesUsed: Math.min(prev.searchesUsed + 1, prev.searchLimit) }));
+    if (!isCacheEligible(node)) {
+      setTrialStatus((prev) => ({ ...prev, searchesUsed: Math.min(prev.searchesUsed + 1, prev.searchLimit) }));
+    }
 
     const path = pathToNode(node);
     // The ROOT of a news/today/quote-sourced topic caches its article — same
@@ -1083,7 +1126,7 @@ export default function Hyfax() {
       // Chips start the moment the article's text is in hand — not after
       // the typing animation catches up — with this article's own links
       // already known, so they're excluded.
-      if (!trialExhaustedRef.current && !node.generated && !node.loading) expandNode(node.id, stripMarkdown(finalBody));
+      if (threadsOpenFor(node) && !node.generated && !node.loading) expandNode(node.id, stripMarkdown(finalBody));
       await reveal.finish(finalBody);
       node.article = stripMarkdown(cleanStrayBrackets(finalBody));
       node.articleStreaming = false;
@@ -1169,14 +1212,14 @@ export default function Hyfax() {
     // one exception is a topic page's OWN article: the server exempts that
     // call specifically (see rabbit-hole-proxy's isRootArticle) so a fresh
     // Dig In always gets a full standalone page — it just can't be branched
-    // into any further.
-    if (trialExhausted && node.type !== "root") return;
+    // into any further. Cache-eligible pages are the other exception.
+    if (trialExhausted && node.type !== "root" && !isCacheEligible(node)) return;
 
     // loadArticle starts the chips itself once its text has arrived; this
     // only covers revisiting a page whose chips never landed.
     if (!node.article && !node.articleLoading) {
       loadArticle(selectedId);
-    } else if (node.article && !node.generated && !node.loading) {
+    } else if (node.article && !node.generated && !node.loading && threadsOpenFor(node)) {
       expandNode(selectedId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1390,7 +1433,51 @@ export default function Hyfax() {
   // topic, but nothing it produces should offer a further hyperlink to
   // dig into — passing an empty list here means renderLinked below just
   // renders plain text instead of clickable child names.
-  const linkableChildren = trialExhausted ? [] : selectedChildren;
+  const threadsOpen = !trialExhausted || (selected?.type === "root" && isCacheEligible(selected));
+  const linkableChildren = threadsOpen ? selectedChildren : [];
+
+  // The free-limit offer. A visitor without an account is offered a free
+  // one (more pages a day), and their thread is saved so the sign-in link
+  // brings them back to this page; an account at its limit is offered
+  // funds instead.
+  const signUpAtLimit = () => {
+    savePendingThread(nodesRef.current, selectedIdRef.current, topic);
+    openAccountModal();
+  };
+  // Styled like the house ads (AdCard) so it reads as an offer, not as
+  // more article text.
+  const renderLimitCard = (onHero) => (
+    <div className="rounded-2xl p-4 flex gap-3 items-start text-left" style={{ backgroundColor: "#6E4A2C" }}>
+      <div
+        className="shrink-0 flex items-center justify-center rounded-xl"
+        style={{ width: "44px", height: "44px", backgroundColor: "#14100C" }}
+      >
+        <img src="/hyfax-logo.png" alt="" className="w-7 h-auto" />
+      </div>
+      <div className="rh-display">
+        <div className="text-base mb-1" style={{ color: "#E3A73C", fontWeight: 700 }}>
+          {user ? "You've read today's free pages" : "Sign up free to keep going"}
+        </div>
+        <p className="text-sm leading-relaxed mb-3" style={{ color: "#FFFFFF" }}>
+          {user
+            ? `Your ${trialStatus.searchLimit} free pages reset at 3am your time. Add funds for full access now.`
+            : `You've read today's ${trialStatus.searchLimit} free pages. A free account gets ${SIGNED_IN_PAGE_LIMIT} a day${
+                onHero ? "." : ", and brings you right back to this page."
+              }`}
+          {onHero ? " New topics and today's picks still open any time." : ""}
+        </p>
+        <button
+          type="button"
+          onClick={user ? openAccountModal : signUpAtLimit}
+          className="inline-flex items-center gap-1 text-sm font-semibold rounded-full px-4 py-2"
+          style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
+        >
+          {user ? "Add funds" : "Sign up free"}
+          <ArrowUpRight size={14} />
+        </button>
+      </div>
+    </div>
+  );
   const breadcrumb = selected ? nodePathToRoot(selected) : [];
 
   return (
@@ -1629,7 +1716,7 @@ export default function Hyfax() {
                 newsContext so the resulting article covers the quote's
                 real history, significance, and author (see ARTICLE_TASK's
                 dedicated Quote Of The Day guidance in hyfaxSystemPrompt.js). */}
-            {quoteTopic && !trialExhausted && todayVisible && (
+            {quoteTopic && todayVisible && (
               <div className="mt-10">
                 {/* "As of" badge — moved here from the top of "Trending" so
                     the whole hero batch's freshness reads once, up front,
@@ -1686,7 +1773,7 @@ export default function Hyfax() {
                 but date-anchored/evergreen rather than searched-for-recency.
                 See promptForField in supabase/functions/generate-trending-topics.
                 Same funded-only gate as "Trending" below. */}
-            {todayTopics.length > 0 && !trialExhausted && todayVisible && (
+            {todayTopics.length > 0 && todayVisible && (
               <div className="mt-10">
                 <div className="flex items-center justify-center gap-1.5 mb-6">
                   <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
@@ -1748,7 +1835,7 @@ export default function Hyfax() {
                 "Today" feature toggle (todayVisible) rather than adding a
                 whole new one for a single field, same call Quote Of The
                 Day already made. */}
-            {perspectiveTopic && !trialExhausted && todayVisible && (
+            {perspectiveTopic && todayVisible && (
               <div className="mt-10">
                 <div className="flex items-center justify-center gap-1.5 mb-6">
                   <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
@@ -1800,7 +1887,7 @@ export default function Hyfax() {
                 card. Has its own toggle (featureRiddle) rather than reusing
                 "Today"'s, so a funded user can turn it off independently,
                 same as every other à la carte feature. */}
-            {riddleTopic && !trialExhausted && riddleVisible && (
+            {riddleTopic && riddleVisible && (
               <div className="mt-10">
                 <div className="flex items-center justify-center gap-1.5 mb-6">
                   <HelpCircle size={14} style={{ color: "#C9B896" }} />
@@ -1902,7 +1989,7 @@ export default function Hyfax() {
                 Hidden once the free trial's used up (production punch
                 list, Section B) — Trending is a funded-only feature per
                 the monetization outline's Section 14.1 feature matrix. */}
-            {newsTopics.length > 0 && !trialExhausted && newsVisible && (
+            {newsTopics.length > 0 && newsVisible && (
               <div className="mt-10">
                 <div className="flex items-center justify-center gap-1.5 mb-6">
                   <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
@@ -1954,17 +2041,7 @@ export default function Hyfax() {
                 floor is hit. Billing (Section D) is live now, so this
                 points at the real "Manage" > "Add funds" control in
                 AccountMenu above instead of a dead-end CTA. */}
-            {trialExhausted && (
-              <div className="mt-10 p-4 rounded-2xl border text-center" style={{ borderColor: "#3A2E20", backgroundColor: "#1F1811" }}>
-                <div className="text-base font-semibold mb-1" style={{ color: "#F1E6D3" }}>
-                  Free searches used up for today
-                </div>
-                <p className="rh-body text-sm" style={{ color: "#B8A886" }}>
-                  Dig In still works — explore new topics any time. Branches, articles, and news reset in 24h, or{" "}
-                  {user ? "add funds above for full access now." : "sign in above to add funds for full access now."}
-                </p>
-              </div>
-            )}
+            {trialExhausted && <div className="mt-10">{renderLimitCard(true)}</div>}
 
             <div className="mt-10 flex items-center justify-center gap-4 rh-mono rh-text-10" style={{ color: "#5A4A38" }}>
               <button
@@ -2209,23 +2286,15 @@ export default function Hyfax() {
                   </div>
                 ) : null}
 
-                {/* Trial exhausted — one consolidated message + a house ad
-                    instead of the normal per-call retry UI, since
-                    retrying won't help until the trial resets tomorrow or
-                    the account is funded. expandNode and loadArticle both
-                    independently fail with this same rejection for a
-                    freshly-clicked, not-yet-expanded node (loadArticle
-                    always fires in expandNode's .finally(), regardless of
-                    whether expand itself succeeded), so this checks both
-                    error fields but renders the message only once. */}
-                {trialExhausted && (selected.error || selected.articleError) && (
-                  <div className="mt-4">
-                    <div className="flex items-center gap-1.5 text-sm mb-4" style={{ color: "#D98A6E" }}>
-                      <AlertCircle size={13} /> {selected.articleError || selected.error}
-                    </div>
-                    <AdCard ad={pickHouseAd(`${selected.id}:trial-exhausted`, adStage)} onClick={openAccountModal} />
-                  </div>
-                )}
+                {/* At the free limit: the sign-up (or add funds) offer, in
+                    place of the error on a page the proxy refused, or of
+                    the threads under a page that can't branch any further
+                    for free. Shown once even when both the article and
+                    chips calls were refused. */}
+                {trialExhausted &&
+                  (selected.error || selected.articleError || (!threadsOpen && selected.article && !selected.articleStreaming)) && (
+                    <div className="mt-4">{renderLimitCard(false)}</div>
+                  )}
 
                 {selected.error && !trialExhausted && (
                   <div className="flex items-center gap-1.5 text-sm mt-3" style={{ color: "#D98A6E" }}>
@@ -2288,7 +2357,7 @@ export default function Hyfax() {
                     dead-end into content that's guaranteed to be rejected,
                     matching linkableChildren's same rule for in-text
                     links above. */}
-                {!trialExhausted && chipChildren.length > 0 && (
+                {threadsOpen && chipChildren.length > 0 && (
                   <div className="mt-8">
                     <div className="flex items-baseline justify-between gap-3 mb-3">
                       <div className="rh-display text-xl italic" style={{ color: "#F1E6D3" }}>

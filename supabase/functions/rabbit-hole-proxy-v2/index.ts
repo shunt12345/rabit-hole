@@ -172,11 +172,18 @@ const GATED_ENDPOINTS = new Set(["expand", "article", "continuation"]);
 // explicitly flagged there as a placeholder to tune once real behavior
 // data exists).
 const FREE_SEARCH_LIMIT = Number(Deno.env.get("FREE_SEARCH_LIMIT") ?? "6");
+// A free account gets more than an anonymous visitor, so signing up is
+// worth something — the limit's own message offers exactly that.
+const SIGNED_IN_SEARCH_LIMIT = Number(Deno.env.get("SIGNED_IN_SEARCH_LIMIT") ?? "20");
 
-function trialHeaders(searchesUsed: number, funded: boolean) {
+function searchLimitFor(userId: string | null) {
+  return userId ? SIGNED_IN_SEARCH_LIMIT : FREE_SEARCH_LIMIT;
+}
+
+function trialHeaders(searchesUsed: number, funded: boolean, limit: number) {
   return {
     "X-Trial-Searches-Used": String(searchesUsed),
-    "X-Trial-Search-Limit": String(FREE_SEARCH_LIMIT),
+    "X-Trial-Search-Limit": String(limit),
     "X-Trial-Funded": funded ? "1" : "0",
   };
 }
@@ -596,7 +603,8 @@ async function logRequest(
   // the parameter list here was already getting long enough to mix up by
   // position; these three always travel together anyway (see
   // lib/attribution.js, which captures/reads them as one unit).
-  attribution?: { utmSource?: string; utmCampaign?: string; rdtCid?: string }
+  attribution?: { utmSource?: string; utmCampaign?: string; rdtCid?: string },
+  cacheHit = false
 ): Promise<number | null> {
   try {
     const { data, error } = await supabase
@@ -624,6 +632,9 @@ async function logRequest(
         utm_source: typeof attribution?.utmSource === "string" ? attribution.utmSource.slice(0, 60) : null,
         utm_campaign: typeof attribution?.utmCampaign === "string" ? attribution.utmCampaign.slice(0, 120) : null,
         rdt_cid: typeof attribution?.rdtCid === "string" ? attribution.rdtCid.slice(0, 120) : null,
+        // Served from cache (migration 0051) — still billed, but not
+        // counted against the free daily limit (see countSearches).
+        cache_hit: cacheHit,
       })
       .select("id")
       .single();
@@ -798,6 +809,47 @@ function trialDayStartIso(timeZone: string, now: Date = new Date()): string {
   return new Date(boundaryMs).toISOString();
 }
 
+// The one cache read for a request, keyed the same way as the serving
+// branches in serve() — fetched up front so the free-limit check knows
+// whether this page is already cached. A failed lookup falls through to a
+// real generation, same fail-open posture as before.
+function cacheLookup(endpoint: string, nodeCacheKey?: string, newsCacheKey?: string) {
+  if (nodeCacheKey && endpoint === "article") {
+    return supabase.from("node_cache").select("article, article_input_tokens, article_output_tokens").eq("cache_key", nodeCacheKey).maybeSingle();
+  }
+  if (nodeCacheKey && endpoint === "expand") {
+    return supabase.from("node_cache").select("children, children_input_tokens, children_output_tokens").eq("cache_key", nodeCacheKey).maybeSingle();
+  }
+  if (newsCacheKey && endpoint === "expand") {
+    return supabase.from("news_root_cache").select("children, root_input_tokens, root_output_tokens").eq("cache_key", newsCacheKey).maybeSingle();
+  }
+  if (newsCacheKey && endpoint === "article") {
+    return supabase
+      .from("news_root_cache")
+      .select("root_label, article, article_input_tokens, article_output_tokens")
+      .eq("cache_key", newsCacheKey)
+      .maybeSingle();
+  }
+  if (newsCacheKey) {
+    return supabase
+      .from("news_root_cache")
+      .select("root_label, overview, children, root_input_tokens, root_output_tokens")
+      .eq("cache_key", newsCacheKey)
+      .maybeSingle();
+  }
+  return Promise.resolve(null);
+}
+
+// deno-lint-ignore no-explicit-any
+function isServableCacheHit(endpoint: string, nodeCacheKey: string | undefined, newsCacheKey: string | undefined, cached: any) {
+  if (!cached) return false;
+  if (nodeCacheKey && endpoint === "article") return !!cached.article;
+  if (nodeCacheKey && endpoint === "expand") return !!cached.children;
+  if (newsCacheKey && endpoint === "expand") return Array.isArray(cached.children) && cached.children.length > 0;
+  if (newsCacheKey && endpoint === "article") return !!cached.article;
+  return endpoint === "root" && !!newsCacheKey;
+}
+
 // How many "root" (Dig In) calls this identity has made since the current
 // trial day's 3am cutoff in their own timezone — the free-trial search
 // count from Section 14.1. Signed-in callers count against their real
@@ -809,6 +861,7 @@ async function countSearches(userId: string | null, sessionId: string, timeZone:
     .from("rabbit_hole_request_logs")
     .select("*", { count: "exact", head: true })
     .eq("endpoint", "article")
+    .eq("cache_hit", false)
     .gte("created_at", since);
   query = userId ? query.eq("user_id", userId) : query.eq("session_id", sessionId || "unknown");
   const { count, error } = await query;
@@ -1290,12 +1343,20 @@ serve(async (req) => {
     // result, so these two also run concurrently rather than sequentially
     // — the same "batch what's independent" idea one level later, once
     // identity is actually known.
-    const [spendResult, searchCount] = await Promise.all([
+    // The cache lookup runs here too, rather than after the trial gate, so
+    // a page that's already cached is never blocked by the free limit and
+    // doesn't count toward it — it's still billed like a fresh one below.
+    const [spendResult, searchCount, cacheResult] = await Promise.all([
       !funded
         ? supabase.rpc("get_recent_spend_usd", { since })
         : Promise.resolve({ data: null as number | null, error: null as Error | null }),
       countSearches(userId, sessionId, effectiveTimeZone),
+      cacheLookup(endpoint, nodeCacheKey, newsCacheKey),
     ]);
+    if (cacheResult?.error) console.error(`rabbit-hole-proxy: ${endpoint} cache lookup failed`, cacheResult.error);
+    // deno-lint-ignore no-explicit-any
+    const cached: any = cacheResult?.error ? null : cacheResult?.data ?? null;
+    const cacheHit = isServableCacheHit(endpoint, nodeCacheKey, newsCacheKey, cached);
 
     // The real backstop — see the top-of-file note. Total measured spend
     // across ALL free/unfunded traffic, not one session or IP's request
@@ -1328,8 +1389,15 @@ serve(async (req) => {
     // branch or "dig deeper" for free once exhausted — just always a full
     // standalone page for whatever was just typed in.
     const isRootArticle = endpoint === "article" && nodeType === "root";
+    const searchLimit = searchLimitFor(userId);
     const trialBlocked =
-      !funded && !isAdmin && searchCount !== null && searchCount >= FREE_SEARCH_LIMIT && GATED_ENDPOINTS.has(endpoint) && !isRootArticle;
+      !funded &&
+      !isAdmin &&
+      !cacheHit &&
+      searchCount !== null &&
+      searchCount >= searchLimit &&
+      GATED_ENDPOINTS.has(endpoint) &&
+      !isRootArticle;
     // +1 only when THIS call is itself an "article" call that's actually
     // going to be allowed through — countSearches queried
     // rabbit_hole_request_logs before logRequest() below inserts this
@@ -1343,14 +1411,17 @@ serve(async (req) => {
     // A root article allowed through past the limit legitimately can push
     // the displayed count above the limit (e.g. 7/6) — that's real, not a
     // bug, since it's the one call that's always allowed to go through.
-    const displaySearchCount = (searchCount ?? 0) + (!trialBlocked && endpoint === "article" ? 1 : 0);
-    const responseHeaders = { ...corsHeaders, ...usageHeaders(count), ...trialHeaders(displaySearchCount, funded) };
+    // A cached page doesn't count, so it doesn't get the +1 either.
+    const displaySearchCount = (searchCount ?? 0) + (!trialBlocked && !cacheHit && endpoint === "article" ? 1 : 0);
+    const responseHeaders = { ...corsHeaders, ...usageHeaders(count), ...trialHeaders(displaySearchCount, funded, searchLimit) };
 
     if (trialBlocked) {
       return new Response(
         JSON.stringify({
           error: "trial_exhausted",
-          message: `Free trial searches used up for today (${FREE_SEARCH_LIMIT}) — resets at 3am your time. Dig In still works, upgrade for full access.`,
+          message: userId
+            ? `Free pages used up for today (${searchLimit}) — resets at 3am your time. Add funds for full access.`
+            : `Free pages used up for today (${searchLimit}) — resets at 3am your time. Sign up free for more.`,
         }),
         { status: 402, headers: { ...responseHeaders, "Content-Type": "application/json" } }
       );
@@ -1381,7 +1452,7 @@ serve(async (req) => {
       utmSource,
       utmCampaign,
       rdtCid,
-    });
+    }, cacheHit);
 
     // Adoption analytics (see logArticleViewEvent above) — only an
     // "article" call counts as an article_view; root/expand/continuation
@@ -1398,14 +1469,7 @@ serve(async (req) => {
       // Branch-level equivalent of the newsCacheKey/"article" branch below
       // — see migration 0036_node_cache.sql. Same billing posture: a cache
       // hit here is billed the same as the original real generation.
-      const { data: cached, error: cacheErr } = await supabase
-        .from("node_cache")
-        .select("article, article_input_tokens, article_output_tokens")
-        .eq("cache_key", nodeCacheKey)
-        .maybeSingle();
-      if (cacheErr) {
-        console.error("rabbit-hole-proxy: node article cache lookup failed", cacheErr);
-      } else if (cached?.article) {
+      if (cacheHit) {
         if (cached.article_input_tokens != null || cached.article_output_tokens != null) {
           background(
             billAndLog(
@@ -1425,14 +1489,7 @@ serve(async (req) => {
       // `data.children` and never `data.rootLabel`/`data.overview` for this
       // endpoint) — the client's callClaude() JSON-parses this the same as
       // any other "expand" response, unaware it came from cache.
-      const { data: cached, error: cacheErr } = await supabase
-        .from("node_cache")
-        .select("children, children_input_tokens, children_output_tokens")
-        .eq("cache_key", nodeCacheKey)
-        .maybeSingle();
-      if (cacheErr) {
-        console.error("rabbit-hole-proxy: node children cache lookup failed", cacheErr);
-      } else if (cached?.children) {
+      if (cacheHit) {
         if (cached.children_input_tokens != null || cached.children_output_tokens != null) {
           background(
             billAndLog(
@@ -1450,14 +1507,7 @@ serve(async (req) => {
       // call — the article streams first and the chips are generated
       // afterwards as an "expand" call, cached on the same row. An empty
       // array means only the article has been cached so far.
-      const { data: cached, error: cacheErr } = await supabase
-        .from("news_root_cache")
-        .select("children, root_input_tokens, root_output_tokens")
-        .eq("cache_key", newsCacheKey)
-        .maybeSingle();
-      if (cacheErr) {
-        console.error("rabbit-hole-proxy: news chips cache lookup failed", cacheErr);
-      } else if (Array.isArray(cached?.children) && cached.children.length > 0) {
+      if (cacheHit) {
         if (cached.root_input_tokens != null || cached.root_output_tokens != null) {
           background(
             billAndLog(
@@ -1471,15 +1521,7 @@ serve(async (req) => {
         return nodeChildrenCacheResponse(cached.children, responseHeaders);
       }
     } else if (newsCacheKey && endpoint === "article") {
-      const { data: cached, error: cacheErr } = await supabase
-        .from("news_root_cache")
-        .select("root_label, article, article_input_tokens, article_output_tokens")
-        .eq("cache_key", newsCacheKey)
-        .maybeSingle();
-      if (cacheErr) {
-        // fail open — fall through to a real generation rather than block
-        console.error("rabbit-hole-proxy: news article cache lookup failed", cacheErr);
-      } else if (cached?.article) {
+      if (cacheHit) {
         // Bills this cache hit the SAME as the original real generation —
         // most traffic starts from the hero page, so serving every reader
         // after the first one for free would give away real revenue.
@@ -1507,15 +1549,7 @@ serve(async (req) => {
         return newsArticleCacheResponse(article, responseHeaders);
       }
     } else if (newsCacheKey) {
-      const { data: cached, error: cacheErr } = await supabase
-        .from("news_root_cache")
-        .select("root_label, overview, children, root_input_tokens, root_output_tokens")
-        .eq("cache_key", newsCacheKey)
-        .maybeSingle();
-      if (cacheErr) {
-        // fail open — fall through to a real generation rather than block
-        console.error("rabbit-hole-proxy: news root cache lookup failed", cacheErr);
-      } else if (cached) {
+      if (cacheHit) {
         // Same reasoning as the article cache hit above — bills this read
         // the same as the original generation instead of giving it away.
         // root_input_tokens/output_tokens come from the CLIENT's own
