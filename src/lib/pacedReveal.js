@@ -10,10 +10,18 @@
 // display whatever's buffered.
 const READING_CHARS_PER_SEC = 22;
 
-// The opening beat reveals at the base pace so it visibly "types" and
-// signals the app is alive; once the first sentence is on screen that's
-// established, so the rest is dumped on screen immediately rather than
-// making the reader wait through the whole response at reading pace.
+// Hard ceiling on how long the paced opening may take, however long that
+// first sentence is. Measured on cached articles: median first sentences
+// run ~150-170 chars, i.e. ~7s each at 22 cps — on a cached topic (root
+// overview, then article) that was ~14s of pure animation before the
+// reader saw the full text. Short sentences still type at the base pace;
+// long ones speed up to land inside this budget.
+const FIRST_SENTENCE_MAX_MS = 1200;
+
+// The opening beat visibly "types" to signal the app is alive (capped at
+// FIRST_SENTENCE_MAX_MS below); once the first sentence is on screen
+// that's established, so the rest is dumped on screen immediately rather
+// than making the reader wait through the whole response at reading pace.
 // Index just past the first sentence-ending punctuation in `text` (i.e.
 // how many characters of `text` make up its first sentence), or -1 if no
 // sentence boundary has streamed in yet.
@@ -29,6 +37,7 @@ export function createPacedReveal(onReveal, charsPerSecond = READING_CHARS_PER_S
   let raf = null;
   let lastTs = null;
   let carry = 0;
+  let startedAt = null;
   let resolveFinish = null;
 
   function stopLoop() {
@@ -42,16 +51,24 @@ export function createPacedReveal(onReveal, charsPerSecond = READING_CHARS_PER_S
     const dt = (ts - lastTs) / 1000;
     lastTs = ts;
 
+    if (startedAt == null && target.length > 0) startedAt = ts;
+    const elapsedMs = startedAt == null ? 0 : ts - startedAt;
+
     const boundary = firstSentenceEnd(target);
     const pastFirstSentence = boundary !== -1 && revealed.length >= boundary;
 
-    if (pastFirstSentence) {
+    if (pastFirstSentence || elapsedMs >= FIRST_SENTENCE_MAX_MS) {
       if (revealed.length < target.length) {
         revealed = target;
         onReveal(revealed);
       }
     } else {
-      carry += dt * charsPerSecond;
+      // Once the whole first sentence is known, speed up just enough to
+      // finish it inside the remaining budget; until then the network is
+      // the bottleneck anyway, so the base pace applies.
+      const timeLeftSec = Math.max((FIRST_SENTENCE_MAX_MS - elapsedMs) / 1000, dt);
+      const rate = boundary === -1 ? charsPerSecond : Math.max(charsPerSecond, (boundary - revealed.length) / timeLeftSec);
+      carry += dt * rate;
       const grow = Math.floor(carry);
       if (grow > 0 && revealed.length < target.length) {
         carry -= grow;
