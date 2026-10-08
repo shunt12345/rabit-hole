@@ -95,7 +95,7 @@ serve(async (req) => {
       await Promise.all([
         supabase
           .from("rabbit_hole_request_logs")
-          .select("created_at, session_id, endpoint, cost_usd, latency_ms, user_id, ip_address, funded, hero_source, utm_source")
+          .select("created_at, session_id, endpoint, node_type, cost_usd, latency_ms, user_id, ip_address, funded, hero_source, utm_source")
           .gte("created_at", since30d)
           .order("created_at", { ascending: false })
           .limit(50000),
@@ -248,7 +248,12 @@ serve(async (req) => {
     // topic). Wider window than the 7-day breakdowns above since this is
     // specifically about seeing variety across the full card rotation
     // (Trending/Today/Quote/Riddle all refresh daily), not a cost signal.
-    const rootRows = allRows.filter((r) => r.endpoint === "root");
+    // Topic pages no longer make a separate "root" call — the click now
+    // arrives on the topic page's own article request (node_type "root"),
+    // which carries hero_source. Older "root" rows still count.
+    const rootRows = allRows.filter(
+      (r) => r.endpoint === "root" || (r.endpoint === "article" && r.node_type === "root" && r.hero_source)
+    );
     const heroSourceMap = new Map<string, number>();
     for (const r of rootRows) {
       const source = r.hero_source || "unknown (pre-tracking)";

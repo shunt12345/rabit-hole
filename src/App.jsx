@@ -2,7 +2,6 @@ import { useState, useRef, useEffect, useMemo, Fragment } from "react";
 import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, ChevronDown, Share2, Check, Shuffle, HelpCircle } from "lucide-react";
 import {
   callClaude,
-  streamJSON,
   streamTextFromPrompt,
   getLastActionsToday,
   getLastTrialStatus,
@@ -99,18 +98,67 @@ function linkifyText(text, children) {
   });
 }
 
+// Inline thread links: the article marks 2-3 direct subtopics itself as
+// [[phrase]] (see ARTICLE_TASK in hyfaxSystemPrompt.js), so it no longer
+// has to wait for a separate call to supply link names first. The phrase
+// stays in the sentence as written; its Title Case form becomes the child
+// page's label.
+const LINK_MARKER_RE = /\[\[([^[\]]+?)\]\]/g;
+
+function toLinkLabel(phrase) {
+  return phrase
+    .trim()
+    .replace(/\s+/g, " ")
+    .split(" ")
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(" ");
+}
+
+function stripLinkMarkers(text) {
+  return (text || "").replace(LINK_MARKER_RE, "$1");
+}
+
+// Drops any "[[" or "]]" that isn't part of a complete [[link]] — a
+// malformed marker should never show up as raw brackets in finished text.
+function cleanStrayBrackets(text) {
+  let out = "";
+  let last = 0;
+  for (const m of (text || "").matchAll(LINK_MARKER_RE)) {
+    out += text.slice(last, m.index).replace(/\[\[|\]\]/g, "") + m[0];
+    last = m.index + m[0].length;
+  }
+  return out + (text || "").slice(last).replace(/\[\[|\]\]/g, "");
+}
+
+function linkLabelsIn(text) {
+  return [...(text || "").matchAll(LINK_MARKER_RE)].map((m) => toLinkLabel(m[1])).filter(Boolean);
+}
+
+// A topic page's article opens with "TITLE: <display title>" (asked for in
+// the user turn) — split it off so the heading can use it and the body
+// never shows it. Holds the body back entirely while that first line is
+// still streaming in. Cached articles from before this format have no
+// title line and pass through untouched (the proxy prepends one for them).
+function splitTitleLine(raw) {
+  const text = (raw || "").replace(/^\s+/, "");
+  if (!text.startsWith("TITLE:")) {
+    return "TITLE:".startsWith(text) && text.length > 0 ? { title: null, body: "" } : { title: null, body: raw || "" };
+  }
+  const nl = text.indexOf("\n");
+  if (nl === -1) return { title: null, body: "" };
+  const title = text.slice("TITLE:".length, nl).trim();
+  return { title: title || null, body: text.slice(nl + 1).replace(/^\s+/, "") };
+}
+
 // "Read more" content: real prose, not JSON, so no parsing needed beyond
 // trimming stray markdown fences a model might add out of habit. Streams
 // the article as it's generated instead of waiting for the whole thing —
 // parses the API's server-sent-event chunks directly and calls onChunk
 // with the accumulated text so far after every delta, so the screen can
 // render it growing in real time rather than sitting on a spinner.
-async function fetchArticleTextStreaming(topicLabel, path, childLabels, onChunk, newsContext, nodeType, articleCacheKey, nodeCacheKey, onUsage) {
+async function fetchArticleTextStreaming(topicLabel, path, onChunk, newsContext, nodeType, articleCacheKey, nodeCacheKey, onUsage, heroSource) {
   const today = new Date().toISOString().slice(0, 10);
-  const branchNote =
-    childLabels && childLabels.length
-      ? `\n\nThis topic already branches into these related threads: ${childLabels.join(", ")}.`
-      : "";
+  const titleNote = nodeType === "root" ? "\n\nBegin with a title line." : "";
   const newsNote = newsContext
     ? `\n\nThis topic comes with specific context worth reflecting accurately, picked from one of the hero page's live feeds: "${newsContext}". Don't spell out the exact calendar date this happened (e.g., "On August 8, 2025") unless the date itself is the actual point of the story — a "this day in history"/anniversary framing, or the date is what makes it notable. For an ordinary current news pick, just write it as recent/current instead ("recently," "this week," etc.) — a hardcoded date reads as stale the moment it's read after the fact, which defeats the point of it being "trending." (This date guidance doesn't apply if the context above is a quote's attribution rather than a news event — just use it accurately as given.)`
     : "";
@@ -131,9 +179,9 @@ async function fetchArticleTextStreaming(topicLabel, path, childLabels, onChunk,
 Today's date is ${today}.
 
 Path so far: ${path.join(" → ")}
-Topic: "${topicLabel}"${newsNote}${branchNote}${openerNote}`;
+Topic: "${topicLabel}"${newsNote}${titleNote}${openerNote}`;
 
-  return streamTextFromPrompt(HYFAX_SYSTEM, userContent, 450, 30000, "article", onChunk, nodeType, articleCacheKey, nodeCacheKey, onUsage);
+  return streamTextFromPrompt(HYFAX_SYSTEM, userContent, 700, 30000, "article", onChunk, nodeType, articleCacheKey, nodeCacheKey, onUsage, heroSource);
 }
 
 // "Dig deeper" — this app is entertainment, not a research tool, so this is
@@ -160,8 +208,12 @@ ${existingArticle}
   return streamTextFromPrompt(HYFAX_SYSTEM, userContent, 500, 30000, "continuation", onChunk, nodeType);
 }
 
+// Chips are only the indirect/tangent leaps now — direct subtopics are
+// inline [[links]] in the article. Still tolerates ONE direct chip, since
+// topics cached before that change were stored with one.
 function branchMix() {
-  return OBSCURITY_LEVELS[FIXED_OBSCURITY].mix;
+  const { indirect, tangent } = OBSCURITY_LEVELS[FIXED_OBSCURITY].mix;
+  return { direct: 1, indirect, tangent };
 }
 
 // The prompt ASKS for an exact branch mix, but nothing enforced that on the
@@ -180,19 +232,13 @@ function normalizeChildren(rawChildren) {
   return [...buckets.direct.slice(0, mix.direct), ...buckets.indirect.slice(0, mix.indirect), ...buckets.tangent.slice(0, mix.tangent)];
 }
 
-function rootPrompt(topic, newsContext) {
-  const today = new Date().toISOString().slice(0, 10);
-  const newsNote = newsContext
-    ? `\n\nThis topic comes with specific context worth reflecting accurately, picked from one of the hero page's live feeds: "${newsContext}". Don't spell out the exact calendar date this happened (e.g., "On August 8, 2025") unless the date itself is the actual point of the story — a "this day in history"/anniversary framing, or the date is what makes it notable. For an ordinary current news pick, just write it as recent/current instead ("recently," "this week," etc.) — a hardcoded date reads as stale the moment it's read after the fact, which defeats the point of it being "trending." (This date guidance doesn't apply if the context above is a quote's attribution rather than a news event — just use it accurately as given.)`
+// The page's own article (already written by the time chips are generated)
+// rides along so the chips reach past it — confirmed live that without it
+// they'd sometimes offer a thread the article had just explained.
+function childPrompt(label, path, existingLabels, depth, articleText) {
+  const articleNote = articleText
+    ? `\n\nThe reader has just read this article on this page — every branch must go somewhere it doesn't, never re-offer something it already explains:\n\"\"\"\n${articleText}\n\"\"\"`
     : "";
-  return `TASK: root topic
-
-Today's date is ${today}.
-
-Starting topic: "${topic}"${newsNote}`;
-}
-
-function childPrompt(label, path, existingLabels, depth) {
   return `TASK: expand node
 
 Path so far: ${path.join(" → ")}
@@ -200,7 +246,7 @@ Now expanding: "${label}" (${depth} click${depth === 1 ? "" : "s"} away from the
 
 Do not repeat or closely rephrase any of these already-shown labels: ${
     existingLabels.slice(-40).join(", ") || "none"
-  }`;
+  }${articleNote}`;
 }
 
 let idCounter = 0;
@@ -325,24 +371,11 @@ export default function Hyfax() {
   const [selectedId, setSelectedId] = useState(null);
   const [rootLoading, setRootLoading] = useState(false);
   const [rootError, setRootError] = useState(null);
-  const [rootPreview, setRootPreview] = useState("");
-  // Raw typed/clicked topic text, shown as the topic page's heading the
-  // instant "Dig in" is tapped — before the real (cleaned-up) rootLabel
-  // comes back from the API. Lets the page switch over immediately instead
-  // of generating the opening sentence on the hero page itself.
-  const [pendingLabel, setPendingLabel] = useState("");
   // Soft sign-up nudge — shows once, after the 3rd "Explore next" chip tap
   // in a session, for anyone not already signed in. Never blocks exploring
   // (see its render below: a small dismissible bar, not a modal) and never
   // shows again this session once dismissed (see lib/chipTaps.js).
   const [showSignUpPrompt, setShowSignUpPrompt] = useState(false);
-  // { nodeId, text } — the currently-typing teaser for a node that was just
-  // selected and is still being expanded (its own branches + article are
-  // still generating). Not real streaming (the teaser text is already
-  // known, from the parent's response) — a deliberate typing animation so
-  // clicking "Explore next" gives the same "the app is working" cue as
-  // submitting a fresh topic does, instead of a bare loading spinner.
-  const [childPreview, setChildPreview] = useState(null);
   const [trendingTopics, setTrendingTopics] = useState([]);
   // "Continue exploring" history (see lib/exploredHistory.js) — local
   // (localStorage) by default, swapped for the signed-in account version
@@ -511,6 +544,10 @@ export default function Hyfax() {
   // matching the monetization outline doc's Section 14.1 ("full access to
   // every function" during the trial, à-la-carte toggles only once funded).
   const trialExhausted = !funded && trialStatus.searchesUsed >= trialStatus.searchLimit;
+  // Read from async callbacks (an article finishing, then deciding whether
+  // to fetch chips) that would otherwise see a stale render's value.
+  const trialExhaustedRef = useRef(trialExhausted);
+  trialExhaustedRef.current = trialExhausted;
 
   // House-ad staging (Section H) — every AdCard placement below is
   // already gated on `!funded` (funded accounts don't see ads at all), so
@@ -527,7 +564,6 @@ export default function Hyfax() {
   const contentRef = useRef(null);
   const heroRef = useRef(null);
   const articleTextRef = useRef(null);
-  const childPreviewRevealRef = useRef(null);
 
   // Highlight-to-explore: uses the browser's OWN native text selection
   // (long-press then drag the OS's own handles, exactly like copying text)
@@ -678,106 +714,51 @@ export default function Hyfax() {
     }
   };
 
-  const startTopic = async (raw, newsContext, heroSource) => {
+  // A topic page no longer waits on a separate call for its title, overview
+  // and chips before anything else can happen: the page (and its node)
+  // exists the instant a topic is submitted, and the selection effect below
+  // starts its article straight away. The article supplies its own title
+  // line and inline [[links]]; the chips come after it (see expandNode).
+  const startTopic = (raw, newsContext, heroSource) => {
     const t = raw.trim();
     if (!t) return;
     setRootError(null);
-    setRootLoading(true);
-    setRootPreview("");
-    // Switches the page over to the topic-page layout immediately (see
-    // `hasStarted || rootLoading` below) — no generated text shows on the
-    // hero page itself anymore, the opening sentence streams in on the
-    // topic page instead, right below this provisional heading.
-    setPendingLabel(t);
     idCounter = 0;
+    const root = {
+      id: nextId(),
+      label: t,
+      fullTopic: t,
+      teaser: "",
+      overview: "",
+      type: "root",
+      depth: 0,
+      generated: false,
+      loading: false,
+      error: null,
+      article: null,
+      articleLoading: false,
+      articleStreaming: false,
+      articleError: null,
+      deepened: false,
+      deepenError: null,
+      newsContext: newsContext || null,
+      heroSource: heroSource || null,
+    };
+    setTopic(t);
+    nodesRef.current = [root];
+    setNodes([root]);
+    setSelectedId(root.id);
+  };
 
-    // Streams the overview in at reading pace while the rest of the JSON
-    // (children, etc.) keeps generating — the wait feels like reading
-    // something appear rather than staring at a spinner. `finish` is
-    // awaited below so the reveal has visibly caught up before the screen
-    // switches over to the real root node.
-    const reveal = createPacedReveal((revealed) => setRootPreview(revealed));
-
-    try {
-      // A topic from the "Trending"/"Today" hero cards (newsContext set)
-      // is identical for every visitor until the next trending-topics
-      // refresh — hundreds of people can open the same card. Tag those
-      // calls with the exact topic string as a cache key so the proxy can
-      // skip straight to whatever the first visitor generated instead of
-      // re-generating per person; a freely typed topic always gets its own
-      // fresh generation, no cache key. Always streams either way — an
-      // earlier version forced non-streaming for the cached path so the
-      // proxy could cache the result inline, which added a real 1-2s of
-      // visible latency on every cache miss (waiting for the whole
-      // generation before showing anything, instead of watching it type
-      // in). The write-through below replaces that: it happens as its own
-      // request, after this one has already finished streaming.
-      const newsCacheKey = newsContext ? t : undefined;
-      let rootUsage = null;
-      const data = await streamJSON(
-        HYFAX_SYSTEM,
-        rootPrompt(t, newsContext),
-        "root",
-        (partialOverview) => reveal.push(partialOverview),
-        newsCacheKey,
-        (usage) => {
-          rootUsage = usage;
-        },
-        heroSource
-      );
-      if (newsCacheKey) {
-        writeNewsRootCache(newsCacheKey, data.rootLabel, data.overview, data.children, rootUsage);
-      }
-      await reveal.finish(data.overview || "");
-      const root = {
-        id: nextId(),
-        label: (data.rootLabel && data.rootLabel.trim()) || t,
-        fullTopic: t,
-        teaser: "",
-        overview: data.overview || "",
-        type: "root",
-        depth: 0,
-        generated: true,
-        loading: false,
-        error: null,
-        article: null,
-        articleLoading: false,
-        articleStreaming: false,
-        articleError: null,
-        deepened: false,
-        deepenError: null,
-        newsContext: newsContext || null,
-      };
-      const children = placeChildren(root, normalizeChildren(data.children));
-      const newNodes = [root, ...children];
-
-      setTopic(t);
-      nodesRef.current = newNodes;
-      setNodes(newNodes);
-      setSelectedId(root.id);
-      recordExploredRoot({ label: root.label, fullTopic: root.fullTopic, overview: root.overview, children }).catch(
-        (e) => console.error("Hyfax: failed to record explored topic", e)
-      );
-      // Reddit Ads conversion tracking — the first successful root request
-      // in a session is the real engagement signal for this campaign (per
-      // the brief: most ad clickers never run a search at all). Only here,
-      // not in resumeExploredRoot below — that's a free local-history
-      // replay with no actual request behind it.
-      maybeReportLead(user?.email);
-    } catch (e) {
-      console.error("Hyfax: startTopic failed", e);
-      reveal.cancel();
-      setSelectedNewsIdx(null);
-      setSelectedTodayIdx(null);
-      setSelectedQuote(false);
-      setSelectedPerspective(false);
-      setRootError(e.message || "Something went wrong. Try again.");
-    } finally {
-      setRootLoading(false);
-      setRootPreview("");
-      setPendingLabel("");
-      syncActionsToday();
-    }
+  // Saves a topic page to "continue exploring" once it has something worth
+  // returning to. The stored overview is the article's first sentence, used
+  // as the preview line (topic pages no longer have a separate overview).
+  const recordRoot = (root) => {
+    const firstSentence = (stripLinkMarkers(root.article || "").match(/^[\s\S]*?[.!?](\s|$)/) || [""])[0].trim();
+    const children = nodesRef.current.filter((n) => n.parentId === root.id);
+    recordExploredRoot({ label: root.label, fullTopic: root.fullTopic, overview: firstSentence || root.overview, children }).catch((e) =>
+      console.error("Hyfax: failed to record explored topic", e)
+    );
   };
 
   // Jumps back into a previously-explored topic (see lib/exploredHistory.js
@@ -806,6 +787,7 @@ export default function Hyfax() {
       deepened: false,
       deepenError: null,
       newsContext: null,
+      resumed: true,
     };
     const children = placeChildren(root, entry.children || []);
     const newNodes = [root, ...children];
@@ -849,8 +831,8 @@ export default function Hyfax() {
   // built for): a Reddit visitor never sees the plain hero — the exact
   // question the ad shows someone typing gets submitted for them,
   // immediately, no tap required, landing straight on that topic's page
-  // (the same "pendingLabel" shell/streaming-in-place every normal topic
-  // transition already uses — no separate loading UI). Defaults to "why
+  // (the same streaming-in-place every normal topic transition already
+  // uses — no separate loading UI). Defaults to "why
   // does bread go stale" (the current campaign's own example — see
   // migration 0039) but honors ?q= so a future ad campaign can point at a
   // different starter question without a code change. Only ever fires
@@ -921,7 +903,7 @@ export default function Hyfax() {
     return path;
   };
 
-  const expandNode = async (nodeId) => {
+  const expandNode = async (nodeId, articleText) => {
     const node = nodesRef.current.find((n) => n.id === nodeId);
     if (!node || node.generated || node.loading) return;
     node.loading = true;
@@ -946,28 +928,49 @@ export default function Hyfax() {
     // what else they'd already dug into. For a cache-eligible node, use only
     // the root + its own direct children instead — a fixed set determined
     // entirely by the (already-cached, therefore fixed) root itself.
+    //
+    // This node's own inline [[links]] (already created from its article,
+    // which now finishes first) are always excluded too, so the chips never
+    // repeat a thread the article already offers.
+    const ownLinkLabels = nodesRef.current.filter((n) => n.parentId === node.id).map((n) => n.label);
     const existingLabels = branchCacheEligible
-      ? [root.label, ...nodesRef.current.filter((n) => n.parentId === root.id).map((n) => n.label)]
+      ? [root.label, ...nodesRef.current.filter((n) => n.parentId === root.id).map((n) => n.label), ...ownLinkLabels]
       : nodesRef.current.map((n) => n.label);
+    // A cached topic's (Trending/Today/Quote/Starter) own chips are shared
+    // by every visitor too — read from and written to its news_root_cache
+    // row, keyed the same as its article.
+    const rootCacheKey = node.type === "root" && node.newsContext ? node.fullTopic : undefined;
     let nodeUsage = null;
 
     try {
       const data = await callClaude(
         HYFAX_SYSTEM,
-        childPrompt(node.label, path, existingLabels, node.depth + 1),
+        childPrompt(node.label, path, existingLabels, node.depth + 1, stripLinkMarkers(articleText ?? node.article ?? "")),
         "expand",
         nodeCacheKey,
         (usage) => {
           nodeUsage = usage;
-        }
+        },
+        rootCacheKey
       );
       if (nodeCacheKey) writeNodeCache(nodeCacheKey, data.children, nodeUsage);
-      const children = placeChildren(node, normalizeChildren(data.children));
+      if (rootCacheKey) writeNewsRootCache(rootCacheKey, node.label, "", data.children, nodeUsage);
+      const taken = new Set(ownLinkLabels.map((l) => l.toLowerCase()));
+      // A chip named outright in a new-format article (one with [[links]])
+      // only repeats what the reader just read, so it's dropped. Older
+      // cached articles mention their chips by design, so they keep them.
+      const article = articleText ?? node.article ?? "";
+      const articlePlain = linkLabelsIn(article).length ? stripLinkMarkers(article).toLowerCase() : "";
+      const fresh = normalizeChildren(data.children).filter(
+        (c) => c?.label && !taken.has(c.label.toLowerCase()) && !(articlePlain && articlePlain.includes(c.label.toLowerCase()))
+      );
+      const children = placeChildren(node, fresh);
       node.loading = false;
       node.generated = true;
       const newNodes = [...nodesRef.current, ...children];
       nodesRef.current = newNodes;
       setNodes(newNodes);
+      if (node.type === "root") recordRoot(node);
     } catch (e) {
       console.error("Hyfax: expandNode failed", e);
       node.loading = false;
@@ -1005,7 +1008,6 @@ export default function Hyfax() {
     setTrialStatus((prev) => ({ ...prev, searchesUsed: Math.min(prev.searchesUsed + 1, prev.searchLimit) }));
 
     const path = pathToNode(node);
-    const childLabels = nodesRef.current.filter((n) => n.parentId === node.id).map((n) => n.label);
     // The ROOT of a news/today/quote-sourced topic caches its article — same
     // scoping as newsCacheKey itself (see startTopic). Confirmed live this
     // was missing entirely: every visitor who dug into the same Trending/
@@ -1025,20 +1027,48 @@ export default function Hyfax() {
       node.article = stripMarkdown(revealed);
       setNodes([...nodesRef.current]);
     });
+
+    // Turns each closed [[link]] into a real child page as soon as it has
+    // streamed in, so links are tappable while the rest is still writing.
+    const addLinkChildren = (body) => {
+      const taken = new Set(nodesRef.current.filter((n) => n.parentId === node.id).map((n) => n.label.toLowerCase()));
+      taken.add(node.label.toLowerCase());
+      const fresh = [];
+      for (const label of linkLabelsIn(body)) {
+        if (taken.has(label.toLowerCase()) || fresh.length >= 4) continue;
+        taken.add(label.toLowerCase());
+        fresh.push({ label, teaser: "", type: "direct", fromLink: true });
+      }
+      if (!fresh.length) return;
+      nodesRef.current = [...nodesRef.current, ...placeChildren(node, fresh)];
+    };
+    const takeTitle = (title) => {
+      if (node.type === "root" && title && !node.titled) {
+        node.label = title;
+        node.titled = true;
+      }
+    };
+
     try {
       let first = true;
       const finalText = await fetchArticleTextStreaming(
         node.label,
         path,
-        childLabels,
         (partial) => {
+          const { title, body } = splitTitleLine(partial);
+          takeTitle(title);
+          if (!body) {
+            if (title) setNodes([...nodesRef.current]);
+            return;
+          }
           if (first) {
             node.articleLoading = false;
             node.articleStreaming = true;
             first = false;
-            setNodes([...nodesRef.current]);
           }
-          reveal.push(partial);
+          addLinkChildren(body);
+          setNodes([...nodesRef.current]);
+          reveal.push(body);
         },
         node.newsContext,
         node.type,
@@ -1046,14 +1076,28 @@ export default function Hyfax() {
         nodeCacheKey,
         (usage) => {
           nodeUsage = usage;
-        }
+        },
+        node.type === "root" ? node.heroSource || undefined : undefined
       );
-      await reveal.finish(finalText);
-      node.article = stripMarkdown(finalText);
+      const { title, body: finalBody } = splitTitleLine(finalText);
+      takeTitle(title);
+      addLinkChildren(finalBody);
+      // Chips start the moment the article's text is in hand — not after
+      // the typing animation catches up — with this article's own links
+      // already known, so they're excluded.
+      if (!trialExhaustedRef.current && !node.generated && !node.loading) expandNode(node.id, stripMarkdown(finalBody));
+      await reveal.finish(finalBody);
+      node.article = stripMarkdown(cleanStrayBrackets(finalBody));
       node.articleStreaming = false;
       node.articleLoading = false;
-      if (articleCacheKey) writeNewsArticleCache(articleCacheKey, finalText);
+      if (articleCacheKey) writeNewsArticleCache(articleCacheKey, finalText, nodeUsage, node.label);
       if (nodeCacheKey) writeNodeArticleCache(nodeCacheKey, finalText, nodeUsage);
+      if (node.type === "root" && !node.resumed) {
+        recordRoot(node);
+        // Reddit Ads conversion tracking — the first successful topic page
+        // in a session is the real engagement signal for this campaign.
+        maybeReportLead(user?.email);
+      }
     } catch (e) {
       console.error("Hyfax: loadArticle failed", e);
       reveal.cancel();
@@ -1089,7 +1133,7 @@ export default function Hyfax() {
       const finalText = await fetchArticleContinuationStreaming(
         node.label,
         path,
-        baseArticle,
+        stripLinkMarkers(baseArticle),
         (partial) => {
           reveal.push(partial);
         },
@@ -1111,62 +1155,30 @@ export default function Hyfax() {
   };
 
   // Selecting anything — a chip, a breadcrumb segment, an in-text link, or
-  // the root as soon as a topic is submitted — starts loading both its
-  // branches and its full "read more" article, with no extra taps required
-  // for either.
-  //
-  // Branches and article both start loading automatically, but NOT in true
-  // parallel: if this node's branches don't exist yet, we wait for them (a
-  // fast, small JSON call) before starting the article, so its prompt can
-  // actually reference the real branch names and produce real in-text
-  // links — the same way the root's article always could, since the root's
-  // branches are created in the same call as its overview. If a node was
-  // already expanded before (revisiting it, or it's the root), its
-  // branches are already known and the article starts right away.
+  // a freshly submitted topic — starts its article immediately, then
+  // generates its chips once the article is done. The article no longer
+  // waits on the chips: it marks its own direct threads inline as [[links]],
+  // and the chips (indirect/tangent leaps) are generated afterwards with
+  // those links excluded — invisible to the reader, who is busy reading.
   useEffect(() => {
     if (!selectedId) return;
     const node = nodesRef.current.find((n) => n.id === selectedId);
     if (!node) return;
 
     // Once the trial's exhausted, don't even attempt an expand or a child's
-    // article call — those are guaranteed to be rejected server-side, and
-    // that's what used to make a brand new "Dig In" search look like it
-    // broke mid-generation. The one exception is the root node's OWN
-    // article (its "read more" body text): the server exempts that call
-    // specifically (see rabbit-hole-proxy's isRootArticle) so a fresh Dig
-    // In always gets a full standalone page, title/overview AND body text
-    // — it just can't be branched into any further, which is also why
-    // "Explore next"/in-text links are hidden for the same condition
-    // elsewhere in this file.
+    // article call — those are guaranteed to be rejected server-side. The
+    // one exception is a topic page's OWN article: the server exempts that
+    // call specifically (see rabbit-hole-proxy's isRootArticle) so a fresh
+    // Dig In always gets a full standalone page — it just can't be branched
+    // into any further.
     if (trialExhausted && node.type !== "root") return;
 
-    if (node.generated) {
-      if (!node.article && !node.articleLoading) {
-        loadArticle(selectedId);
-      }
-    } else if (!node.loading) {
-      childPreviewRevealRef.current?.cancel();
-      setChildPreview(null);
-      const reveal = createPacedReveal((revealed) => setChildPreview({ nodeId: selectedId, text: revealed }));
-      childPreviewRevealRef.current = reveal;
-      reveal.push(node.teaser || "");
-      const revealDone = reveal.finish(node.teaser || "");
-
-      // Waits on BOTH the network call and the teaser's own on-screen typing
-      // before starting the article — expandNode alone used to gate this,
-      // so a fast (often cached) expand could return well before the teaser
-      // finished typing out, and loadArticle's own paced reveal would start
-      // writing the article right on top of it: two cursors typing at once,
-      // confirmed live as genuinely confusing to watch. The teaser should
-      // finish being read first; the article starts only once that's done.
-      Promise.all([expandNode(selectedId), revealDone]).finally(() => {
-        if (selectedIdRef.current !== selectedId) return; // moved on to something else meanwhile
-        setChildPreview(null); // node.generated is now true — the real render path takes over
-        const fresh = nodesRef.current.find((n) => n.id === selectedId);
-        if (fresh && !fresh.article && !fresh.articleLoading) {
-          loadArticle(selectedId);
-        }
-      });
+    // loadArticle starts the chips itself once its text has arrived; this
+    // only covers revisiting a page whose chips never landed.
+    if (!node.article && !node.articleLoading) {
+      loadArticle(selectedId);
+    } else if (node.article && !node.generated && !node.loading) {
+      expandNode(selectedId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, trialExhausted]);
@@ -1206,7 +1218,7 @@ export default function Hyfax() {
         topicLabel: node.label,
         nodeType: node.type,
         overview: node.type === "root" ? node.overview || node.teaser : node.teaser,
-        article: node.article || "",
+        article: stripLinkMarkers(node.article || ""),
       });
       if (navigator.share) {
         await navigator.share({ title: node.label, text: "Follow this thread on Hyfax", url });
@@ -1249,8 +1261,31 @@ export default function Hyfax() {
     jumpToNode(child.id);
   };
 
-  const renderLinked = (text, children) =>
-    linkifyText(text, children).map((piece, i) =>
+  // [[links]] the article marked itself render first; any remaining text
+  // still gets exact-name matching against the node's children, which is
+  // what links topics cached before inline links existed. A [[ that hasn't
+  // closed yet (mid-stream) is held back rather than shown as raw brackets.
+  // With no linkable children (trial exhausted), markers render as plain
+  // text.
+  const renderLinked = (rawText, children) => {
+    let text = rawText || "";
+    const open = text.lastIndexOf("[[");
+    if (open !== -1 && text.length - open < 60 && text.indexOf("]]", open) === -1) text = text.slice(0, open);
+    const byLabel = new Map((children || []).map((c) => [c.label.toLowerCase(), c]));
+    // Plain-name matching is only for chips (how pre-[[link]] cached
+    // articles got their links); a [[link]] page is linked once, where the
+    // article marked it, not again at every later mention.
+    const chipsOnly = (children || []).filter((c) => !c.fromLink);
+    const pieces = [];
+    let last = 0;
+    for (const m of text.matchAll(LINK_MARKER_RE)) {
+      if (m.index > last) pieces.push(...linkifyText(text.slice(last, m.index), chipsOnly));
+      const child = byLabel.get(toLinkLabel(m[1]).toLowerCase());
+      pieces.push(child ? { type: "link", label: m[1], nodeId: child.id } : m[1]);
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) pieces.push(...linkifyText(text.slice(last), chipsOnly));
+    return pieces.map((piece, i) =>
       typeof piece === "string" ? (
         <span key={i}>{piece}</span>
       ) : (
@@ -1264,6 +1299,7 @@ export default function Hyfax() {
         </button>
       )
     );
+  };
 
   const hasStarted = nodes.length > 0;
   // Distinct from hasStarted: flips true the instant "Dig in" is tapped, so
@@ -1348,6 +1384,9 @@ export default function Hyfax() {
     }
   }, [overviewFading, overviewGone]);
   const selectedChildren = selected ? nodes.filter((n) => n.parentId === selected.id) : [];
+  // Inline [[link]] pages live in the article text; the chip row is only
+  // the indirect/tangent threads generated after it.
+  const chipChildren = selectedChildren.filter((n) => !n.fromLink);
   // Once the trial's exhausted, Dig In still works for a fresh general
   // topic, but nothing it produces should offer a further hyperlink to
   // dig into — passing an empty list here means renderLinked below just
@@ -2034,14 +2073,7 @@ export default function Hyfax() {
               </h2>
 
               <div ref={articleTextRef} className="text-base leading-relaxed" style={{ color: "#F5EDDC" }}>
-                {childPreview && childPreview.nodeId === selected.id ? (
-                  <p>
-                    {childPreview.text}
-                    <span className="rh-cursor-blink" style={{ color: "#E3A73C" }}>
-                      {"▌"}
-                    </span>
-                  </p>
-                ) : !overviewGone && (selected.type === "root" ? selected.overview || selected.teaser : selected.teaser) ? (
+                {!overviewGone && (selected.type === "root" ? selected.overview || selected.teaser : selected.teaser) ? (
                   // Stays visible for as long as the article is generating
                   // (that's the point — a headline and an opening line to
                   // read while the rest streams in), then collapses away
@@ -2153,7 +2185,7 @@ export default function Hyfax() {
                   </div>
                 ) : selected.articleLoading ? (
                   <div className="mt-4 flex items-center gap-1.5 text-base" style={{ color: "#B8A886" }}>
-                    <Loader2 size={16} className="animate-spin" /> Loading more…
+                    <Loader2 size={16} className="animate-spin" /> Digging in…
                   </div>
                 ) : selected.articleError && !trialExhausted ? (
                   <div className="mt-4">
@@ -2195,7 +2227,7 @@ export default function Hyfax() {
                 )}
                 {selected.loading && (
                   <div className="flex items-center gap-1.5 text-base mt-3" style={{ color: "#B8A886" }}>
-                    <Loader2 size={16} className="animate-spin" /> Digging in…
+                    <Loader2 size={16} className="animate-spin" /> Finding more threads…
                   </div>
                 )}
                 {selected.error && !selected.loading && !trialExhausted && (
@@ -2247,13 +2279,13 @@ export default function Hyfax() {
                     hyperlink into content that's guaranteed to be
                     rejected, matching linkableChildren's same rule for
                     in-text links above. */}
-                {!trialExhausted && selectedChildren.length > 0 && (
+                {!trialExhausted && chipChildren.length > 0 && (
                   <div className="mt-6 pt-4 border-t" style={{ borderColor: "#4A3C2C" }}>
                     <div className="rh-mono rh-text-10 uppercase tracking-wider mb-3" style={{ color: "#A89478" }}>
                       Explore next
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {selectedChildren.map((child, i) => {
+                      {chipChildren.map((child, i) => {
                         const color = "#E3A73C"; // same bright orange for every chip, regardless of branch type
                         const visited = !!child.article;
                         return (
@@ -2305,43 +2337,6 @@ export default function Hyfax() {
             </div>
           </div>
         </>
-      )}
-
-      {/* Shown between tapping "Dig in" and the root actually existing —
-          same layout position/sizing as the real topic page above (so the
-          swap from this to that, once the root lands, doesn't jump around)
-          but with only a provisional heading and the streaming opening
-          sentence, since nothing else (article, branches) exists yet. */}
-      {rootLoading && !hasStarted && (
-        <div className="flex-1 overflow-y-auto px-5 md:px-7 pb-10">
-          <div className="max-w-2xl mx-auto rh-fade-in">
-            <span
-              className="rh-mono rh-text-10 uppercase tracking-wider px-2 py-0.5 rounded-full inline-block mb-3"
-              style={{ color: "#E3A73C", border: "1px solid #E3A73C55" }}
-            >
-              Origin
-            </span>
-
-            <h2 className="rh-display text-3xl italic mb-4" style={{ color: "#F1E6D3" }}>
-              {pendingLabel}
-            </h2>
-
-            <div className="text-base leading-relaxed" style={{ color: "#F5EDDC" }}>
-              {rootPreview ? (
-                <p>
-                  {rootPreview}
-                  <span className="rh-cursor-blink" style={{ color: "#E3A73C" }}>
-                    {"▌"}
-                  </span>
-                </p>
-              ) : (
-                <div className="flex items-center gap-1.5 text-base" style={{ color: "#B8A886" }}>
-                  <Loader2 size={16} className="animate-spin" /> Digging in…
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
       )}
 
       {/* floats just BELOW whatever's currently highlighted in the article

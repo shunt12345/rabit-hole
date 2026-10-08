@@ -1,6 +1,8 @@
 // The fixed, topic-independent instructions for every Claude call this app
-// makes — tone rules plus the task-specific rules for each of the four
-// endpoints (root topic, expand node, article, continuation). Every single
+// makes — tone rules plus the task-specific rules for each endpoint
+// (expand node, article, continuation). A topic page no longer has its own
+// "root" call: its article starts immediately (with a title line) and its
+// chips are generated afterwards, same as any other page. Every single
 // byte here is identical across every request, which is the whole point:
 // this is sent as the `system` field with a prompt-caching breakpoint (see
 // src/lib/api.js), so after the first call of the cache window, every
@@ -73,16 +75,20 @@ function typeLine(count, type, desc) {
 // already given elsewhere in the prompt (the user turn), so the generic
 // "the topic" reads exactly the same to the model here while keeping this
 // text byte-identical across every request.
+//
+// Direct subtopics are no longer chips: the article marks them inline as
+// [[links]] (see ARTICLE_TASK), so the chip set is only the indirect and
+// tangent leaps, generated after the article has finished.
 function childrenSpec() {
   const level = OBSCURITY_LEVELS[FIXED_OBSCURITY];
-  const mix = level.mix;
+  const mix = { direct: 0, indirect: level.mix.indirect, tangent: level.mix.tangent };
   const lines = [
     typeLine(mix.direct, "direct", "concrete, well-established subtopics, mechanisms, or facts directly tied to the topic"),
     typeLine(mix.indirect, "indirect", "adjacent fields, causes, effects, or comparisons connected to the topic but requiring a small conceptual leap"),
     typeLine(mix.tangent, "tangent", level.tangentDesc),
   ].filter(Boolean);
   const total = mix.direct + mix.indirect + mix.tangent;
-  const allowedTypes = ["direct", mix.indirect ? "indirect" : null, mix.tangent ? "tangent" : null]
+  const allowedTypes = [mix.direct ? "direct" : null, mix.indirect ? "indirect" : null, mix.tangent ? "tangent" : null]
     .filter(Boolean)
     .map((t) => `"${t}"`)
     .join(" | ");
@@ -100,20 +106,6 @@ const APP_FRAMING = `You're building "Hyfax," an educational curiosity-explorati
 
 The user turn also gives today's actual date — treat it as ground truth about how much time has passed, not decoration. Your own training data has its own sense of "current," and that can be well out of date by the time this actually runs. Before describing something as upcoming, expected, rumored for a given date, "this year," or otherwise still pending, check that framing against the date you were given: if it's already past, don't present the thing as still ahead of the reader. Acknowledge plainly that it likely already happened — even without knowing the specific outcome — rather than confidently asserting stale anticipation as current fact.`;
 
-const ROOT_TASK = `=== TASK: root topic ===
-Given a starting topic, write:
-1. "rootLabel": a short display title for this topic itself — 1-3 words, title case, trimmed of filler ("How To Build A Fire" → "Build A Fire", "What Causes Rain" → "Rain"). This is what shows at the top of the page, so keep it tight and literal — no jokes here even in a comedic tone, save that for the overview and teasers below.
-2. "overview": a vivid 2-sentence overview of this topic (max 40 words) that sparks curiosity, written fully in the tone above.
-3. "children": exactly ${spec.total} branches to explore next:
-${spec.lines}
-
-${CHILD_FORMAT_RULES}
-
-If the user turn gives specific context this topic was picked from (a current news detail, a quote's author and background, an anniversary date, etc.), the overview MUST reflect that context explicitly — name the actual concrete detail so the reader immediately understands the specific reason behind this exact pick, rather than writing a generic, timeless explainer that could apply to any version of this topic.
-
-Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
-{"rootLabel": "...", "overview": "...", "children": [{"label": "...", "teaser": "...", "type": "..."}]}`;
-
 const EXPAND_TASK = `=== TASK: expand node ===
 Given a topic already showing on screen (with the path that led to it), generate exactly ${spec.total} branches to explore next from it:
 ${spec.lines}
@@ -123,7 +115,7 @@ ${CHILD_FORMAT_RULES}
 The user turn lists labels already shown elsewhere in the app — do not repeat or closely rephrase any of them.
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
-{"children": [{"label": "...", "teaser": "...", "type": "direct"}]}`;
+{"children": [{"label": "...", "teaser": "...", "type": "indirect"}]}`;
 
 const ARTICLE_TASK = `=== TASK: read-more article ===
 You're writing the "read more" deep-dive for a node in this app.
@@ -148,11 +140,13 @@ It's not just the SHAPE of these two openers that needs to differ — the actual
 
 This shows up constantly on anniversary/"this day in history" topics specifically: both openers separately announcing how long ago it happened ("Fifty-five years ago to the day..." then, two sentences later, "Fifty-five years ago to the day, roughly...") — that's the exact same repeat, just because "how long ago" feels like the obvious number to lead with twice. If the piece is anchored to an anniversary, use that "X years ago" framing in ONE opener only, whichever one earns it more — the other one opens with something that has nothing to do with the date: a person, a place, a count of something involved, a consequence, anything else about the event itself.
 
-If the user turn lists related threads this topic already branches into, mention two or three of them by their exact name as you go where it reads naturally — the way a good explainer casually references related ideas — so a reader can jump straight to them. Don't force in every single one, don't turn it into a list, and never alter the wording of a name you do use — write it out exactly as given so it can be linked.
+Mark exactly two or three inline threads by wrapping a short phrase in double square brackets, like [[starch retrogradation]] — each one a specific, concrete subtopic, mechanism, person, place, or phenomenon directly tied to this topic and interesting enough to deserve its own page. The bracketed phrase is the link a reader taps AND the title of the page it opens, so: 1-4 words, a noun phrase that names the thing (not a verb phrase or a whole clause), written in the sentence's natural case, reading exactly right with the brackets removed. Never bracket this page's own topic, never bracket the same thing twice, no nested brackets, and spread them out — never two in one sentence. These brackets are the only markup allowed.
 
-Confirmed live this creates an awkward double-up: a piece described someone as "one of only a handful of women on death row nationwide" in its own words, then a sentence later named the branch "Women On Death Row" by its exact title — the same idea stated twice in a row, once loose and once as the exact name, reading as an obvious repeat right where two links land back to back. When you work in one of these exact names, that should be the FIRST time its underlying idea shows up in the piece — don't describe the same concept in your own words a sentence or two beforehand and then also name it; either lead straight into the name without a same-idea runway first, or introduce a genuinely different angle before naming it.
+The bracketed mention should be the FIRST time its idea shows up in the piece. Confirmed live this creates an awkward double-up otherwise: a piece described someone as "one of only a handful of women on death row nationwide" in its own words, then a sentence later linked "women on death row" — the same idea stated twice in a row, reading as an obvious repeat right where the link lands. Either lead straight into the bracketed phrase, or introduce a genuinely different angle before it.
 
-Respond with ONLY the article text itself: plain prose paragraphs separated by a blank line. No JSON, no markdown formatting, no preamble like "Here's an article about...".`;
+If the user turn asks for a title line, the very first line of the response must be "TITLE: " followed by a short display title for the topic — 1-3 words, title case, trimmed of filler ("How To Build A Fire" → "Build A Fire", "What Causes Rain" → "Rain"), literal, no jokes — then a blank line, then the article. Otherwise, no title line.
+
+Respond with ONLY the article text itself (after the title line, if one was asked for): plain prose paragraphs separated by a blank line. No JSON, no markdown formatting, no preamble like "Here's an article about...".`;
 
 const CONTINUATION_TASK = `=== TASK: continue article ===
 You're extending the "read more" content for a node in this app — the reader already read the deep-dive quoted in the user turn and tapped "dig deeper" because they want a bit more on this SAME topic before moving on.
@@ -161,15 +155,13 @@ Write one or two more paragraphs (roughly 90-160 words total) that continue natu
 
 Respond with ONLY the continuation text itself: plain prose paragraphs separated by a blank line. No JSON, no markdown formatting, no preamble.`;
 
-// One fixed system prompt, reused byte-for-byte across all four endpoints —
+// One fixed system prompt, reused byte-for-byte across every endpoint —
 // deliberately, so cache reads accumulate across every call this app makes,
 // not just repeats of the same endpoint. See api.js for how this gets the
 // cache_control breakpoint attached.
 export const HYFAX_SYSTEM = `${APP_FRAMING}
 
 ${HYFAX_TONE}
-
-${ROOT_TASK}
 
 ${EXPAND_TASK}
 

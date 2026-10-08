@@ -44,8 +44,8 @@ function systemBlock(system) {
 // The proxy computes this session's rolling 24h action count for the
 // existing daily safety cap, and echoes it back as a response header
 // instead of keeping it server-side-only. Stashed here rather than
-// threaded through every call's return value — callClaude/streamJSON/
-// streamTextFromPrompt all have different return shapes already, and this
+// threaded through every call's return value — callClaude and
+// streamTextFromPrompt have different return shapes already, and this
 // is a supplementary read, not something any of them need to decide on.
 let lastActionsToday = null;
 export function getLastActionsToday() {
@@ -123,7 +123,7 @@ function timeZoneField() {
 // "continuation") the proxy logs alongside an anonymous session id per
 // request — see the handoff brief's Phase 1 logging note: this is what lets
 // Phase 2's usage caps be set from real numbers instead of a guess.
-async function fetchClaudeText(system, prompt, maxTokens, endpoint, nodeCacheKey) {
+async function fetchClaudeText(system, prompt, maxTokens, endpoint, nodeCacheKey, newsCacheKey) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 25000);
   let res;
@@ -142,6 +142,9 @@ async function fetchClaudeText(system, prompt, maxTokens, endpoint, nodeCacheKey
         // same idea as streamRaw's newsCacheKey but one level deeper (see
         // rabbit-hole-proxy-v2's node_cache table).
         ...(nodeCacheKey ? { nodeCacheKey } : {}),
+        // A cached topic's own chips (see App.jsx's expandNode) — read from
+        // that topic's news_root_cache row instead of generated per visitor.
+        ...(newsCacheKey ? { newsCacheKey } : {}),
         ...(await authField()),
         ...timeZoneField(),
       }),
@@ -198,8 +201,8 @@ async function fetchClaudeText(system, prompt, maxTokens, endpoint, nodeCacheKey
 // its node_cache row (see writeNodeCache), avoiding a race against the
 // server's own background billing task the way root's rootUsage already
 // does for its own cache write.
-export async function callClaude(system, prompt, endpoint, nodeCacheKey, onUsage) {
-  const { text, usage } = await fetchClaudeText(system, prompt, undefined, endpoint, nodeCacheKey);
+export async function callClaude(system, prompt, endpoint, nodeCacheKey, onUsage, newsCacheKey) {
+  const { text, usage } = await fetchClaudeText(system, prompt, undefined, endpoint, nodeCacheKey, newsCacheKey);
   if (onUsage) onUsage(usage);
   const cleaned = text.replace(/```json|```/g, "").trim();
   const start = cleaned.indexOf("{");
@@ -399,81 +402,20 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
 // request purely for analysis — which branch types people actually choose
 // to read, so the obscurity mix (hyfaxSystemPrompt.js's OBSCURITY_LEVELS)
 // can eventually be tuned toward what resonates instead of a guess.
-export async function streamTextFromPrompt(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, nodeType, newsCacheKey, nodeCacheKey, onUsage) {
-  const fullText = await streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey, nodeCacheKey, nodeType, onUsage);
+export async function streamTextFromPrompt(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, nodeType, newsCacheKey, nodeCacheKey, onUsage, heroSource) {
+  const fullText = await streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey, nodeCacheKey, nodeType, onUsage, heroSource);
   return fullText.replace(/```/g, "").trim();
 }
 
-// Matches an in-progress `"overview": "..."` field in a partially-streamed
-// JSON blob — captures everything after the opening quote, including a
-// string that hasn't been closed yet, so the overview can be shown as it's
-// written rather than only once the whole response (children included)
-// has finished generating.
-const OVERVIEW_PATTERN = /"overview"\s*:\s*"((?:[^"\\]|\\.)*)/;
-const JSON_ESCAPES = { '"': '"', "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" };
 
-// Best-effort unescape for a JSON string fragment that may end mid-escape
-// (the stream hasn't delivered the rest yet) — not run through JSON.parse
-// since it isn't necessarily valid/complete JSON yet.
-function unescapeJSONStringFragment(s) {
-  return s.replace(/\\(["\\/bfnrt])/g, (_, c) => JSON_ESCAPES[c]);
-}
-
-// Same contract as callClaude (streams instead of waiting for the whole
-// response), plus an optional onOverviewChunk callback fired with the
-// "overview" field's text as it streams in — the one field worth showing
-// live while the rest of the JSON (children, etc.) is still generating.
-export async function streamJSON(system, prompt, endpoint, onOverviewChunk, newsCacheKey, onUsage, heroSource) {
-  const fullText = await streamRaw(
-    system,
-    prompt,
-    1200,
-    25000,
-    endpoint,
-    (partial) => {
-      if (!onOverviewChunk) return;
-      const match = partial.match(OVERVIEW_PATTERN);
-      if (match) onOverviewChunk(unescapeJSONStringFragment(match[1]));
-    },
-    newsCacheKey,
-    undefined, // nodeCacheKey — root calls never use the branch-level cache
-    undefined, // nodeType
-    onUsage,
-    heroSource
-  );
-  const cleaned = fullText.replace(/```json|```/g, "").trim();
-  const start = cleaned.indexOf("{");
-  const end = cleaned.lastIndexOf("}");
-  if (start === -1 || end === -1) {
-    console.error("Hyfax: couldn't find JSON in streamed response", fullText);
-    throw new Error("Couldn't parse the API's response.");
-  }
-  try {
-    return JSON.parse(cleaned.slice(start, end + 1));
-  } catch (parseErr) {
-    console.error("Hyfax: JSON parse failed", parseErr, cleaned);
-    throw new Error("Couldn't parse the API's response.");
-  }
-}
-
-// Fire-and-forget: tells the proxy to cache a root response for a
-// news/today topic so the next visitor to open the same card is served
-// this instead of triggering another generation. Called from App.jsx only
-// after a news-context root call has already finished streaming — kept as
-// its own request rather than something the generation call itself does,
-// so the generation always streams normally (see rabbit-hole-proxy for why
-// combining the two added visible latency on every cache miss). Errors are
-// swallowed: a failed cache write just means the next visitor generates
-// fresh too, never worth surfacing to the person who already got their
-// answer.
-// `usage` (optional, {input_tokens, output_tokens}) is this root
-// generation's real cost, captured client-side via streamJSON's onUsage —
-// travels in the SAME write that creates this cache row, deliberately,
-// rather than a later server-side update. The row doesn't exist until THIS
-// call creates it, so a separate update attempt from the server's own
-// background billing task would race against it and could easily miss
-// (article usage doesn't have this problem — that row always already
-// exists by the time anyone can read an article at all).
+// Fire-and-forget: caches a cached topic's chips (its indirect/tangent
+// threads, generated after its article) on that topic's news_root_cache
+// row, so the next visitor to open the same card gets them instantly.
+// Creates the row if the article write hasn't yet; otherwise fills in the
+// still-empty chips on the row that write made. `usage` is the chip call's
+// real cost, so later cache hits can be billed like a fresh generation.
+// Errors are swallowed: a failed write just means the next visitor
+// generates fresh too.
 export function writeNewsRootCache(cacheKey, rootLabel, overview, children, usage) {
   fetch(PROXY_URL, {
     method: "POST",
@@ -497,11 +439,21 @@ export function writeNewsRootCache(cacheKey, rootLabel, overview, children, usag
 // the same visitor's flow); the server-side handler only fills in the
 // article column if it's still null, so this is safe to fire even if two
 // visitors finish generating around the same time.
-export function writeNewsArticleCache(cacheKey, article) {
+// The article now finishes BEFORE the topic's chips exist, so this write
+// can be the one that creates the cache row — it carries the title and the
+// real usage itself rather than relying on a row the chips write made first.
+export function writeNewsArticleCache(cacheKey, article, usage, rootLabel) {
   fetch(PROXY_URL, {
     method: "POST",
     headers: proxyHeaders(),
-    body: JSON.stringify({ newsArticleCacheWrite: { cacheKey, article } }),
+    body: JSON.stringify({
+      newsArticleCacheWrite: {
+        cacheKey,
+        article,
+        ...(rootLabel ? { rootLabel } : {}),
+        ...(usage ? { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens } : {}),
+      },
+    }),
   }).catch((e) => console.error("Hyfax: failed to write news article cache", e));
 }
 

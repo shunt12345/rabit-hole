@@ -764,12 +764,11 @@ function newsArticleCacheResponse(articleText: string, headers: Record<string, s
 }
 
 // Handles `newsCacheWrite` requests — sent by the client after it has
-// already streamed and parsed a root response for a news/today topic. This
-// is a client-writable path (unlike the rest of this table, which the
-// client can only read), so it's deliberately narrow: the cacheKey must
-// match a topic generate-trending-topics actually produced, and the
-// underlying upsert (ignoreDuplicates: true) means only the very first
-// write for a given key ever takes — nobody can overwrite an
+// generated a news/today topic page's chips. This is a client-writable
+// path (unlike the rest of this table, which the client can only read), so
+// it's deliberately narrow: a new row's cacheKey must match a topic
+// generate-trending-topics actually produced, and only the very first
+// write for a given key's chips ever takes — nobody can overwrite an
 // already-cached topic's content, only race to be first on a brand-new
 // one. Accepted trade-off for this app's scale/stakes rather than building
 // real request signing for a shared, non-sensitive content cache.
@@ -778,20 +777,13 @@ async function handleNewsCacheWrite(write: any, corsHeaders: Record<string, stri
   const rootLabel = typeof write?.rootLabel === "string" ? write.rootLabel : "";
   const overview = typeof write?.overview === "string" ? write.overview : "";
   const children = Array.isArray(write?.children) ? write.children : null;
-  // Client-captured real usage for THIS root generation (see streamJSON's
-  // onUsage in src/lib/api.js) — travels in this same write since the row
-  // is created here, avoiding a race against the server's own background
-  // billing task trying to update a row that doesn't exist yet. Trusting a
-  // client-reported number is a real trade-off (same posture as this
-  // function's existing "no real request signing" one above): worst case
-  // someone under-reports it and future cache-hit readers of THAT one
-  // topic get under-billed — never affects the reporting client's own
-  // balance, and the blast radius is one topic's cache row, not the
-  // billing system generally.
+  // Client-captured real usage for the call that produced these chips —
+  // trusted the same way as before (see handleNodeCacheWrite): worst case
+  // a single topic's later cache hits get under-billed.
   const inputTokens = Number.isFinite(write?.inputTokens) ? write.inputTokens : null;
   const outputTokens = Number.isFinite(write?.outputTokens) ? write.outputTokens : null;
 
-  if (!cacheKey || !rootLabel || !overview || !children) {
+  if (!cacheKey || !children || children.length === 0) {
     return new Response(JSON.stringify({ error: "invalid newsCacheWrite payload" }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -799,17 +791,24 @@ async function handleNewsCacheWrite(write: any, corsHeaders: Record<string, stri
   }
 
   try {
-    const { data: realTopic } = await supabase
-      .from("trending_topics_cache")
-      .select("topic")
-      .eq("topic", cacheKey)
-      .limit(1)
-      .maybeSingle();
-    if (realTopic) {
+    // Topic pages now cache their article first (see
+    // handleNewsArticleCacheWrite, which may create the row with no chips
+    // yet) and their chips second, so this fills in a row's still-empty
+    // chips rather than only ever inserting. First write still wins: chips
+    // already on a row are never overwritten.
+    const { data: existing } = await supabase.from("news_root_cache").select("children").eq("cache_key", cacheKey).maybeSingle();
+    if (existing) {
+      if (!Array.isArray(existing.children) || existing.children.length === 0) {
+        await supabase
+          .from("news_root_cache")
+          .update({ children, root_input_tokens: inputTokens, root_output_tokens: outputTokens })
+          .eq("cache_key", cacheKey);
+      }
+    } else if (await isRealTrendingTopic(cacheKey)) {
       await supabase.from("news_root_cache").upsert(
         {
           cache_key: cacheKey,
-          root_label: rootLabel,
+          root_label: rootLabel || cacheKey,
           overview,
           children,
           root_input_tokens: inputTokens,
@@ -834,19 +833,19 @@ async function handleNewsCacheWrite(write: any, corsHeaders: Record<string, stri
 }
 
 // Handles `newsArticleCacheWrite` — sent by the client after it has
-// finished streaming a ROOT node's own article (see loadArticle's
-// articleCacheKey in App.jsx; never sent for a child node's article, only
-// the root's, matching the existing isRootArticle scoping elsewhere in
-// this app). A plain UPDATE, not an upsert: the row already exists from
-// the root's own newsCacheWrite moments earlier in the same visitor's
-// flow, this just fills in the one column that was still null. The
-// .is("article", null) condition is what gives "first write wins" here —
-// an upsert's ignoreDuplicates wouldn't touch an existing row's other
-// columns at all, so a plain conditional update is the right tool, not a
-// second upsert.
+// finished streaming a topic page's own article (never a child's; those go
+// through handleNodeArticleCacheWrite). The article now streams BEFORE the
+// topic's chips exist, so this is usually the write that creates the row:
+// title from the client (the article's own "TITLE:" line), no overview,
+// chips filled in later by handleNewsCacheWrite. If the row already exists
+// (older topics, or a chips write that landed first), it only fills in a
+// still-empty article — first write wins either way.
 async function handleNewsArticleCacheWrite(write: any, corsHeaders: Record<string, string>) {
   const cacheKey = typeof write?.cacheKey === "string" ? write.cacheKey.trim() : "";
   const article = typeof write?.article === "string" ? write.article : "";
+  const rootLabel = typeof write?.rootLabel === "string" ? write.rootLabel.trim() : "";
+  const inputTokens = Number.isFinite(write?.inputTokens) ? write.inputTokens : null;
+  const outputTokens = Number.isFinite(write?.outputTokens) ? write.outputTokens : null;
 
   if (!cacheKey || !article) {
     return new Response(JSON.stringify({ error: "invalid newsArticleCacheWrite payload" }), {
@@ -856,11 +855,33 @@ async function handleNewsArticleCacheWrite(write: any, corsHeaders: Record<strin
   }
 
   try {
-    // No row to update means this cacheKey was never legitimately created
-    // by a real newsCacheWrite in the first place — the update is simply a
-    // no-op then, no separate trending_topics_cache check needed the way
-    // handleNewsCacheWrite has one.
-    await supabase.from("news_root_cache").update({ article }).eq("cache_key", cacheKey).is("article", null);
+    const { data: existing } = await supabase.from("news_root_cache").select("article").eq("cache_key", cacheKey).maybeSingle();
+    if (existing) {
+      if (existing.article == null) {
+        await supabase
+          .from("news_root_cache")
+          .update({
+            article,
+            ...(inputTokens != null ? { article_input_tokens: inputTokens } : {}),
+            ...(outputTokens != null ? { article_output_tokens: outputTokens } : {}),
+          })
+          .eq("cache_key", cacheKey)
+          .is("article", null);
+      }
+    } else if (await isRealTrendingTopic(cacheKey)) {
+      await supabase.from("news_root_cache").upsert(
+        {
+          cache_key: cacheKey,
+          root_label: rootLabel || cacheKey,
+          overview: "",
+          children: [],
+          article,
+          article_input_tokens: inputTokens,
+          article_output_tokens: outputTokens,
+        },
+        { onConflict: "cache_key", ignoreDuplicates: true }
+      );
+    }
   } catch (e) {
     console.error("rabbit-hole-proxy: failed to write news article cache", e);
   }
@@ -889,14 +910,29 @@ function parseNodeCacheKey(cacheKey: string): { rootCacheKey: string; childLabel
 // level deeper: a client can only ever cache a (root, child) pairing where
 // the root is itself a real cached root AND the child label is one this
 // root's own cached generation actually produced, never an arbitrary label.
+//
+// A child can also be one of the root article's own inline [[links]] (the
+// client title-cases the bracketed phrase into the label, so this compares
+// case-insensitively with whitespace collapsed).
 async function verifyRootChildPair(rootCacheKey: string, childLabel: string): Promise<boolean> {
   const { data: rootRow } = await supabase
     .from("news_root_cache")
-    .select("children")
+    .select("children, article")
     .eq("cache_key", rootCacheKey)
     .maybeSingle();
   const rootChildren = Array.isArray(rootRow?.children) ? rootRow.children : [];
-  return rootChildren.some((c: any) => typeof c?.label === "string" && c.label === childLabel);
+  if (rootChildren.some((c: any) => typeof c?.label === "string" && c.label === childLabel)) return true;
+  const wanted = childLabel.trim().replace(/\s+/g, " ").toLowerCase();
+  const article = typeof rootRow?.article === "string" ? rootRow.article : "";
+  return [...article.matchAll(/\[\[([^[\]]+?)\]\]/g)].some((m) => m[1].trim().replace(/\s+/g, " ").toLowerCase() === wanted);
+}
+
+// Same anti-poisoning rule as handleNewsCacheWrite always had: a client can
+// only create a cache row for a topic generate-trending-topics actually
+// produced, never an arbitrary string.
+async function isRealTrendingTopic(cacheKey: string): Promise<boolean> {
+  const { data } = await supabase.from("trending_topics_cache").select("topic").eq("topic", cacheKey).limit(1).maybeSingle();
+  return !!data;
 }
 
 // Handles `nodeCacheWrite` — the branch-level equivalent of
@@ -1292,10 +1328,35 @@ serve(async (req) => {
         }
         return nodeChildrenCacheResponse(cached.children, responseHeaders);
       }
+    } else if (newsCacheKey && endpoint === "expand") {
+      // A cached topic's own chips. Topic pages no longer make a "root"
+      // call — the article streams first and the chips are generated
+      // afterwards as an "expand" call, cached on the same row. An empty
+      // array means only the article has been cached so far.
+      const { data: cached, error: cacheErr } = await supabase
+        .from("news_root_cache")
+        .select("children, root_input_tokens, root_output_tokens")
+        .eq("cache_key", newsCacheKey)
+        .maybeSingle();
+      if (cacheErr) {
+        console.error("rabbit-hole-proxy: news chips cache lookup failed", cacheErr);
+      } else if (Array.isArray(cached?.children) && cached.children.length > 0) {
+        if (cached.root_input_tokens != null || cached.root_output_tokens != null) {
+          background(
+            billAndLog(
+              { input_tokens: cached.root_input_tokens ?? 0, output_tokens: cached.root_output_tokens ?? 0 },
+              logRowIdPromise,
+              userId,
+              0
+            )
+          );
+        }
+        return nodeChildrenCacheResponse(cached.children, responseHeaders);
+      }
     } else if (newsCacheKey && endpoint === "article") {
       const { data: cached, error: cacheErr } = await supabase
         .from("news_root_cache")
-        .select("article, article_input_tokens, article_output_tokens")
+        .select("root_label, article, article_input_tokens, article_output_tokens")
         .eq("cache_key", newsCacheKey)
         .maybeSingle();
       if (cacheErr) {
@@ -1320,7 +1381,13 @@ serve(async (req) => {
             )
           );
         }
-        return newsArticleCacheResponse(cached.article, responseHeaders);
+        // The client reads a topic page's display title from the article's
+        // first line. Rows cached before that format don't have one, so it
+        // gets added here from the row's stored title.
+        const article = cached.article.startsWith("TITLE:") || !cached.root_label
+          ? cached.article
+          : `TITLE: ${cached.root_label}\n\n${cached.article}`;
+        return newsArticleCacheResponse(article, responseHeaders);
       }
     } else if (newsCacheKey) {
       const { data: cached, error: cacheErr } = await supabase
