@@ -1436,6 +1436,14 @@ export default function Hyfax() {
         .rh-logo-btn { transition: opacity 0.15s; }
         .rh-logo-btn:hover { opacity: 0.8; }
         .rh-chip:hover { filter: brightness(1.15); }
+        .rh-thread-card { transition: border-color 0.15s, background-color 0.15s, transform 0.1s; }
+        .rh-thread-card:hover { border-color: #E3A73C !important; background-color: #2A2015 !important; }
+        .rh-thread-card:active { transform: scale(0.99); }
+        /* A slow sideways nudge on the first unread thread's arrow — a
+           "this way" cue that stops once that thread has been opened. */
+        @keyframes rh-nudge { 0%, 70%, 100% { transform: translateX(0); } 80% { transform: translateX(3px); } 90% { transform: translateX(0); } 95% { transform: translateX(2px); } }
+        .rh-nudge { animation: rh-nudge 2.4s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) { .rh-nudge { animation: none; } }
         .rh-crumb:hover { color: #EDB94F !important; }
         .rh-text-10 { font-size: 10px; }
         .rh-tracking-30 { letter-spacing: 0.3em; }
@@ -2268,6 +2276,9 @@ export default function Hyfax() {
                     time. Sits right above "Explore next" now, inline, as a
                     "here's how you got here" just before "here's where you
                     can go" instead of pinned above the article itself. */}
+                {/* Only once there's somewhere to go back to — on a topic's
+                    own page it would just repeat the page's title. */}
+                {breadcrumb.length > 1 && (
                 <div className="flex items-center gap-1.5 flex-wrap rh-body text-xs mt-10 mb-4">
                   {breadcrumb.map((n, i) => (
                     <span key={n.id} className="flex items-center gap-1.5">
@@ -2286,25 +2297,29 @@ export default function Hyfax() {
                     </span>
                   ))}
                 </div>
+                )}
 
-                {/* explore next — pronounced, tappable chips instead of a
-                    plain underlined-text list, colored the same way nodes
-                    used to be so the branch type is still legible at a
-                    glance. A chip with a filled tint has already been
-                    opened; an outlined one hasn't. Hidden once the trial's
-                    exhausted — every one of these would be a dead-end
-                    hyperlink into content that's guaranteed to be
-                    rejected, matching linkableChildren's same rule for
-                    in-text links above. */}
+                {/* explore next — full-width cards rather than small pills
+                    so they read as the obvious next step: the thread's
+                    name, its one-line teaser, and an arrow. Hidden once
+                    the trial's exhausted — every one of these would be a
+                    dead-end into content that's guaranteed to be rejected,
+                    matching linkableChildren's same rule for in-text
+                    links above. */}
                 {!trialExhausted && chipChildren.length > 0 && (
-                  <div className="mt-6 pt-4 border-t" style={{ borderColor: "#4A3C2C" }}>
-                    <div className="rh-mono rh-text-10 uppercase tracking-wider mb-3" style={{ color: "#A89478" }}>
-                      Explore next
+                  <div className="mt-8">
+                    <div className="flex items-baseline justify-between gap-3 mb-3">
+                      <div className="rh-display text-xl italic" style={{ color: "#F1E6D3" }}>
+                        Where to next?
+                      </div>
+                      <div className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: "#A89478" }}>
+                        Tap a thread
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-col gap-2.5">
                       {chipChildren.map((child, i) => {
-                        const color = "#E3A73C"; // same bright orange for every chip, regardless of branch type
                         const visited = !!child.article;
+                        const firstFresh = !visited && chipChildren.findIndex((c) => !c.article) === i;
                         return (
                           <button
                             key={child.id}
@@ -2314,25 +2329,33 @@ export default function Hyfax() {
                                 setShowSignUpPrompt(true);
                               }
                             }}
-                            className="rh-chip rh-chip-stagger-in rh-body text-sm rounded-full px-4 py-2 border transition-colors"
+                            className="rh-chip rh-thread-card rh-chip-stagger-in w-full text-left rounded-2xl border px-4 py-3 flex items-center gap-3"
                             style={{
-                              borderColor: color,
-                              color,
-                              backgroundColor: visited ? `${color}22` : "transparent",
+                              borderColor: visited ? "#4A3C2C" : "#E3A73C88",
+                              backgroundColor: visited ? "#1A140E" : "#241B12",
                               // One at a time rather than all popping in
                               // together — see the ad brief's "reveal chips
-                              // one at a time as they arrive" ask. Chips
-                              // all land in the same client render (root
-                              // generation only exposes them once the full
-                              // JSON parses, not incrementally), so this is
-                              // a staggered CSS entrance rather than a true
-                              // incremental-parse reveal — same visible
-                              // effect, without the fragility of parsing a
-                              // JSON array mid-stream.
+                              // one at a time as they arrive" ask.
                               animationDelay: `${i * 90}ms`,
                             }}
                           >
-                            {child.label}
+                            <div className="min-w-0 flex-1">
+                              <div className="rh-body text-base font-semibold" style={{ color: visited ? "#B8A886" : "#F1E6D3" }}>
+                                {child.label}
+                              </div>
+                              {child.teaser && (
+                                <div className="rh-body text-sm mt-0.5 leading-snug" style={{ color: visited ? "#8A7A62" : "#B8A886" }}>
+                                  {child.teaser}
+                                </div>
+                              )}
+                            </div>
+                            <span
+                              className={`shrink-0 flex items-center justify-center rounded-full w-8 h-8 ${firstFresh ? "rh-nudge" : ""}`}
+                              style={{ backgroundColor: visited ? "transparent" : "#E3A73C", color: visited ? "#8A7A62" : "#14100C" }}
+                              aria-hidden="true"
+                            >
+                              {visited ? <Check size={16} /> : <ChevronRight size={18} />}
+                            </span>
                           </button>
                         );
                       })}
