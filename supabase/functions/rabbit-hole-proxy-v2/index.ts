@@ -173,8 +173,7 @@ const GATED_ENDPOINTS = new Set(["expand", "article", "continuation"]);
 // fewer fresh pages a day.
 const FREE_SEARCH_LIMIT = Number(Deno.env.get("FREE_SEARCH_LIMIT") ?? "4");
 // A free account gets more than an anonymous visitor, so signing up is
-// worth something — the limit's own message offers exactly that. Unlike
-// an anonymous visitor's, an account's count includes cached pages.
+// worth something — the limit's own message offers exactly that.
 const SIGNED_IN_SEARCH_LIMIT = Number(Deno.env.get("SIGNED_IN_SEARCH_LIMIT") ?? "10");
 
 function searchLimitFor(userId: string | null) {
@@ -863,9 +862,8 @@ async function countSearches(userId: string | null, sessionId: string, timeZone:
     .select("*", { count: "exact", head: true })
     .eq("endpoint", "article")
     .gte("created_at", since);
-  // Cached pages are free for an anonymous visitor but count for an
-  // account (see SIGNED_IN_SEARCH_LIMIT).
-  query = userId ? query.eq("user_id", userId) : query.eq("session_id", sessionId || "unknown").eq("cache_hit", false);
+  // Cached pages count like any other — readers can't tell them apart.
+  query = userId ? query.eq("user_id", userId) : query.eq("session_id", sessionId || "unknown");
   const { count, error } = await query;
   if (error) {
     console.error("rabbit-hole-proxy: search count check failed, allowing request", error);
@@ -1345,9 +1343,9 @@ serve(async (req) => {
     // result, so these two also run concurrently rather than sequentially
     // — the same "batch what's independent" idea one level later, once
     // identity is actually known.
-    // The cache lookup runs here too, rather than after the trial gate, so
-    // a page that's already cached is never blocked by the free limit and
-    // doesn't count toward it — it's still billed like a fresh one below.
+    // The cache lookup runs alongside the other preflight reads; a hit is
+    // marked on the request's log row (cache_hit) for analytics, and is
+    // billed and counted toward the free limit like a fresh page.
     const [spendResult, searchCount, cacheResult] = await Promise.all([
       !funded
         ? supabase.rpc("get_recent_spend_usd", { since })
@@ -1392,13 +1390,9 @@ serve(async (req) => {
     // standalone page for whatever was just typed in.
     const isRootArticle = endpoint === "article" && nodeType === "root";
     const searchLimit = searchLimitFor(userId);
-    // A cached page is exempt from (and doesn't count toward) an anonymous
-    // visitor's limit only; for an account it counts like any other page.
-    const cacheExempt = cacheHit && !userId;
     const trialBlocked =
       !funded &&
       !isAdmin &&
-      !cacheExempt &&
       searchCount !== null &&
       searchCount >= searchLimit &&
       GATED_ENDPOINTS.has(endpoint) &&
@@ -1416,8 +1410,7 @@ serve(async (req) => {
     // A root article allowed through past the limit legitimately can push
     // the displayed count above the limit (e.g. 7/6) — that's real, not a
     // bug, since it's the one call that's always allowed to go through.
-    // A page that doesn't count doesn't get the +1 either.
-    const displaySearchCount = (searchCount ?? 0) + (!trialBlocked && !cacheExempt && endpoint === "article" ? 1 : 0);
+    const displaySearchCount = (searchCount ?? 0) + (!trialBlocked && endpoint === "article" ? 1 : 0);
     const responseHeaders = { ...corsHeaders, ...usageHeaders(count), ...trialHeaders(displaySearchCount, funded, searchLimit) };
 
     if (trialBlocked) {

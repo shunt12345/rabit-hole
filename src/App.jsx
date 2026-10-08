@@ -551,19 +551,6 @@ export default function Hyfax() {
   // to fetch chips) that would otherwise see a stale render's value.
   const trialExhaustedRef = useRef(trialExhausted);
   trialExhaustedRef.current = trialExhausted;
-  // For an anonymous visitor, pages that can be served from cache (a hero
-  // topic's page and its first-level threads) stay open past the free
-  // limit, since the proxy doesn't count them. One that isn't cached yet is
-  // refused by the proxy and shows the limit message like any other page.
-  // An account's limit counts cached pages too, so this never applies.
-  const isCacheEligible = (node) => {
-    if (!node || user) return false;
-    if (node.type === "root") return !!node.newsContext;
-    if (node.depth !== 1) return false;
-    return !!nodesRef.current.find((n) => n.id === node.parentId)?.newsContext;
-  };
-  // Whether this page's threads (its chips and their pages) can be opened.
-  const threadsOpenFor = (node) => !trialExhaustedRef.current || (node?.type === "root" && isCacheEligible(node));
 
   // House-ad staging (Section H) — every AdCard placement below is
   // already gated on `!funded` (funded accounts don't see ads at all), so
@@ -1041,9 +1028,7 @@ export default function Hyfax() {
     // the moment the call completes (correcting it back down if the call
     // was actually blocked, e.g. trial exhausted), so it can't drift
     // permanently wrong.
-    if (!isCacheEligible(node)) {
-      setTrialStatus((prev) => ({ ...prev, searchesUsed: Math.min(prev.searchesUsed + 1, prev.searchLimit) }));
-    }
+    setTrialStatus((prev) => ({ ...prev, searchesUsed: Math.min(prev.searchesUsed + 1, prev.searchLimit) }));
 
     const path = pathToNode(node);
     // The ROOT of a news/today/quote-sourced topic caches its article — same
@@ -1127,7 +1112,7 @@ export default function Hyfax() {
       // Chips start the moment the article's text is in hand — not after
       // the typing animation catches up — with this article's own links
       // already known, so they're excluded.
-      if (threadsOpenFor(node) && !node.generated && !node.loading) expandNode(node.id, stripMarkdown(finalBody));
+      if (!trialExhaustedRef.current && !node.generated && !node.loading) expandNode(node.id, stripMarkdown(finalBody));
       await reveal.finish(finalBody);
       node.article = stripMarkdown(cleanStrayBrackets(finalBody));
       node.articleStreaming = false;
@@ -1213,14 +1198,14 @@ export default function Hyfax() {
     // one exception is a topic page's OWN article: the server exempts that
     // call specifically (see rabbit-hole-proxy's isRootArticle) so a fresh
     // Dig In always gets a full standalone page — it just can't be branched
-    // into any further. Cache-eligible pages are the other exception.
-    if (trialExhausted && node.type !== "root" && !isCacheEligible(node)) return;
+    // into any further.
+    if (trialExhausted && node.type !== "root") return;
 
     // loadArticle starts the chips itself once its text has arrived; this
     // only covers revisiting a page whose chips never landed.
     if (!node.article && !node.articleLoading) {
       loadArticle(selectedId);
-    } else if (node.article && !node.generated && !node.loading && threadsOpenFor(node)) {
+    } else if (node.article && !node.generated && !node.loading && !trialExhausted) {
       expandNode(selectedId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1434,8 +1419,7 @@ export default function Hyfax() {
   // topic, but nothing it produces should offer a further hyperlink to
   // dig into — passing an empty list here means renderLinked below just
   // renders plain text instead of clickable child names.
-  const threadsOpen = !trialExhausted || (selected?.type === "root" && isCacheEligible(selected));
-  const linkableChildren = threadsOpen ? selectedChildren : [];
+  const linkableChildren = trialExhausted ? [] : selectedChildren;
 
   // The free-limit offer. A visitor without an account is offered a free
   // one (more pages a day), and their thread is saved so the sign-in link
@@ -2293,7 +2277,7 @@ export default function Hyfax() {
                     for free. Shown once even when both the article and
                     chips calls were refused. */}
                 {trialExhausted &&
-                  (selected.error || selected.articleError || (!threadsOpen && selected.article && !selected.articleStreaming)) && (
+                  (selected.error || selected.articleError || (selected.article && !selected.articleStreaming)) && (
                     <div className="mt-4">{renderLimitCard(false)}</div>
                   )}
 
@@ -2358,7 +2342,7 @@ export default function Hyfax() {
                     dead-end into content that's guaranteed to be rejected,
                     matching linkableChildren's same rule for in-text
                     links above. */}
-                {threadsOpen && chipChildren.length > 0 && (
+                {!trialExhausted && chipChildren.length > 0 && (
                   <div className="mt-8">
                     <div className="flex items-baseline justify-between gap-3 mb-3">
                       <div className="rh-display text-xl italic" style={{ color: "#F1E6D3" }}>
