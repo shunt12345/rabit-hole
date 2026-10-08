@@ -621,6 +621,36 @@ function promptForField(
 // down with it.
 const PER_FIELD_TIMEOUT_MS = 60_000;
 
+// The first complete top-level {...} in a response, or null. Taking
+// everything from the first "{" to the LAST "}" (the old approach) broke
+// whenever anything with a brace followed the answer — confirmed live: the
+// 2026-10-07 Riddle failed with "Unexpected non-whitespace character after
+// JSON", losing that day's pick entirely. Brace counting skips braces
+// inside string values, so a "}" within a teaser can't end it early.
+function firstJsonObject(text: string): string | null {
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') {
+      inString = true;
+    } else if (ch === "{") {
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
 async function generateForField(
   apiKey: string,
   field: string,
@@ -700,13 +730,17 @@ async function generateForField(
     .join("");
 
   const cleaned = text.replace(/```json|```/g, "").trim();
-  const start = cleaned.indexOf("{");
-  const end = cleaned.lastIndexOf("}");
-  if (start === -1 || end === -1) {
+  const json = firstJsonObject(cleaned);
+  if (!json) {
     throw new Error(`No JSON in response: ${text.slice(0, 300)}`);
   }
 
-  const parsed = JSON.parse(cleaned.slice(start, end + 1));
+  let parsed: any;
+  try {
+    parsed = JSON.parse(json);
+  } catch (e) {
+    throw new Error(`Unparseable JSON (${e instanceof Error ? e.message : e}): ${json.slice(0, 300)}`);
+  }
   const topic = (parsed.topic || "").trim();
   const teaser = (parsed.teaser || "").trim();
   const sourceUrl = (parsed.source_url || "").trim();
