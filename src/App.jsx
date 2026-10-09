@@ -2247,7 +2247,7 @@ export default function Hyfax() {
                         className="flex items-center gap-1.5 text-sm font-semibold transition-colors rh-link-accent"
                         style={{ color: "#E3A73C" }}
                       >
-                        <ChevronDown size={15} /> Keep reading this article
+                        <ChevronDown size={15} /> Read more on this
                       </button>
                     )}
                     {selected.deepenError && (
