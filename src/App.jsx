@@ -411,7 +411,7 @@ export default function Hyfax() {
   // hiding/disabling News/Today/Dig Deeper once the trial's used up.
   // Starts optimistic (assume within trial) since the real status isn't
   // known until after the first proxy call of the session.
-  const [trialStatus, setTrialStatus] = useState({ searchesUsed: 0, searchLimit: 4, funded: false });
+  const [trialStatus, setTrialStatus] = useState(() => ({ searchesUsed: 0, searchLimit: isRedditVisit() ? 10 : 4, funded: false }));
   const syncActionsToday = () => {
     const n = getLastActionsToday();
     if (n != null) setActionsToday(n);
@@ -1454,8 +1454,8 @@ export default function Hyfax() {
         <p className="text-sm leading-relaxed mb-3" style={{ color: "#FFFFFF" }}>
           {user
             ? `Your ${trialStatus.searchLimit} free pages reset at 3am your time. Add funds for full access now.`
-            : `You've read today's ${trialStatus.searchLimit} free pages. A free account gets ${SIGNED_IN_PAGE_LIMIT} a day${
-                onHero ? "." : ", and brings you right back to this page."
+            : `You've read today's ${trialStatus.searchLimit} free pages. Sign up free for ${SIGNED_IN_PAGE_LIMIT} more today${
+                onHero ? "." : ", and we'll bring you right back to this page."
               }`}
           {onHero ? " New topics and today's picks still open any time." : ""}
         </p>

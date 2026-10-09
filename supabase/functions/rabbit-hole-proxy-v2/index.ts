@@ -175,9 +175,17 @@ const FREE_SEARCH_LIMIT = Number(Deno.env.get("FREE_SEARCH_LIMIT") ?? "4");
 // A free account gets more than an anonymous visitor, so signing up is
 // worth something — the limit's own message offers exactly that.
 const SIGNED_IN_SEARCH_LIMIT = Number(Deno.env.get("SIGNED_IN_SEARCH_LIMIT") ?? "10");
+// An anonymous visitor who arrived from the Reddit ad gets a longer first
+// look before the sign-up offer. Attribution is captured once per browser
+// session (lib/attribution.js), so this covers the visit the ad started;
+// a later visit that didn't come through the ad is back to the normal
+// limit. The utm value is client-supplied — an accepted looseness, same
+// as the free tier's timezone-based reset.
+const REDDIT_SEARCH_LIMIT = Number(Deno.env.get("REDDIT_SEARCH_LIMIT") ?? "10");
 
-function searchLimitFor(userId: string | null) {
-  return userId ? SIGNED_IN_SEARCH_LIMIT : FREE_SEARCH_LIMIT;
+function searchLimitFor(userId: string | null, utmSource?: string) {
+  if (userId) return SIGNED_IN_SEARCH_LIMIT;
+  return utmSource === "reddit" ? REDDIT_SEARCH_LIMIT : FREE_SEARCH_LIMIT;
 }
 
 function trialHeaders(searchesUsed: number, funded: boolean, limit: number) {
@@ -1393,7 +1401,7 @@ serve(async (req) => {
     // branch or "dig deeper" for free once exhausted — just always a full
     // standalone page for whatever was just typed in.
     const isRootArticle = endpoint === "article" && nodeType === "root";
-    const searchLimit = searchLimitFor(userId);
+    const searchLimit = searchLimitFor(userId, utmSource);
     const trialBlocked =
       !funded &&
       !isAdmin &&
