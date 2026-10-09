@@ -28,7 +28,7 @@ const TOGGLES = [
   { key: "featureNews", label: "Trending" },
   { key: "featureToday", label: "Today" },
   { key: "featureRiddle", label: "Riddle" },
-  { key: "featureDigDeeper", label: "Dig Deeper" },
+  { key: "featureDigDeeper", label: "Keep reading" },
   { key: "featureEmail", label: "Email digest" },
 ];
 
