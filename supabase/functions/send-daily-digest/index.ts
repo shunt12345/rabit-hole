@@ -312,6 +312,9 @@ serve(async (req) => {
     // Same "not public until its publish time" rule as the hero page's
     // read policy (migration 0053).
     .or(`publish_at.is.null,publish_at.lte.${new Date().toISOString()}`)
+    // Most recently published first (same rule as the hero page), so this
+    // morning's slot wins even over a pick generated later.
+    .order("publish_at", { ascending: false, nullsFirst: false })
     .order("generated_at", { ascending: false });
   if (topicsError) {
     return new Response(JSON.stringify({ error: `Failed to read topics: ${topicsError.message}` }), {

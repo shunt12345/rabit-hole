@@ -42,7 +42,7 @@ const COLORS = {
 // approve/reject buttons — a plain card rather than a table row, since a
 // teaser can run to a full sentence or two and a table cell would
 // truncate or wrap awkwardly compared to a card's full width.
-function ReviewCard({ row, onDecide, busy }) {
+function ReviewCard({ row, onDecide, busy, replaces }) {
   const isRejected = row.status === "rejected";
   return (
     <div
@@ -96,7 +96,7 @@ function ReviewCard({ row, onDecide, busy }) {
             className="flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-40"
             style={{ backgroundColor: COLORS.accent, color: "#14100C" }}
           >
-            <Check size={13} /> Approve
+            <Check size={13} /> {replaces ? "Replace" : "Approve"}
           </button>
           {!isRejected && (
             <button
@@ -118,6 +118,55 @@ function ReviewCard({ row, onDecide, busy }) {
   );
 }
 
+// Tomorrow's hero, card by card: the pick approved for the next slot, or
+// how many are waiting for review, or a nudge that there's nothing yet.
+function SlotChecklist({ slot, fields, approved, rows }) {
+  if (!slot || !fields.length) return null;
+  const byField = new Map(approved.map((r) => [r.field, r]));
+  const done = fields.filter((f) => byField.has(f)).length;
+  const complete = done === fields.length;
+  const when = new Date(slot).toLocaleString(undefined, { weekday: "long", hour: "numeric", minute: "2-digit" });
+  return (
+    <div
+      className="rounded-2xl border p-4 mb-6"
+      style={{ backgroundColor: COLORS.card, borderColor: complete ? COLORS.accent : COLORS.border }}
+    >
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-sm font-semibold" style={{ color: COLORS.text }}>
+          Tomorrow's hero · goes live {when}
+        </div>
+        <div className="rh-mono text-xs" style={{ color: complete ? COLORS.accent : COLORS.dim }}>
+          {done}/{fields.length} approved
+        </div>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {fields.map((f) => {
+          const pick = byField.get(f);
+          const waiting = rows.filter((r) => r.field === f).length;
+          return (
+            <div key={f} className="flex items-baseline gap-2 text-sm">
+              <span className="shrink-0" style={{ color: pick ? COLORS.accent : COLORS.dim }}>
+                {pick ? <Check size={13} /> : "○"}
+              </span>
+              <span className="rh-mono text-xs uppercase tracking-wider shrink-0 w-36" style={{ color: COLORS.dim }}>
+                {f}
+              </span>
+              <span className="min-w-0 truncate" style={{ color: pick ? COLORS.text : waiting ? COLORS.accent : COLORS.bad }}>
+                {pick ? pick.topic : waiting ? `${waiting} waiting for review` : "Nothing yet — generate or suggest one"}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-xs mt-3" style={{ color: COLORS.dim }}>
+        {complete
+          ? "All set — tomorrow's hero is locked in and leftovers are cleared."
+          : "Approving a pick schedules it for this slot (approving another for the same card replaces it). Once every card is approved, the leftover picks are deleted. Cards still open at 07:00 UTC get their newest pick automatically."}
+      </p>
+    </div>
+  );
+}
+
 export default function ReviewQueue() {
   const [user, setUser] = useState(undefined); // undefined = still checking, null = signed out
   const [email, setEmail] = useState("");
@@ -125,6 +174,9 @@ export default function ReviewQueue() {
   const [authError, setAuthError] = useState(null);
 
   const [rows, setRows] = useState([]);
+  const [slot, setSlot] = useState(null);
+  const [slotApproved, setSlotApproved] = useState([]);
+  const [fields, setFields] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   // Separate from `error` — a soft notice (e.g. a reject's automatic
@@ -172,8 +224,11 @@ export default function ReviewQueue() {
     setLoading(true);
     setError(null);
     try {
-      const { rows } = await call("list");
-      setRows(rows || []);
+      const data = await call("list");
+      setRows(data.rows || []);
+      setSlot(data.slot || null);
+      setSlotApproved(data.approved || []);
+      setFields(data.fields || []);
     } catch (e) {
       setError(e.message === "__forbidden__" ? "This account isn't on the admin allowlist." : e.message || "Failed to load the review queue.");
     } finally {
@@ -193,6 +248,9 @@ export default function ReviewQueue() {
       // succeeded, the field just goes back to waiting on the next
       // scheduled run instead of having an immediate replacement to
       // review.
+      if (action === "approve" && result?.complete) {
+        setInfo(`Every card is approved for tomorrow.${result.cleaned ? ` Cleared ${result.cleaned} leftover pick${result.cleaned === 1 ? "" : "s"}.` : ""}`);
+      }
       if (action === "reject" && result?.regenerated && !result.regenerated.ok) {
         setInfo(`Rejected — couldn't generate a replacement (${result.regenerated.error || "unknown error"}). It'll pick up on the next scheduled run.`);
       }
@@ -225,7 +283,10 @@ export default function ReviewQueue() {
   const approveAll = async () => {
     setBusyId("all");
     try {
-      await call("approveAll");
+      const result = await call("approveAll");
+      if (result?.complete) {
+        setInfo(`Every card is approved for tomorrow.${result.cleaned ? ` Cleared ${result.cleaned} leftover pick${result.cleaned === 1 ? "" : "s"}.` : ""}`);
+      }
       await load();
     } catch (e) {
       setError(e.message || "Approve all didn't go through — try again.");
@@ -357,9 +418,11 @@ export default function ReviewQueue() {
             page and the 09:00 UTC digest with fresh content instead of
             falling back to stale. */}
         <p className="text-xs mb-6" style={{ color: COLORS.dim }}>
-          New picks land here around 11am ET. Anything still pending auto-approves at ~3am ET the next morning, before
-          the digest sends — review is optional, not required for fresh content to go out.
+          New picks land here around 11am ET. Approved picks go live at ~3am ET the next morning, not when you approve them.
+          Any card still open then gets its newest pick automatically.
         </p>
+
+        <SlotChecklist slot={slot} fields={fields} approved={slotApproved} rows={rows} />
 
         <form
           onSubmit={suggest}
@@ -455,11 +518,17 @@ export default function ReviewQueue() {
                 className="self-start rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-40 mb-1"
                 style={{ backgroundColor: COLORS.accent, color: "#14100C" }}
               >
-                Approve all
+                Approve all open cards
               </button>
             )}
             {rows.map((row) => (
-              <ReviewCard key={row.id} row={row} onDecide={decide} busy={busyId === row.id || busyId === "all"} />
+              <ReviewCard
+                key={row.id}
+                row={row}
+                onDecide={decide}
+                busy={busyId === row.id || busyId === "all"}
+                replaces={slotApproved.some((a) => a.field === row.field)}
+              />
             ))}
           </div>
         )}

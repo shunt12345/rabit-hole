@@ -80,6 +80,46 @@ const SUGGESTIBLE_FIELDS = [
   "Perspective",
 ];
 
+// The next morning's hero slot: the next 07:00 UTC, when the 07:00 sweep
+// (migration 0055's publish_due_trending_topics) runs. Approving a pick
+// schedules it for this slot (publish_at), so it never goes live the same
+// day it's reviewed, whichever version of generate-trending-topics wrote it.
+function nextSlot(now: Date = new Date()): string {
+  const at = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 7));
+  if (at.getTime() <= now.getTime()) at.setUTCDate(at.getUTCDate() + 1);
+  return at.toISOString();
+}
+
+// The slot's approved picks, one per field at most (approving replaces).
+async function slotApproved(slot: string) {
+  return await supabase.from("trending_topics_cache").select(REVIEW_COLUMNS).eq("status", "approved").eq("publish_at", slot);
+}
+
+// Once every hero card has an approved pick for the slot, whatever's left
+// over is done with: unchosen alternatives still pending for the slot and
+// any rejected rows. Returns how many rows were deleted, or null if the
+// slot isn't complete yet.
+async function finalizeIfComplete(slot: string): Promise<number | null> {
+  const { data: approved } = await slotApproved(slot);
+  const fieldsDone = new Set((approved ?? []).map((r: { field: string }) => r.field));
+  if (!SUGGESTIBLE_FIELDS.every((f) => fieldsDone.has(f))) return null;
+  const { data: leftovers } = await supabase
+    .from("trending_topics_cache")
+    .delete()
+    .or(`status.eq.rejected,and(status.eq.pending,or(publish_at.is.null,publish_at.lte.${slot}))`)
+    .select("id");
+  return leftovers?.length ?? 0;
+}
+
+// Approves one pick into the slot, replacing any pick already approved for
+// that field there, so tomorrow's hero shows exactly the one chosen.
+async function approveIntoSlot(id: number, field: string, slot: string) {
+  const { error } = await supabase.from("trending_topics_cache").update({ status: "approved", publish_at: slot }).eq("id", id);
+  if (error) return error;
+  await supabase.from("trending_topics_cache").delete().eq("status", "approved").eq("field", field).eq("publish_at", slot).neq("id", id);
+  return null;
+}
+
 // Same shared project secrets generate-trending-topics itself reads (every
 // function in this project draws from one pool, not per-function secrets
 // — see that function's DEPLOY STEPS comment) — lets this function call it
@@ -187,21 +227,26 @@ serve(async (req) => {
     const action = typeof body?.action === "string" ? body.action : "list";
 
     if (action === "list") {
-      // Just the queue itself — approved rows are scheduled or live, and
-      // rejected rows are deleted on reject.
-      const { data, error } = await supabase
-        .from("trending_topics_cache")
-        .select(REVIEW_COLUMNS)
-        .eq("status", "pending")
-        .order("generated_at", { ascending: false })
-        .limit(100);
+      // The queue (every pending pick) plus the next slot's approved picks,
+      // which the page shows as tomorrow's hero checklist.
+      const slot = nextSlot();
+      const [pending, approved] = await Promise.all([
+        supabase
+          .from("trending_topics_cache")
+          .select(REVIEW_COLUMNS)
+          .eq("status", "pending")
+          .order("generated_at", { ascending: false })
+          .limit(100),
+        slotApproved(slot),
+      ]);
+      const error = pending.error || approved.error;
       if (error) {
         return new Response(JSON.stringify({ error: error.message }), {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      return new Response(JSON.stringify({ rows: data ?? [] }), {
+      return new Response(JSON.stringify({ rows: pending.data ?? [], slot, approved: approved.data ?? [], fields: SUGGESTIBLE_FIELDS }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -214,7 +259,6 @@ serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const status = action === "approve" ? "approved" : "rejected";
       // Need the row's field BEFORE updating it — fetched here rather
       // than trusting a `field` the client might send, same reasoning as
       // never trusting client-supplied data for a write.
@@ -229,23 +273,34 @@ serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const { error } = await supabase.from("trending_topics_cache").update({ status }).eq("id", id);
+      const slot = nextSlot();
+      if (action === "approve") {
+        const error = await approveIntoSlot(id, existing.field, slot);
+        if (error) {
+          return new Response(JSON.stringify({ error: error.message }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const cleaned = await finalizeIfComplete(slot);
+        return new Response(JSON.stringify({ ok: true, id, status: "approved", complete: cleaned !== null, cleaned }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { error } = await supabase.from("trending_topics_cache").update({ status: "rejected" }).eq("id", id);
       if (error) {
         return new Response(JSON.stringify({ error: error.message }), {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      let regenerated: { ok: boolean; error?: string } | undefined;
-      if (action === "reject") {
-        regenerated = await regenerateField(existing.field);
-        // A rejected pick is deleted, not kept — but only after its
-        // replacement is generated, since that run reads the field's past
-        // picks (rejected ones included) to avoid offering it again.
-        const { error: deleteErr } = await supabase.from("trending_topics_cache").delete().eq("id", id);
-        if (deleteErr) console.error("admin-review-queue: failed to delete rejected row", deleteErr);
-      }
-      return new Response(JSON.stringify({ ok: true, id, status, ...(regenerated ? { regenerated } : {}) }), {
+      const regenerated = await regenerateField(existing.field);
+      // A rejected pick is deleted, not kept — but only after its
+      // replacement is generated, since that run reads the field's past
+      // picks (rejected ones included) to avoid offering it again.
+      const { error: deleteErr } = await supabase.from("trending_topics_cache").delete().eq("id", id);
+      if (deleteErr) console.error("admin-review-queue: failed to delete rejected row", deleteErr);
+      return new Response(JSON.stringify({ ok: true, id, status: "rejected", regenerated }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -304,23 +359,29 @@ serve(async (req) => {
     }
 
     if (action === "approveAll") {
-      // Convenience for a normal review pass — approve every currently-
-      // pending row in one tap instead of clicking through each field.
-      // Scoped to 'pending' specifically (not touching anything already
-      // decided), so it's safe to hit even after some rows were already
-      // individually approved/rejected.
-      const { data, error } = await supabase
-        .from("trending_topics_cache")
-        .update({ status: "approved" })
-        .eq("status", "pending")
-        .select("id");
+      // Approves the newest pending pick for each field that doesn't have
+      // an approved pick for the slot yet, then cleans up if that
+      // completes the slot. Fields already approved are left alone.
+      const slot = nextSlot();
+      const [{ data: pending, error }, { data: approved }] = await Promise.all([
+        supabase.from("trending_topics_cache").select("id, field").eq("status", "pending").order("generated_at", { ascending: false }),
+        slotApproved(slot),
+      ]);
       if (error) {
         return new Response(JSON.stringify({ error: error.message }), {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      return new Response(JSON.stringify({ ok: true, approved: data?.length ?? 0 }), {
+      const done = new Set((approved ?? []).map((r: { field: string }) => r.field));
+      let count = 0;
+      for (const row of pending ?? []) {
+        if (done.has(row.field)) continue;
+        done.add(row.field);
+        if (!(await approveIntoSlot(row.id, row.field, slot))) count++;
+      }
+      const cleaned = await finalizeIfComplete(slot);
+      return new Response(JSON.stringify({ ok: true, approved: count, complete: cleaned !== null, cleaned }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

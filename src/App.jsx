@@ -266,7 +266,7 @@ function nextId() {
 // pending/rejected row is unreadable with the anon key regardless of this
 // query string. Kept explicit anyway so this file's own intent reads
 // clearly without having to know the DB-side policy exists.
-const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,options,category,direction,generated_at,publish_at&status=eq.approved&order=generated_at.desc,id.desc&limit=24`;
+const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,options,category,direction,generated_at,publish_at&status=eq.approved&order=generated_at.desc,id.desc&limit=40`;
 const NEWS_FIELDS = ["Trending 1", "Trending 2"];
 // What each internal field key actually displays as — kept separate from
 // the field key itself so latestByField (below) can still tell the two
@@ -350,9 +350,15 @@ function mostRecentDate(rows) {
 // retired field or a partially-failed cron run could otherwise crowd out a
 // field that's actually still active. Drops anything past MAX_STALE_HOURS
 // outright — better to show fewer cards than a visibly-dated one.
+// The pick most recently published for each field — by when it went live
+// rather than when it was generated, since a pick approved into the
+// morning's slot can be older than one already live (an alternative from
+// an earlier batch, say) and must still replace it.
 function latestByField(rows, fields) {
   return fields
-    .map((field) => rows.find((r) => r.field === field))
+    .map((field) =>
+      rows.filter((r) => r.field === field).reduce((best, r) => (!best || liveSince(r) > liveSince(best) ? r : best), null)
+    )
     .filter(Boolean)
     .filter(isFresh);
 }
