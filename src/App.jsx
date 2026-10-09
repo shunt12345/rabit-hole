@@ -1717,20 +1717,17 @@ export default function Hyfax() {
                 dedicated Quote Of The Day guidance in hyfaxSystemPrompt.js). */}
             {quoteTopic && todayVisible && (
               <div className="mt-10">
-                {/* "As of" badge — moved here from the top of "Trending" so
+                {/* Date badge — moved here from the top of "Trending" so
                     the whole hero batch's freshness reads once, up front,
                     rather than being tucked under one specific section.
-                    Uses the max generated_at across the whole fetched
+                    Uses the most recent publish across the whole fetched
                     batch (trendingTopics), not just newsTopics, since every
                     field now refreshes together on the same once-daily cron. */}
-                <div className="rh-mono text-sm mb-2" style={{ color: "#A89478" }}>
-                  as of{" "}
-                  <span className="font-semibold" style={{ color: "#E3A73C" }}>
-                    {mostRecentDate(trendingTopics).toLocaleDateString(undefined, {
-                      month: "long",
-                      day: "numeric",
-                    })}
-                  </span>
+                <div className="rh-mono text-lg font-semibold mb-2" style={{ color: "#E3A73C" }}>
+                  {mostRecentDate(trendingTopics).toLocaleDateString(undefined, {
+                    month: "long",
+                    day: "numeric",
+                  })}
                 </div>
                 <div className="flex items-center justify-center gap-1.5 mb-6">
                   <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
