@@ -20,6 +20,9 @@ import { isCorrectGuess } from "./lib/riddle.js";
 // and can be reset to play again.
 
 const MAX_GUESSES = 3;
+// The share button is hidden for now; the share text (threadScore's emoji
+// grid) is kept for when it comes back.
+const SHOW_SHARE = false;
 const C = {
   card: "#241B12",
   border: "#4A3826",
@@ -283,8 +286,8 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
             <div className="rh-body text-base font-semibold" style={{ color: progress.outcome === "solved" ? C.accent : C.bad }}>
               {progress.outcome === "solved" ? (
                 <span className="flex items-center gap-1.5">
-                  <Check size={16} /> {riddle.topic} — {threadScore(progress.hints)} in {progress.guesses} guess
-                  {progress.guesses === 1 ? "" : "es"}
+                  <Check size={16} /> {riddle.topic}, solved in {progress.guesses} guess{progress.guesses === 1 ? "" : "es"} with{" "}
+                  {progress.hints === 0 ? "no hints" : `${progress.hints} hint${progress.hints === 1 ? "" : "s"}`}
                 </span>
               ) : (
                 <>Stumped — it was {riddle.topic}.</>
@@ -300,14 +303,16 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
               >
                 Read about it <ArrowRight size={13} />
               </button>
-              <button
-                type="button"
-                onClick={share}
-                className="flex items-center gap-1 rounded-full border px-3 py-2 rh-body text-xs"
-                style={{ borderColor: C.accent, color: C.accent }}
-              >
-                <Share2 size={13} /> {shared ? "Copied!" : "Share result"}
-              </button>
+              {SHOW_SHARE && (
+                <button
+                  type="button"
+                  onClick={share}
+                  className="flex items-center gap-1 rounded-full border px-3 py-2 rh-body text-xs"
+                  style={{ borderColor: C.accent, color: C.accent }}
+                >
+                  <Share2 size={13} /> {shared ? "Copied!" : "Share result"}
+                </button>
+              )}
             </div>
           </div>
         )}
