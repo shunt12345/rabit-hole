@@ -186,15 +186,16 @@ function sectionHeadingHtml(title: string): string {
   </tr>`;
 }
 
-// Same "as of [date]" badge as the hero page, in the same spot — centered,
-// above Quote of the Day, reflecting the whole batch's freshness rather
-// than being scoped to one section (see App.jsx's mostRecentDate usage).
+// Same date badge as the hero page, in the same spot — centered, above
+// Quote of the Day, reflecting the whole batch rather than being scoped to
+// one section (see App.jsx's mostRecentDate usage). Just the date, larger,
+// matching the hero page (no "as of").
 function asOfHtml(date: Date): string {
   const formatted = date.toLocaleDateString("en-US", { month: "long", day: "numeric" });
   return `
   <tr>
     <td style="padding:0 40px 4px;">
-      <span style="display:block; text-align:center; font-family:'Courier New',monospace; font-size:13px; color:${COLOR_TEXT_FAINT};">as of <span style="color:${COLOR_ACCENT}; font-weight:700;">${escapeHtml(formatted)}</span></span>
+      <span style="display:block; text-align:center; font-family:'Courier New',monospace; font-size:18px; color:${COLOR_ACCENT}; font-weight:700;">${escapeHtml(formatted)}</span>
     </td>
   </tr>`;
 }
@@ -306,7 +307,7 @@ serve(async (req) => {
   // thing enforcing that here.
   const { data: topicRows, error: topicsError } = await supabase
     .from("trending_topics_cache")
-    .select("field, topic, teaser, generated_at")
+    .select("field, topic, teaser, generated_at, publish_at")
     .in("field", [QUOTE_FIELD, RIDDLE_FIELD, PERSPECTIVE_FIELD, ...TRENDING_FIELDS, ...TODAY_FIELDS])
     .eq("status", "approved")
     // Same "not public until its publish time" rule as the hero page's
@@ -345,13 +346,13 @@ serve(async (req) => {
       headers: { "Content-Type": "application/json" },
     });
   }
-  // Same "as of" semantics as the hero page's mostRecentDate — the max
-  // timestamp across the WHOLE fetched batch, not just one section, so a
-  // partially-stale batch still shows the real freshest date rather than
-  // an arbitrary section's.
+  // Same semantics as the hero page's mostRecentDate — the latest time a
+  // pick in the WHOLE fetched batch went live (its publish_at, migration
+  // 0053, or generated_at for rows from before that), so the badge shows
+  // the day the batch is for rather than the day it was generated.
   const asOfDate =
     topicRows && topicRows.length
-      ? new Date(Math.max(...topicRows.map((r) => new Date(r.generated_at).getTime())))
+      ? new Date(Math.max(...topicRows.map((r) => new Date(r.publish_at || r.generated_at).getTime())))
       : null;
 
   const { data: recipients, error: recipientsError } = await supabase
