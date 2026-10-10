@@ -552,7 +552,10 @@ export default function Hyfax() {
   // the gating below always falls back to "show everything" whenever it
   // doesn't yet believe the account is funded. profile.balanceUsd is a
   // straight read of the real row, so this can't lag behind reality.
-  const funded = !!profile && profile.balanceUsd > 0;
+  // The proxy can also report a caller as funded (X-Trial-Funded) without a
+  // funded profile — the daily hero precompute, which must open every
+  // thread without the free limit hiding them.
+  const funded = (!!profile && profile.balanceUsd > 0) || !!trialStatus.funded;
 
   // Toggle gating only ever applies to a FUNDED account — the free-trial
   // window (not yet exhausted, per Section B) keeps its existing
