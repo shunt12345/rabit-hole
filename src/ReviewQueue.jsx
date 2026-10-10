@@ -177,6 +177,12 @@ function RiddleReviewCard({ row, onDecide, busy, replaces, call }) {
     onDecide(row.id, "approve");
   };
   const disabled = busy || working !== null;
+  // Plays this riddle on the real hero page before it's approved (see
+  // App.jsx's riddlePreview). Saves first, so the preview shows the edits.
+  const preview = async () => {
+    if (dirty && !(await save())) return;
+    window.open(`/?riddlePreview=${row.id}&hyfax_test=1`, "_blank");
+  };
 
   return (
     <div className="rounded-2xl border p-4" style={{ backgroundColor: COLORS.card, borderColor: balanced ? COLORS.border : COLORS.bad }}>
@@ -271,6 +277,9 @@ function RiddleReviewCard({ row, onDecide, busy, replaces, call }) {
       )}
 
       <div className="flex items-center justify-end gap-2 mt-4">
+        <button onClick={preview} disabled={disabled} className="mr-auto text-xs underline disabled:opacity-40" style={{ color: COLORS.accent }}>
+          Preview &amp; play ↗
+        </button>
         {dirty && (
           <button
             onClick={save}

@@ -39,6 +39,7 @@ import {
 } from "./lib/exploredHistory.js";
 import { shareArticle } from "./lib/share.js";
 import { savePendingThread, takePendingThread } from "./lib/pendingThread.js";
+import { getAccessToken } from "./lib/auth.js";
 
 const TYPE_COLOR = {
   root: "#C1552E",
@@ -816,6 +817,30 @@ export default function Hyfax() {
     );
   };
 
+  // Riddle preview (?riddlePreview=<id>, opened from /queue): an admin plays
+  // a not-yet-live riddle on the real hero page. Fetched through
+  // admin-review-queue with the signed-in admin's token, so it only works
+  // for an admin; anyone else just sees the live riddle.
+  const [previewRiddle, setPreviewRiddle] = useState(null);
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("riddlePreview");
+    if (!id || !user) return;
+    (async () => {
+      try {
+        const token = await getAccessToken();
+        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-review-queue`, {
+          method: "POST",
+          headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "getRow", id: Number(id) }),
+        });
+        const data = res.ok ? await res.json() : null;
+        if (data?.row?.field === RIDDLE_FIELD) setPreviewRiddle({ ...data.row, preview: true });
+      } catch (e) {
+        console.error("Hyfax: riddle preview failed", e);
+      }
+    })();
+  }, [user?.id]);
+
   // Back from the sign-in link: reopens the thread saved when "Sign up" was
   // tapped at the free limit (see lib/pendingThread.js), on the page they
   // were reading. Runs before the ?topic= and Reddit landing effects below,
@@ -1355,7 +1380,7 @@ export default function Hyfax() {
   const newsTopics = latestByField(trendingTopics, NEWS_FIELDS);
   const todayTopics = latestByField(trendingTopics, SPECIAL_FIELDS);
   const quoteTopic = latestByField(trendingTopics, [QUOTE_FIELD])[0] || null;
-  const riddleTopic = latestByField(trendingTopics, [RIDDLE_FIELD])[0] || null;
+  const riddleTopic = previewRiddle || latestByField(trendingTopics, [RIDDLE_FIELD])[0] || null;
   const perspectiveTopic = latestByField(trendingTopics, [PERSPECTIVE_FIELD])[0] || null;
   // Shuffled once per riddle (not per render) so the answer isn't always
   // in the same slot but also doesn't jump around while someone's staring

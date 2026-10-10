@@ -14,6 +14,10 @@ import { isCorrectGuess } from "./lib/riddle.js";
 //
 // Progress for the day's riddle lives in localStorage, so a refresh or a
 // trip to the answer page doesn't reset it.
+//
+// A preview (riddle.preview, from /queue's "Preview & play") plays the same
+// way but records nothing, keeps its progress apart from the live riddle's,
+// and can be reset to play again.
 
 const MAX_GUESSES = 3;
 const C = {
@@ -29,6 +33,9 @@ const C = {
 
 function storageKey(id) {
   return `hyfax-riddle-${id}`;
+}
+function emptyProgress() {
+  return { hints: 0, wrong: [], outcome: null, pending: null };
 }
 function loadProgress(id) {
   try {
@@ -71,7 +78,8 @@ function threadScore(hints) {
 
 export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disabled }) {
   const game = riddle.riddle_game;
-  const [progress, setProgress] = useState(() => loadProgress(riddle.id));
+  const key = riddle.preview ? `preview-${riddle.id}` : riddle.id;
+  const [progress, setProgress] = useState(() => loadProgress(key));
   const [guess, setGuess] = useState("");
   const [shake, setShake] = useState(false);
   const [streak, setStreak] = useState(0);
@@ -80,20 +88,20 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
   const today = playDate(riddle);
 
   useEffect(() => {
-    setProgress(loadProgress(riddle.id));
+    setProgress(loadProgress(key));
     setGuess("");
-  }, [riddle.id]);
+  }, [key]);
   useEffect(() => () => clearTimeout(openTimer.current), []);
 
   const update = (next) => {
     setProgress(next);
-    saveProgress(riddle.id, next);
+    saveProgress(key, next);
   };
 
   // Signed in: this riddle's saved result (another device, say) and the
   // streak.
   const loadResults = async () => {
-    if (!user) return;
+    if (!user || riddle.preview) return;
     const { data } = await supabase
       .from("riddle_results")
       .select("riddle_id, play_date, solved, guesses, hints")
@@ -113,7 +121,7 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
   }, [user?.id, riddle.id]);
 
   const record = async (solved, guesses, hints) => {
-    if (!user) return;
+    if (!user || riddle.preview) return;
     await supabase
       .from("riddle_results")
       .insert({ user_id: user.id, riddle_id: riddle.id, play_date: today, solved, guesses, hints });
@@ -178,6 +186,14 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
           Riddle me this....
         </span>
       </div>
+      {riddle.preview && (
+        <div className="max-w-md mx-auto mb-2 flex items-center justify-between rounded-xl border px-3 py-2 rh-body text-xs" style={{ borderColor: C.accent, color: C.accent }}>
+          <span>Preview — not live. Nothing you do here is saved.</span>
+          <button type="button" onClick={() => update(emptyProgress())} className="underline">
+            Reset
+          </button>
+        </div>
+      )}
       <div className="max-w-md mx-auto text-left p-5 rounded-2xl border" style={{ borderColor: C.border, backgroundColor: C.card }}>
         <div className="flex items-baseline justify-between mb-3">
           <h3 className="rh-display italic text-2xl" style={{ color: C.text }}>

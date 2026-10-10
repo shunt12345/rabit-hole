@@ -380,6 +380,21 @@ serve(async (req) => {
       });
     }
 
+    if (action === "getRow") {
+      // One pick in any status — the hero page's riddle preview
+      // (?riddlePreview=<id>) plays a pending riddle before it's approved.
+      const { data, error } = await supabase.from("trending_topics_cache").select(REVIEW_COLUMNS).eq("id", Number(body?.id)).maybeSingle();
+      if (error || !data) {
+        return new Response(JSON.stringify({ error: error?.message || "No such pick" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ row: data }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (action === "saveRiddleGame" || action === "regenerateClue") {
       const id = Number(body?.id);
       const { data: row } = await supabase.from("trending_topics_cache").select("topic, field, riddle_game").eq("id", id).maybeSingle();
