@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Loader2, AlertCircle, RefreshCw, LogOut, Check, X, Sparkles } from "lucide-react";
+import { Loader2, AlertCircle, RefreshCw, LogOut, Check, X, Sparkles, ArrowUp, ArrowDown, RotateCw } from "lucide-react";
 import { getCurrentUser, onAuthStateChange, sendMagicLink, signOut, getAccessToken } from "./lib/auth.js";
+import { riddleBalanceIssues } from "./lib/riddle.js";
 
 // Mirrors admin-review-queue's own SUGGESTIBLE_FIELDS allowlist — every
 // field slot "suggest a topic" (below) can seed. Kept as a literal copy
@@ -113,6 +114,194 @@ function ReviewCard({ row, onDecide, busy, replaces }) {
             </button>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+const inputStyle = { backgroundColor: COLORS.bg, borderColor: COLORS.border, color: COLORS.text };
+
+// A riddle with game pieces (migration 0056): its four clues, hints and
+// accepted answers, editable in place, with a balance check that has to
+// pass (or be overridden) before it can be approved. Edits are saved with
+// "Save", or automatically when approving.
+function RiddleReviewCard({ row, onDecide, busy, replaces, call }) {
+  const [game, setGame] = useState(row.riddle_game);
+  const [dirty, setDirty] = useState(false);
+  const [working, setWorking] = useState(null); // "save" | clue index being regenerated
+  const [error, setError] = useState(null);
+  const issues = riddleBalanceIssues(row.topic, game);
+  const balanced = issues.length === 0;
+
+  const update = (next) => {
+    setGame(next);
+    setDirty(true);
+  };
+  const setClue = (i, key, value) => update({ ...game, clues: game.clues.map((c, j) => (j === i ? { ...c, [key]: value } : c)) });
+  const move = (i, d) => {
+    const clues = [...game.clues];
+    [clues[i], clues[i + d]] = [clues[i + d], clues[i]];
+    update({ ...game, clues });
+  };
+  const save = async () => {
+    setWorking("save");
+    setError(null);
+    try {
+      const res = await call("saveRiddleGame", { id: row.id, riddle_game: game });
+      setGame(res.riddle_game);
+      setDirty(false);
+      return true;
+    } catch (e) {
+      setError(e.message || "Couldn't save.");
+      return false;
+    } finally {
+      setWorking(null);
+    }
+  };
+  const regenerate = async (i) => {
+    if (dirty && !(await save())) return;
+    setWorking(i);
+    setError(null);
+    try {
+      const res = await call("regenerateClue", { id: row.id, index: i });
+      setGame(res.riddle_game);
+    } catch (e) {
+      setError(e.message || "Couldn't write a new clue.");
+    } finally {
+      setWorking(null);
+    }
+  };
+  const approve = async (anyway) => {
+    if (!balanced && !anyway) return;
+    if (dirty && !(await save())) return;
+    onDecide(row.id, "approve");
+  };
+  const disabled = busy || working !== null;
+
+  return (
+    <div className="rounded-2xl border p-4" style={{ backgroundColor: COLORS.card, borderColor: balanced ? COLORS.border : COLORS.bad }}>
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="min-w-0">
+          <div className="rh-mono rh-text-10 uppercase tracking-wider mb-1" style={{ color: COLORS.accent }}>
+            Riddle · What am I?
+          </div>
+          <div className="text-base font-semibold" style={{ color: COLORS.text }}>
+            Answer: {row.topic}
+          </div>
+        </div>
+        <span
+          className="shrink-0 rounded-full px-2.5 py-1 text-xs font-medium"
+          style={balanced ? { backgroundColor: COLORS.accent, color: "#14100C" } : { border: `1px solid ${COLORS.bad}`, color: COLORS.bad }}
+        >
+          {balanced ? "⚖ balanced" : "⚖ unbalanced"}
+        </span>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        {game.clues.map((c, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="rh-mono text-xs w-14 shrink-0" style={{ color: COLORS.dim }}>
+              {i + 1}
+              {i === 0 ? " hard" : i === 3 ? " easy" : ""}
+            </span>
+            <input
+              value={c.title}
+              onChange={(e) => setClue(i, "title", e.target.value)}
+              disabled={disabled}
+              className="flex-1 min-w-0 rounded-lg border px-2 py-1 text-sm"
+              style={inputStyle}
+            />
+            <input
+              value={c.field}
+              onChange={(e) => setClue(i, "field", e.target.value)}
+              disabled={disabled}
+              className="w-24 rounded-lg border px-2 py-1 text-xs"
+              style={inputStyle}
+              aria-label={`Clue ${i + 1} field`}
+            />
+            <button onClick={() => move(i, -1)} disabled={disabled || i === 0} className="disabled:opacity-30" style={{ color: COLORS.dim }} aria-label="Move up">
+              <ArrowUp size={14} />
+            </button>
+            <button onClick={() => move(i, 1)} disabled={disabled || i === 3} className="disabled:opacity-30" style={{ color: COLORS.dim }} aria-label="Move down">
+              <ArrowDown size={14} />
+            </button>
+            <button onClick={() => regenerate(i)} disabled={disabled} className="disabled:opacity-30" style={{ color: COLORS.accent }} aria-label="New clue">
+              {working === i ? <Loader2 size={14} className="animate-spin" /> : <RotateCw size={14} />}
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <label className="flex items-center gap-2 mt-3 text-xs" style={{ color: COLORS.dim }}>
+        <span className="w-14 shrink-0">Hints</span>
+        {game.hints.map((h, i) => (
+          <input
+            key={i}
+            value={h}
+            onChange={(e) => update({ ...game, hints: game.hints.map((x, j) => (j === i ? e.target.value : x)) })}
+            disabled={disabled}
+            className="flex-1 min-w-0 rounded-lg border px-2 py-1 text-sm"
+            style={inputStyle}
+            aria-label={`Hint ${i + 1}`}
+          />
+        ))}
+      </label>
+      <label className="flex items-center gap-2 mt-2 text-xs" style={{ color: COLORS.dim }}>
+        <span className="w-14 shrink-0">Accepts</span>
+        <input
+          value={game.answers.join(", ")}
+          onChange={(e) => update({ ...game, answers: e.target.value.split(",").map((a) => a.trim()).filter(Boolean) })}
+          disabled={disabled}
+          className="flex-1 min-w-0 rounded-lg border px-2 py-1 text-sm"
+          style={inputStyle}
+        />
+      </label>
+
+      {!balanced && (
+        <ul className="mt-3 text-xs list-disc pl-5" style={{ color: COLORS.bad }}>
+          {issues.map((issue) => (
+            <li key={issue}>{issue}</li>
+          ))}
+        </ul>
+      )}
+      {error && (
+        <div className="mt-2 flex items-center gap-1.5 text-xs" style={{ color: COLORS.bad }}>
+          <AlertCircle size={13} /> {error}
+        </div>
+      )}
+
+      <div className="flex items-center justify-end gap-2 mt-4">
+        {dirty && (
+          <button
+            onClick={save}
+            disabled={disabled}
+            className="rounded-full border px-3 py-1.5 text-xs disabled:opacity-40"
+            style={{ borderColor: COLORS.border, color: COLORS.text }}
+          >
+            {working === "save" ? "Saving…" : "Save"}
+          </button>
+        )}
+        {!balanced && (
+          <button onClick={() => approve(true)} disabled={disabled} className="text-xs underline disabled:opacity-40" style={{ color: COLORS.dim }}>
+            Approve anyway
+          </button>
+        )}
+        <button
+          onClick={() => approve(false)}
+          disabled={disabled || !balanced}
+          className="flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-40"
+          style={{ backgroundColor: COLORS.accent, color: "#14100C" }}
+        >
+          <Check size={13} /> {replaces ? "Replace" : "Approve"}
+        </button>
+        <button
+          onClick={() => onDecide(row.id, "reject")}
+          disabled={disabled}
+          className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs disabled:opacity-40"
+          style={{ borderColor: COLORS.bad, color: COLORS.bad }}
+        >
+          <X size={13} /> {busy ? "Rejecting…" : "Reject"}
+        </button>
       </div>
     </div>
   );
@@ -522,13 +711,24 @@ export default function ReviewQueue() {
               </button>
             )}
             {rows.map((row) => (
-              <ReviewCard
-                key={row.id}
-                row={row}
-                onDecide={decide}
-                busy={busyId === row.id || busyId === "all"}
-                replaces={slotApproved.some((a) => a.field === row.field)}
-              />
+              row.field === "Riddle" && row.riddle_game ? (
+                <RiddleReviewCard
+                  key={row.id}
+                  row={row}
+                  onDecide={decide}
+                  busy={busyId === row.id || busyId === "all"}
+                  replaces={slotApproved.some((a) => a.field === row.field)}
+                  call={call}
+                />
+              ) : (
+                <ReviewCard
+                  key={row.id}
+                  row={row}
+                  onDecide={decide}
+                  busy={busyId === row.id || busyId === "all"}
+                  replaces={slotApproved.some((a) => a.field === row.field)}
+                />
+              )
             ))}
           </div>
         )}

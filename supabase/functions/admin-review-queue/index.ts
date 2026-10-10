@@ -62,7 +62,7 @@ function unauthorized(corsHeaders: Record<string, string>) {
 }
 
 const REVIEW_COLUMNS =
-  "id, batch_date, field, topic, teaser, source_url, options, category, direction, generated_at, input_tokens, output_tokens, model, cost_usd, status, publish_at";
+  "id, batch_date, field, topic, teaser, source_url, options, category, direction, generated_at, input_tokens, output_tokens, model, cost_usd, status, publish_at, riddle_game";
 
 // The fields a suggestion can target — every named field generate-
 // trending-topics knows how to seed (see its own promptForField/seedIdea
@@ -118,6 +118,37 @@ async function approveIntoSlot(id: number, field: string, slot: string) {
   if (error) return error;
   await supabase.from("trending_topics_cache").delete().eq("status", "approved").eq("field", field).eq("publish_at", slot).neq("id", id);
   return null;
+}
+
+// The riddle game's curated pieces (migration 0056), as saved from /queue.
+// Shape-checked rather than trusted, since it's written straight to a row
+// the hero page reads.
+type RiddleClue = { title: string; field: string; teaser: string };
+type RiddleGame = { clues: RiddleClue[]; hints: string[]; answers: string[] };
+const str = (v: unknown, max: number) => String(v ?? "").trim().slice(0, max);
+function cleanClue(c: any): RiddleClue {
+  return { title: str(c?.title, 80), field: str(c?.field, 30).toLowerCase(), teaser: str(c?.teaser, 200) };
+}
+function cleanRiddleGame(raw: any): RiddleGame | null {
+  const clues = Array.isArray(raw?.clues) ? raw.clues.map(cleanClue) : [];
+  const hints = Array.isArray(raw?.hints) ? raw.hints.map((h: unknown) => str(h, 60)).filter(Boolean) : [];
+  const answers = Array.isArray(raw?.answers) ? raw.answers.map((a: unknown) => str(a, 60).toLowerCase()).filter(Boolean) : [];
+  if (clues.length !== 4 || clues.some((c: RiddleClue) => !c.title) || hints.length !== 3 || !answers.length) return null;
+  return { clues, hints, answers };
+}
+
+// On approving a riddle with game pieces: the answer's topic page gets its
+// four clues as its "Where to next?" thread cards, so a player who solves
+// it lands on threads matching what they just worked through. Keyed the
+// way the hero page opens the answer (news_root_cache by topic). Pinned so
+// the article naming one doesn't drop it (see expandNode in App.jsx). An
+// already-cached page for the same topic is left alone.
+async function precacheRiddleAnswer(topic: string, game: RiddleGame) {
+  const { data: existing } = await supabase.from("news_root_cache").select("cache_key").eq("cache_key", topic).maybeSingle();
+  if (existing) return;
+  const children = game.clues.map((c, i) => ({ label: c.title, teaser: c.teaser, type: i < 2 ? "indirect" : "tangent", pinned: true }));
+  const { error } = await supabase.from("news_root_cache").insert({ cache_key: topic, root_label: topic, overview: "", children });
+  if (error) console.error("admin-review-queue: failed to pre-cache riddle answer", error);
 }
 
 // Same shared project secrets generate-trending-topics itself reads (every
@@ -264,7 +295,7 @@ serve(async (req) => {
       // never trusting client-supplied data for a write.
       const { data: existing, error: fetchErr } = await supabase
         .from("trending_topics_cache")
-        .select("field")
+        .select("field, topic, riddle_game")
         .eq("id", id)
         .maybeSingle();
       if (fetchErr || !existing) {
@@ -276,6 +307,10 @@ serve(async (req) => {
       const slot = nextSlot();
       if (action === "approve") {
         const error = await approveIntoSlot(id, existing.field, slot);
+        if (!error && existing.riddle_game) {
+          const game = cleanRiddleGame(existing.riddle_game);
+          if (game) await precacheRiddleAnswer(existing.topic, game);
+        }
         if (error) {
           return new Response(JSON.stringify({ error: error.message }), {
             status: 500,
@@ -341,6 +376,59 @@ serve(async (req) => {
         });
       }
       return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "saveRiddleGame" || action === "regenerateClue") {
+      const id = Number(body?.id);
+      const { data: row } = await supabase.from("trending_topics_cache").select("topic, field, riddle_game").eq("id", id).maybeSingle();
+      if (!row || row.field !== "Riddle") {
+        return new Response(JSON.stringify({ error: "Not a riddle row" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      let game = cleanRiddleGame(action === "saveRiddleGame" ? body?.riddle_game : row.riddle_game);
+      if (!game) {
+        return new Response(JSON.stringify({ error: "A riddle needs 4 clues, 3 hints and at least one accepted answer." }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (action === "regenerateClue") {
+        // ↻ on one clue: generate-trending-topics writes a replacement from
+        // a field the other three don't use.
+        const index = Number(body?.index);
+        if (!Number.isInteger(index) || index < 0 || index > 3 || !CRON_SECRET) {
+          return new Response(JSON.stringify({ error: "Bad clue index" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-trending-topics`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-cron-secret": CRON_SECRET },
+          body: JSON.stringify({ riddleClue: { answer: row.topic, clues: game.clues, index } }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.clue?.title) {
+          return new Response(JSON.stringify({ error: data?.error || `Clue generation failed (${res.status})` }), {
+            status: 502,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const fresh = cleanClue(data.clue);
+        game = { ...game, clues: game.clues.map((c, i) => (i === index ? fresh : c)) };
+      }
+      const { error } = await supabase.from("trending_topics_cache").update({ riddle_game: game }).eq("id", id);
+      if (error) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true, riddle_game: game }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

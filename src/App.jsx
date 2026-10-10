@@ -27,6 +27,7 @@ import { nextSurpriseTopic } from "./lib/surpriseTopics.js";
 import UsageGauge from "./UsageGauge.jsx";
 import MiniGauge from "./MiniGauge.jsx";
 import AdCard from "./AdCard.jsx";
+import RiddleGame from "./RiddleGame.jsx";
 import { pickHouseAd, getHouseAdById, engagementStage } from "./lib/houseAds.js";
 import { getSessionId } from "./lib/session.js";
 import {
@@ -266,7 +267,7 @@ function nextId() {
 // pending/rejected row is unreadable with the anon key regardless of this
 // query string. Kept explicit anyway so this file's own intent reads
 // clearly without having to know the DB-side policy exists.
-const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=field,topic,teaser,source_url,options,category,direction,generated_at,publish_at&status=eq.approved&order=generated_at.desc,id.desc&limit=40`;
+const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=id,field,topic,teaser,source_url,options,category,direction,generated_at,riddle_game,publish_at&status=eq.approved&order=generated_at.desc,id.desc&limit=40`;
 const NEWS_FIELDS = ["Trending 1", "Trending 2"];
 // What each internal field key actually displays as — kept separate from
 // the field key itself so latestByField (below) can still tell the two
@@ -898,11 +899,13 @@ export default function Hyfax() {
       apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
       Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
     };
-    // Falls back to the query without publish_at if the database doesn't
-    // have that column yet (migration 0053), so the hero picks never
-    // depend on a migration having run.
+    // Falls back to the query without the newer columns if the database
+    // doesn't have them yet (migrations 0053, 0056), so the hero picks
+    // never depend on a migration having run.
     fetch(TRENDING_TOPICS_URL, { headers })
-      .then((res) => (res.ok ? res : fetch(TRENDING_TOPICS_URL.replace(",publish_at", ""), { headers })))
+      .then((res) =>
+        res.ok ? res : fetch(TRENDING_TOPICS_URL.replace(",riddle_game", "").replace(",publish_at", ""), { headers })
+      )
       .then((res) => (res.ok ? res.json() : []))
       .then((rows) => {
         if (!cancelled) setTrendingTopics(Array.isArray(rows) ? rows : []);
@@ -1518,6 +1521,8 @@ export default function Hyfax() {
         .rh-tracking-25 { letter-spacing: 0.25em; }
         /* One step below article titles (text-3xl). */
         .rh-hero-headline { font-size: 1.5rem; line-height: 1.25; }
+        @keyframes rh-riddle-shake { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+        .rh-riddle-shake { animation: rh-riddle-shake 0.4s ease-in-out; }
         @keyframes rh-blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
         .rh-cursor-blink { display: inline-block; animation: rh-blink 1s step-end infinite; margin-left: 1px; }
         /* Hides the native up/down stepper on number inputs (e.g. the
@@ -1885,7 +1890,26 @@ export default function Hyfax() {
                 card. Has its own toggle (featureRiddle) rather than reusing
                 "Today"'s, so a funded user can turn it off independently,
                 same as every other à la carte feature. */}
-            {riddleTopic && riddleVisible && (
+            {/* The guessing game ("What am I?", see RiddleGame.jsx) for a
+                riddle curated with game pieces; older riddles keep the
+                one-tap card below. */}
+            {riddleTopic && riddleVisible && riddleTopic.riddle_game && (
+              <RiddleGame
+                riddle={riddleTopic}
+                user={user}
+                onSignUp={openAccountModal}
+                disabled={rootLoading}
+                onOpenAnswer={() => {
+                  setSelectedRiddle(true);
+                  setSelectedNewsIdx(null);
+                  setSelectedTodayIdx(null);
+                  setSelectedQuote(false);
+                  setSelectedPerspective(false);
+                  startTopic(riddleTopic.topic, riddleTopic.teaser, RIDDLE_FIELD);
+                }}
+              />
+            )}
+            {riddleTopic && riddleVisible && !riddleTopic.riddle_game && (
               <div className="mt-10">
                 <div className="flex items-center justify-center gap-1.5 mb-6">
                   <HelpCircle size={14} style={{ color: "#C9B896" }} />

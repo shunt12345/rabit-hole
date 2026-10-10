@@ -530,15 +530,38 @@ Notice each one: exactly one sentence, one question mark at the very end, clause
 
 Once you've written it, produce exactly 2 decoy topics — other real, plausible subjects that each share at least one concrete detail from your riddle (so someone recalling only part of it could wrongly guess one), but clearly don't fit ALL of the details once you consider the whole thing. Format them the same short way as the real answer (title case, 2-5 words).
 
+${RIDDLE_GAME_INSTRUCTIONS}
+
 Produce:
 - "topic": the real answer — a short, punchy 2-5 word label (title case, no trailing punctuation)
 - "teaser": the riddle itself — the single "What is...?" question written above
 - "options": an array of exactly 2 decoy topics as described above
 - "category": exactly one of these strings, whichever actually fits your answer: ${RIDDLE_CATEGORIES.join(", ")}
+- "clues", "hints", "answers": the game pieces described above
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
-{"topic": "...", "teaser": "...", "options": ["...", "..."], "category": "..."}`;
+{"topic": "...", "teaser": "...", "options": ["...", "..."], "category": "...", "clues": [{"title": "...", "field": "...", "teaser": "..."}, {"title": "...", "field": "...", "teaser": "..."}, {"title": "...", "field": "...", "teaser": "..."}, {"title": "...", "field": "...", "teaser": "..."}], "hints": ["...", "...", "..."], "answers": ["...", "..."]}`;
 }
+
+// The Riddle is also played as a guessing game on the hero page ("What am
+// I?" — src/RiddleGame.jsx): four clue threads, hardest first, then up to
+// three hints, then a typed guess. Curated on /queue, where a balance
+// check flags clues that share a field or give the answer away (the same
+// rules as below), so these instructions and that check have to agree.
+const RIDDLE_CLUE_RULES = `Each clue is a THREAD TITLE: a 2-5 word title-case label for a real, specific side-topic connected to the answer, the kind of link you'd follow from the answer's page into somewhere surprising (for "US Penny": "Sunk Cost Fallacy", "Hoarding Behavior", "Appendix Vestigial Organ", "1982 Composition Shift"). Rules for every clue:
+- It must never contain the answer, any word of the answer, or an obvious synonym of it.
+- Each clue comes from a DIFFERENT field of knowledge (economics, biology, history, psychology, physics, art, food, language, geography, technology, law, sport, music...) — no two clues may share a field.
+- "field" is that field, one lowercase word.
+- "teaser" is one short sentence (max 14 words) on how this thread connects to the answer, shown only AFTER the riddle is solved, so it may name the answer.`;
+
+const RIDDLE_GAME_INSTRUCTIONS = `Finally, the game pieces. This riddle is also played as "What am I?": the player sees four clues, one at a time in order, and guesses the answer.
+
+"clues": exactly 4 clue objects {"title", "field", "teaser"}, ordered from HARDEST to EASIEST. The first should only make sense in hindsight; the last should be enough on its own for most people who know the subject.
+${RIDDLE_CLUE_RULES}
+
+"hints": exactly 3 hints for a player who's stuck, from vaguest to most direct, each 1-3 words (for "US Penny": "same-round", "Lincoln", "copper"). No hint may contain the answer or any word of it.
+
+"answers": every spelling a player might reasonably type for the correct answer — the topic itself plus common short forms and synonyms (for "US Penny": "us penny", "penny", "one cent", "cent", "1 cent"). Lowercase. 3-8 entries.`;
 
 // Rotates through exactly these 3, one per run — a fixed small set rather
 // than something broader (adding "Technology," "Mind," etc.) so each focus
@@ -662,6 +685,63 @@ function firstJsonObject(text: string): string | null {
   return null;
 }
 
+function parseRiddleGame(parsed: any, topic: string) {
+  const clues = Array.isArray(parsed.clues)
+    ? parsed.clues
+        .map((c: any) => ({
+          title: String(c?.title || "").trim(),
+          field: String(c?.field || "").trim().toLowerCase(),
+          teaser: String(c?.teaser || "").trim(),
+        }))
+        .filter((c: { title: string }) => c.title)
+    : [];
+  const hints = Array.isArray(parsed.hints) ? parsed.hints.map((h: unknown) => String(h).trim()).filter(Boolean) : [];
+  const answers = Array.isArray(parsed.answers)
+    ? [...new Set([topic.toLowerCase(), ...parsed.answers.map((a: unknown) => String(a).trim().toLowerCase())].filter(Boolean))]
+    : [topic.toLowerCase()];
+  if (clues.length !== 4 || hints.length < 3) return null;
+  return { clues, hints: hints.slice(0, 3), answers };
+}
+
+// /queue's ↻ on a single clue: one replacement clue for an existing riddle,
+// from a field none of the other three clues use, at the same position in
+// the hardest-to-easiest ladder.
+async function generateRiddleClue(
+  apiKey: string,
+  answer: string,
+  clues: { title: string; field: string }[],
+  index: number
+): Promise<{ title: string; field: string; teaser: string }> {
+  const others = clues.filter((_, i) => i !== index);
+  const position = ["the HARDEST (only makes sense in hindsight)", "second-hardest", "second-easiest", "the EASIEST (enough on its own for most people)"][index] ?? "medium";
+  const prompt = `The answer to today's "What am I?" riddle is "${answer}". It has four clue threads, ordered hardest to easiest. Write ONE replacement for clue ${index + 1} of 4, which should be ${position}.
+
+Keep it clearly different from the other clues and NOT from any of their fields:
+${others.map((c) => `- ${c.title} (${c.field})`).join("\n")}
+${clues[index] ? `It replaces "${clues[index].title}" (${clues[index].field}) — don't reuse that either.` : ""}
+
+${RIDDLE_CLUE_RULES}
+
+Respond with ONLY valid JSON, no markdown fences: {"title": "...", "field": "...", "teaser": "..."}`;
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model: MODEL, max_tokens: 300, thinking: { type: "disabled" }, messages: [{ role: "user", content: prompt }] }),
+  });
+  if (!res.ok) throw new Error(`Anthropic returned ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  const text = (data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
+  const json = firstJsonObject(text.replace(/```json|```/g, "").trim());
+  const parsed = json ? JSON.parse(json) : null;
+  const clue = {
+    title: String(parsed?.title || "").trim(),
+    field: String(parsed?.field || "").trim().toLowerCase(),
+    teaser: String(parsed?.teaser || "").trim(),
+  };
+  if (!clue.title) throw new Error(`No clue in response: ${text.slice(0, 300)}`);
+  return clue;
+}
+
 async function generateForField(
   apiKey: string,
   field: string,
@@ -685,7 +765,8 @@ async function generateForField(
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 1024,
+        // The riddle's game pieces (clues, hints, answers) need more room.
+        max_tokens: field === RIDDLE_FIELD ? 1600 : 1024,
         thinking: { type: "disabled" },
         // The basic variant (not the code-execution-backed dynamic-filtering
         // one) — testing found the dynamic-filtering variant has the model
@@ -835,11 +916,18 @@ async function generateForField(
       ? (inputTokens / 1_000_000) * INPUT_PRICE_PER_M + (outputTokens / 1_000_000) * OUTPUT_PRICE_PER_M
       : null;
 
+  // The guessing-game pieces (see RIDDLE_GAME_INSTRUCTIONS). Kept only when
+  // well-formed; a riddle without them still works as the multiple-choice
+  // card, so a malformed game never costs the day's riddle.
+  const riddleGame = field === RIDDLE_FIELD ? parseRiddleGame(parsed, topic) : null;
+  if (field === RIDDLE_FIELD && !riddleGame) console.warn("generate-trending-topics: riddle game pieces missing or malformed", cleaned.slice(0, 500));
+
   return {
     field,
     topic,
     teaser,
     ...(options ? { options } : {}),
+    ...(riddleGame ? { riddle_game: riddleGame } : {}),
     ...(category ? { category } : {}),
     ...(direction ? { direction } : {}),
     source_url: sourceUrl || null,
@@ -1053,6 +1141,28 @@ serve(async (req) => {
     });
   }
 
+  const body = await req.json().catch(() => ({}));
+
+  // /queue's ↻ on one riddle clue (admin-review-queue's regenerateClue).
+  if (body?.riddleClue) {
+    const { answer, clues, index } = body.riddleClue;
+    if (typeof answer !== "string" || !Array.isArray(clues) || !Number.isInteger(index) || index < 0 || index > 3) {
+      return new Response(JSON.stringify({ error: "riddleClue needs answer, clues and index 0-3" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    try {
+      const clue = await generateRiddleClue(apiKey, answer, clues, index);
+      return new Response(JSON.stringify({ clue }), { headers: { "Content-Type": "application/json" } });
+    } catch (e) {
+      return new Response(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }), {
+        status: 502,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  }
+
   // Which fields this invocation covers — lets one function serve two cron
   // schedules at different cadences instead of needing a second deploy.
   // NEWS_FIELDS churns fast enough to run twice a day (see the existing
@@ -1061,7 +1171,6 @@ serve(async (req) => {
   // requests {"fields": SPECIAL_FIELDS} in the request body. No body (or a
   // body with no valid "fields" array) falls back to NEWS_FIELDS, so the
   // existing cron job's plain `{}` body keeps working unchanged.
-  const body = await req.json().catch(() => ({}));
   const requestedFields = Array.isArray(body?.fields)
     ? body.fields.filter((f: unknown) => typeof f === "string" && FIELDS.includes(f))
     : [];
