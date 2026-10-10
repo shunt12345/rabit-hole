@@ -858,7 +858,10 @@ async function generateForField(
   // field check above, this field just fails for this run (Promise.
   // allSettled tolerates it, and the client's staleness window keeps
   // showing yesterday's real pick instead of today's exact repeat).
-  if (excludeTopics.some((t) => t.toLowerCase() === topic.toLowerCase())) {
+  // An operator's own suggestion (seedIdea, /queue's suggest box) is a
+  // deliberate pick, so it may repeat a past topic — this guard is for the
+  // automatic runs.
+  if (!seedIdea && excludeTopics.some((t) => t.toLowerCase() === topic.toLowerCase())) {
     throw new Error(`Picked a topic already in its own exclude list: "${topic}"`);
   }
 
