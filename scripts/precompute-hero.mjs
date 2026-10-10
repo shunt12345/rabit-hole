@@ -17,7 +17,7 @@
 import { chromium } from "playwright";
 
 const APP_URL = (process.env.APP_URL || "https://www.hyfax.app").replace(/\/$/, "");
-const SECRET = process.env.PRECOMPUTE_SECRET;
+const SECRET = (process.env.PRECOMPUTE_SECRET || "").trim();
 const MAX_TOPICS = Number(process.env.MAX_TOPICS || Infinity);
 const MAX_THREADS = Number(process.env.MAX_THREADS || Infinity);
 const PAGE_TIMEOUT_MS = 120_000;
@@ -54,6 +54,8 @@ const riddleIds = new Set();
 // funded (X-Trial-Funded: 1), so the site doesn't hide threads at the free
 // limit. Without that, every topic after the first few shows no threads.
 let secretAccepted = null;
+// The proxy's own verdict on the secret (X-Precompute), if it sends one.
+let proxyVerdict = null;
 page.on("request", (r) => r.url().includes("rabbit-hole-proxy-v2") && inflight++);
 const settle = (r) => r.url().includes("rabbit-hole-proxy-v2") && inflight--;
 page.on("requestfinished", settle);
@@ -61,6 +63,7 @@ page.on("requestfailed", settle);
 page.on("response", async (res) => {
   if (res.url().includes("rabbit-hole-proxy-v2") && res.request().method() === "POST") {
     const funded = res.headers()["x-trial-funded"];
+    proxyVerdict = proxyVerdict || res.headers()["x-precompute"] || null;
     if (funded !== undefined) secretAccepted = secretAccepted || funded === "1";
   }
   if (!res.url().includes("/rest/v1/trending_topics_cache")) return;
@@ -133,7 +136,11 @@ for (let i = 0; i < heroCount; i++) {
   const labels = [...new Set(await threadLabels())].slice(0, MAX_THREADS);
   threadsFound += labels.length;
   if (secretAccepted === false) {
-    annotate("error", "The proxy did not accept PRECOMPUTE_SECRET (check it matches the rabbit-hole-proxy-v2 secret, 16+ characters, and that the function was redeployed).");
+    const why = {
+      unset: "rabbit-hole-proxy-v2 has no PRECOMPUTE_SECRET of 16+ characters — set it in Supabase function secrets.",
+      mismatch: `the GitHub secret (${SECRET.length} characters) doesn't match the Supabase one — re-paste the same value in both, watching for spaces.`,
+    }[proxyVerdict] || "the proxy didn't report on the secret, so the deployed rabbit-hole-proxy-v2 is an older version — redeploy it.";
+    annotate("error", `The proxy did not accept PRECOMPUTE_SECRET: ${why}`);
     console.error("PRECOMPUTE_SECRET was not accepted by the proxy — stopping.");
     await browser.close();
     process.exit(1);

@@ -555,7 +555,8 @@ const DAILY_REQUEST_LIMIT_PER_IP = Number(Deno.env.get("DAILY_REQUEST_LIMIT_PER_
 // otherwise stop it a few pages in, and is reported back as funded so the
 // site doesn't apply the limit itself either. Its traffic is marked as test traffic
 // (it browses in ?hyfax_test=1 mode), so it stays out of /admin numbers.
-const PRECOMPUTE_SECRET = Deno.env.get("PRECOMPUTE_SECRET") ?? "";
+// Trimmed, since a pasted secret easily picks up a stray space or newline.
+const PRECOMPUTE_SECRET = (Deno.env.get("PRECOMPUTE_SECRET") ?? "").trim();
 // The real backstop — total measured Anthropic spend (not request count)
 // across all free/unfunded traffic in the last 24h. Set this to whatever
 // dollar figure you're actually comfortable risking on the free tier in a
@@ -1280,7 +1281,19 @@ serve(async (req) => {
       modelOverride,
       precomputeSecret,
     } = body;
-    const isPrecompute = PRECOMPUTE_SECRET.length >= 16 && precomputeSecret === PRECOMPUTE_SECRET;
+    const isPrecompute =
+      PRECOMPUTE_SECRET.length >= 16 && typeof precomputeSecret === "string" && precomputeSecret.trim() === PRECOMPUTE_SECRET;
+    // Tells the precompute job why a secret it sent wasn't accepted (never
+    // the secret itself): "accepted", "unset" (this function has no
+    // PRECOMPUTE_SECRET, or one under 16 characters) or "mismatch".
+    const precomputeStatus =
+      typeof precomputeSecret === "string"
+        ? isPrecompute
+          ? "accepted"
+          : PRECOMPUTE_SECRET.length < 16
+            ? "unset"
+            : "mismatch"
+        : null;
     const effectiveTimeZone = isValidTimeZone(timeZone) ? timeZone : DEFAULT_TIME_ZONE;
 
     if (!Array.isArray(messages) || messages.length === 0) {
@@ -1435,7 +1448,12 @@ serve(async (req) => {
     // the displayed count above the limit (e.g. 7/6) — that's real, not a
     // bug, since it's the one call that's always allowed to go through.
     const displaySearchCount = (searchCount ?? 0) + (!trialBlocked && endpoint === "article" ? 1 : 0);
-    const responseHeaders = { ...corsHeaders, ...usageHeaders(count), ...trialHeaders(displaySearchCount, funded || isPrecompute, searchLimit) };
+    const responseHeaders = {
+      ...corsHeaders,
+      ...usageHeaders(count),
+      ...trialHeaders(displaySearchCount, funded || isPrecompute, searchLimit),
+      ...(precomputeStatus ? { "X-Precompute": precomputeStatus } : {}),
+    };
 
     if (trialBlocked) {
       return new Response(
