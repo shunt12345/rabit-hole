@@ -8,8 +8,8 @@ import { isCorrectGuess } from "./lib/riddle.js";
 // take hints; submitting a guess needs a free account — a signed-out
 // guess is held, sign-up opens, and it goes in once they're signed in
 // (even in the tab the magic link opens). Solving goes straight to the
-// answer's page, whose threads are these same clues (admin-review-queue
-// pre-caches it on approval). Signed-in results are saved to
+// answer's page, which opens with these same clues as its threads.
+// Signed-in results are saved to
 // riddle_results (migration 0056), which the streak counts.
 //
 // Progress for the day's riddle lives in localStorage, so a refresh or a

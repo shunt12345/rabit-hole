@@ -735,7 +735,9 @@ export default function Hyfax() {
   // exists the instant a topic is submitted, and the selection effect below
   // starts its article straight away. The article supplies its own title
   // line and inline [[links]]; the chips come after it (see expandNode).
-  const startTopic = (raw, newsContext, heroSource) => {
+  // presetChildren: thread cards the page opens with instead of generating
+  // its own — the riddle's answer page uses its clues (see RiddleGame).
+  const startTopic = (raw, newsContext, heroSource, presetChildren) => {
     const t = raw.trim();
     if (!t) return;
     setRootError(null);
@@ -760,9 +762,12 @@ export default function Hyfax() {
       newsContext: newsContext || null,
       heroSource: heroSource || null,
     };
+    // Marked generated so the page doesn't fetch chips of its own on top.
+    const preset = presetChildren?.length ? placeChildren(root, presetChildren) : [];
+    if (preset.length) root.generated = true;
     setTopic(t);
-    nodesRef.current = [root];
-    setNodes([root]);
+    nodesRef.current = [root, ...preset];
+    setNodes([root, ...preset]);
     setSelectedId(root.id);
   };
 
@@ -1930,7 +1935,18 @@ export default function Hyfax() {
                   setSelectedTodayIdx(null);
                   setSelectedQuote(false);
                   setSelectedPerspective(false);
-                  startTopic(riddleTopic.topic, riddleTopic.teaser, RIDDLE_FIELD);
+                  // The answer page's threads are the clues just solved.
+                  startTopic(
+                    riddleTopic.topic,
+                    riddleTopic.teaser,
+                    RIDDLE_FIELD,
+                    riddleTopic.riddle_game.clues.map((c, i) => ({
+                      label: c.title,
+                      teaser: c.teaser,
+                      type: i < 2 ? "indirect" : "tangent",
+                      pinned: true,
+                    }))
+                  );
                 }}
               />
             )}

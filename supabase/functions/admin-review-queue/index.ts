@@ -141,13 +141,16 @@ function cleanRiddleGame(raw: any): RiddleGame | null {
 // four clues as its "Where to next?" thread cards, so a player who solves
 // it lands on threads matching what they just worked through. Keyed the
 // way the hero page opens the answer (news_root_cache by topic). Pinned so
-// the article naming one doesn't drop it (see expandNode in App.jsx). An
-// already-cached page for the same topic is left alone.
+// the article naming one doesn't drop it (see expandNode in App.jsx). A
+// page already cached for the topic (a past riddle, or a preview) keeps
+// its article but gets these threads in place of its own. The hero page
+// also opens the answer with the clues directly; this covers the cache.
 async function precacheRiddleAnswer(topic: string, game: RiddleGame) {
-  const { data: existing } = await supabase.from("news_root_cache").select("cache_key").eq("cache_key", topic).maybeSingle();
-  if (existing) return;
   const children = game.clues.map((c, i) => ({ label: c.title, teaser: c.teaser, type: i < 2 ? "indirect" : "tangent", pinned: true }));
-  const { error } = await supabase.from("news_root_cache").insert({ cache_key: topic, root_label: topic, overview: "", children });
+  const { data: existing } = await supabase.from("news_root_cache").select("cache_key").eq("cache_key", topic).maybeSingle();
+  const { error } = existing
+    ? await supabase.from("news_root_cache").update({ children }).eq("cache_key", topic)
+    : await supabase.from("news_root_cache").insert({ cache_key: topic, root_label: topic, overview: "", children });
   if (error) console.error("admin-review-queue: failed to pre-cache riddle answer", error);
 }
 
