@@ -50,11 +50,19 @@ await page.route("**/functions/v1/rabbit-hole-proxy-v2", async (route) => {
 // "Read about it" button).
 let inflight = 0;
 const riddleIds = new Set();
+// Whether the proxy accepted the secret: it then reports the browser as
+// funded (X-Trial-Funded: 1), so the site doesn't hide threads at the free
+// limit. Without that, every topic after the first few shows no threads.
+let secretAccepted = null;
 page.on("request", (r) => r.url().includes("rabbit-hole-proxy-v2") && inflight++);
 const settle = (r) => r.url().includes("rabbit-hole-proxy-v2") && inflight--;
 page.on("requestfinished", settle);
 page.on("requestfailed", settle);
 page.on("response", async (res) => {
+  if (res.url().includes("rabbit-hole-proxy-v2") && res.request().method() === "POST") {
+    const funded = res.headers()["x-trial-funded"];
+    if (funded !== undefined) secretAccepted = secretAccepted || funded === "1";
+  }
   if (!res.url().includes("/rest/v1/trending_topics_cache")) return;
   try {
     for (const row of await res.json()) if (row.field === "Riddle" && row.id) riddleIds.add(row.id);
@@ -107,8 +115,15 @@ await openHome();
 const heroCount = Math.min(MAX_TOPICS, await page.locator('[data-precompute="hero"]').count());
 console.log(`${heroCount} hero topics`);
 
+// GitHub Actions annotations (readable from the run's check-run API, not
+// just the log), so the outcome shows up without opening the log.
+function annotate(level, message) {
+  if (process.env.GITHUB_ACTIONS) console.log(`::${level}::${message}`);
+}
+
 let pages = 0;
 let failures = 0;
+let threadsFound = 0;
 for (let i = 0; i < heroCount; i++) {
   let t = Date.now();
   const ok = await openHero(i);
@@ -116,6 +131,13 @@ for (let i = 0; i < heroCount; i++) {
   pages++;
   if (!ok) failures++;
   const labels = [...new Set(await threadLabels())].slice(0, MAX_THREADS);
+  threadsFound += labels.length;
+  if (secretAccepted === false) {
+    annotate("error", "The proxy did not accept PRECOMPUTE_SECRET (check it matches the rabbit-hole-proxy-v2 secret, 16+ characters, and that the function was redeployed).");
+    console.error("PRECOMPUTE_SECRET was not accepted by the proxy — stopping.");
+    await browser.close();
+    process.exit(1);
+  }
   console.log(`\n[${i + 1}/${heroCount}] ${topic} — ${ok ? "ok" : "timed out"} (${((Date.now() - t) / 1000).toFixed(1)}s), ${labels.length} threads`);
 
   for (const label of labels) {
@@ -134,6 +156,8 @@ for (let i = 0; i < heroCount; i++) {
   }
 }
 
-console.log(`\nDone: ${pages} pages, ${failures} timed out.`);
+const summary = `${heroCount} topics, ${threadsFound} threads, ${pages} pages opened, ${failures} timed out`;
+console.log(`\nDone: ${summary}.`);
+annotate(failures || !threadsFound ? "error" : "notice", `Precompute: ${summary}.`);
 await browser.close();
-process.exit(failures > 0 ? 1 : 0);
+process.exit(failures > 0 || threadsFound === 0 ? 1 : 0);
