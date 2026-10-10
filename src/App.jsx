@@ -1516,7 +1516,8 @@ export default function Hyfax() {
         .rh-text-10 { font-size: 10px; }
         .rh-tracking-30 { letter-spacing: 0.3em; }
         .rh-tracking-25 { letter-spacing: 0.25em; }
-        .rh-hero-headline { font-size: 2.6rem; line-height: 1.05; }
+        /* One step below article titles (text-3xl). */
+        .rh-hero-headline { font-size: 1.5rem; line-height: 1.25; }
         @keyframes rh-blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
         .rh-cursor-blink { display: inline-block; animation: rh-blink 1s step-end infinite; margin-left: 1px; }
         /* Hides the native up/down stepper on number inputs (e.g. the
@@ -1546,8 +1547,8 @@ export default function Hyfax() {
               <img src="/hyfax-logo.png" alt="Hyfax" className="h-8 md:h-10 w-auto" />
             </button>
           </h1>
-          <div className="rh-mono rh-text-10 rh-tracking-25 uppercase mt-1" style={{ color: "#A89478" }}>
-            always another thread
+          <div className="rh-mono rh-text-10 rh-tracking-25 uppercase mt-1 whitespace-nowrap" style={{ color: "#A89478" }}>
+            thinking with threads
           </div>
         </div>
         <div className="flex justify-end">
@@ -1590,10 +1591,11 @@ export default function Hyfax() {
       {!showTopicPage && (
         <div ref={heroRef} className="flex-1 flex flex-col items-center px-6 pt-10 md:pt-16 pb-10 overflow-y-auto">
           <div className="max-w-md w-full text-center rh-fade-in">
+            {/* The brand's main line — home screen only. Each sentence
+                stays whole, so a narrow screen breaks after "linear." */}
             <h2 className="rh-display rh-hero-headline italic mb-8" style={{ color: "#F1E6D3" }}>
-              Follow any thought
-              <br />
-              as far as it goes.
+              <span className="whitespace-nowrap">Problem solving isn't linear.</span>{" "}
+              <span className="whitespace-nowrap">Neither is your learning.</span>
             </h2>
 
             {/* "Spin a thread" — a free, instant reroll through a fixed

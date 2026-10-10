@@ -39,7 +39,7 @@ function escapeHtml(s) {
 }
 
 function truncate(s, n) {
-  if (!s) return "Follow any thought as far as it goes.";
+  if (!s) return "Problem solving isn't linear. Neither is your learning. Follow any question across science, food, history and more, one thread at a time.";
   return s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s;
 }
 
@@ -81,7 +81,7 @@ function page({ title, description, url, bodyHtml }) {
 <body>
 <div class="wrap">
   <a class="logo-link" href="${APP_ORIGIN}/"><img src="${APP_ORIGIN}/hyfax-logo.png" alt="Hyfax" /></a>
-  <div class="tag">always another thread</div>
+  <div class="tag">thinking with threads</div>
   ${bodyHtml}
 </div>
 </body>
@@ -97,7 +97,7 @@ function notFoundBody() {
 export default async function handler(req, res) {
   const id = typeof req.query?.id === "string" ? req.query.id : "";
   const shareUrl = `${APP_ORIGIN}/s/${id}`;
-  const fallback = { title: "Hyfax", description: "Follow any thought as far as it goes.", url: shareUrl, bodyHtml: notFoundBody() };
+  const fallback = { title: "Hyfax", description: "Problem solving isn't linear. Neither is your learning. Follow any question across science, food, history and more, one thread at a time.", url: shareUrl, bodyHtml: notFoundBody() };
 
   if (!id || !/^[A-Za-z0-9]+$/.test(id)) {
     res.status(404).setHeader("Content-Type", "text/html; charset=utf-8");

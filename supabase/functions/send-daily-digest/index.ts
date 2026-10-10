@@ -240,7 +240,7 @@ function digestHtml(
           <td bgcolor="${COLOR_PAGE_BG}" style="background-color:${COLOR_PAGE_BG}; padding:32px 40px; text-align:center;">
             <img src="${APP_ORIGIN}/hyfax-logo.png" width="120" alt="Hyfax" style="display:block; margin:0 auto; border:0; height:auto;" />
             <div style="margin-top:8px; font-family:'Courier New',monospace; font-size:10px; letter-spacing:3px; text-transform:uppercase; color:${COLOR_TEXT_FAINT};">
-              always another thread
+              thinking with threads
             </div>
           </td>
         </tr>
