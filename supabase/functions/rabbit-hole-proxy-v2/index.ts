@@ -547,6 +547,15 @@ const DAILY_REQUEST_LIMIT = Number(Deno.env.get("DAILY_REQUEST_LIMIT") ?? "300")
 // still catching a script that mints a fresh session_id per batch from one
 // machine/IP.
 const DAILY_REQUEST_LIMIT_PER_IP = Number(Deno.env.get("DAILY_REQUEST_LIMIT_PER_IP") ?? "900");
+
+// The daily hero precompute (scripts/precompute-hero.mjs, run by GitHub
+// Actions) opens every hero topic and its first-level threads so they're
+// cached before visitors arrive. It sends this secret in the request body
+// to get past the free-page limit and the free-tier spend cap, which would
+// otherwise stop it a few pages in, and is reported back as funded so the
+// site doesn't apply the limit itself either. Its traffic is marked as test traffic
+// (it browses in ?hyfax_test=1 mode), so it stays out of /admin numbers.
+const PRECOMPUTE_SECRET = Deno.env.get("PRECOMPUTE_SECRET") ?? "";
 // The real backstop — total measured Anthropic spend (not request count)
 // across all free/unfunded traffic in the last 24h. Set this to whatever
 // dollar figure you're actually comfortable risking on the free tier in a
@@ -1269,7 +1278,9 @@ serve(async (req) => {
       visitorSessionId,
       isTest,
       modelOverride,
+      precomputeSecret,
     } = body;
+    const isPrecompute = PRECOMPUTE_SECRET.length >= 16 && precomputeSecret === PRECOMPUTE_SECRET;
     const effectiveTimeZone = isValidTimeZone(timeZone) ? timeZone : DEFAULT_TIME_ZONE;
 
     if (!Array.isArray(messages) || messages.length === 0) {
@@ -1375,7 +1386,7 @@ serve(async (req) => {
     // count, so many distinct abusers each staying under their own ceiling
     // still can't add up to unbounded real cost. Funded callers are exempt:
     // their own balance already bounds what they can spend.
-    if (!funded) {
+    if (!funded && !isPrecompute) {
       const { data: recentSpend, error: spendError } = spendResult;
       if (spendError) {
         // fail open — same posture as every other check here
@@ -1405,6 +1416,7 @@ serve(async (req) => {
     const trialBlocked =
       !funded &&
       !isAdmin &&
+      !isPrecompute &&
       searchCount !== null &&
       searchCount >= searchLimit &&
       GATED_ENDPOINTS.has(endpoint) &&
@@ -1423,7 +1435,7 @@ serve(async (req) => {
     // the displayed count above the limit (e.g. 7/6) — that's real, not a
     // bug, since it's the one call that's always allowed to go through.
     const displaySearchCount = (searchCount ?? 0) + (!trialBlocked && endpoint === "article" ? 1 : 0);
-    const responseHeaders = { ...corsHeaders, ...usageHeaders(count), ...trialHeaders(displaySearchCount, funded, searchLimit) };
+    const responseHeaders = { ...corsHeaders, ...usageHeaders(count), ...trialHeaders(displaySearchCount, funded || isPrecompute, searchLimit) };
 
     if (trialBlocked) {
       return new Response(

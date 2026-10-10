@@ -1367,6 +1367,7 @@ export default function Hyfax() {
         <button
           key={i}
           onClick={() => jumpToNode(piece.nodeId)}
+          data-precompute="thread"
           className="rh-link-accent"
           style={{ color: "#E3A73C", fontWeight: 500, textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: "2px" }}
         >
@@ -1773,6 +1774,7 @@ export default function Hyfax() {
                 </div>
                 <div className="max-w-md mx-auto">
                   <button
+                    data-precompute="hero"
                     type="button"
                     onClick={() => {
                       setSelectedQuote(true);
@@ -1818,6 +1820,7 @@ export default function Hyfax() {
                     const isSelected = selectedTodayIdx === i;
                     return (
                       <button
+                        data-precompute="hero"
                         key={`${t.field}-${i}`}
                         type="button"
                         onClick={() => {
@@ -1877,6 +1880,7 @@ export default function Hyfax() {
                 </div>
                 <div className="max-w-md mx-auto">
                   <button
+                    data-precompute="hero"
                     type="button"
                     onClick={() => {
                       setSelectedPerspective(true);
@@ -1960,6 +1964,7 @@ export default function Hyfax() {
                 </div>
                 <div className="max-w-md mx-auto">
                   <button
+                    data-precompute="hero"
                     type="button"
                     onClick={() => {
                       setSelectedRiddle(true);
@@ -2064,6 +2069,7 @@ export default function Hyfax() {
                     const isSelected = selectedNewsIdx === i;
                     return (
                       <button
+                        data-precompute="hero"
                         key={`${t.field}-${i}`}
                         type="button"
                         onClick={() => {
@@ -2443,6 +2449,7 @@ export default function Hyfax() {
                                 setShowSignUpPrompt(true);
                               }
                             }}
+                            data-precompute="thread"
                             className="rh-chip rh-thread-card rh-chip-stagger-in w-full text-left rounded-2xl border px-4 py-3 flex items-center gap-3"
                             style={{
                               borderColor: visited ? "#4A3C2C" : "#E3A73C88",

@@ -297,6 +297,7 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
               <button
                 type="button"
                 onClick={onOpenAnswer}
+                data-precompute="hero"
                 disabled={disabled}
                 className="flex items-center gap-1 rounded-full px-4 py-2 rh-body text-xs font-semibold disabled:opacity-40"
                 style={{ backgroundColor: C.accent, color: C.bg }}

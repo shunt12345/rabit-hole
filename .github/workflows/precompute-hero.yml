@@ -1,0 +1,25 @@
+# Caches every hero topic and its first-level threads each morning, shortly
+# after the 07:00 UTC hero switch, so visitors get them instantly. See
+# scripts/precompute-hero.mjs. Needs the PRECOMPUTE_SECRET repository
+# secret (the same value as the rabbit-hole-proxy-v2 function secret).
+name: Precompute hero pages
+
+on:
+  schedule:
+    - cron: "10 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  precompute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-save --no-audit --no-fund playwright@1.56.1
+      - run: npx playwright install --with-deps chromium
+      - run: node scripts/precompute-hero.mjs
+        env:
+          PRECOMPUTE_SECRET: ${{ secrets.PRECOMPUTE_SECRET }}
