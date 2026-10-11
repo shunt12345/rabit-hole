@@ -27,6 +27,7 @@ import UsageGauge from "./UsageGauge.jsx";
 import MiniGauge from "./MiniGauge.jsx";
 import AdCard from "./AdCard.jsx";
 import HeroSections from "./HeroSections.jsx";
+import LimitCard, { SIGNED_IN_PAGE_LIMIT } from "./LimitCard.jsx";
 import { TRENDING_TOPICS_URL, RIDDLE_FIELD } from "./lib/heroPicks.js";
 import { pickHouseAd, getHouseAdById, engagementStage } from "./lib/houseAds.js";
 import { getSessionId } from "./lib/session.js";
@@ -236,11 +237,6 @@ Do not repeat or closely rephrase any of these already-shown labels: ${
     existingLabels.slice(-40).join(", ") || "none"
   }${articleNote}`;
 }
-
-// What a free account gets per day, shown in the limit's sign-up offer.
-// Mirrors the proxy's SIGNED_IN_SEARCH_LIMIT default; the proxy's own
-// response headers stay the source of truth once a call comes back.
-const SIGNED_IN_PAGE_LIMIT = 10;
 
 let idCounter = 0;
 function nextId() {
@@ -1498,39 +1494,14 @@ export default function Hyfax() {
     savePendingThread(nodesRef.current, selectedIdRef.current, topic);
     openAccountModal();
   };
-  // Styled like the house ads (AdCard) so it reads as an offer, not as
-  // more article text.
+  // onHero: the hero page's copy (no "back to this page"; new topics still open).
   const renderLimitCard = (onHero) => (
-    <div className="rounded-2xl p-4 flex gap-3 items-start text-left" style={{ backgroundColor: "#6E4A2C" }}>
-      <div
-        className="shrink-0 flex items-center justify-center rounded-xl"
-        style={{ width: "44px", height: "44px", backgroundColor: "#14100C" }}
-      >
-        <img src="/hyfax-logo.png" alt="" className="w-7 h-auto" />
-      </div>
-      <div className="rh-display">
-        <div className="text-base mb-1" style={{ color: "#E3A73C", fontWeight: 700 }}>
-          {user ? "You've read today's free pages" : "Sign up free to keep going"}
-        </div>
-        <p className="text-sm leading-relaxed mb-3" style={{ color: "#FFFFFF" }}>
-          {user
-            ? `Your ${trialStatus.searchLimit} free pages reset at 3am your time. Add funds for full access now.`
-            : `You've read today's ${trialStatus.searchLimit} free pages. Sign up free for ${SIGNED_IN_PAGE_LIMIT} more today${
-                onHero ? "." : ", and we'll bring you right back to this page."
-              }`}
-          {onHero ? " New topics and today's picks still open any time." : ""}
-        </p>
-        <button
-          type="button"
-          onClick={user ? openAccountModal : signUpAtLimit}
-          className="inline-flex items-center gap-1 text-sm font-semibold rounded-full px-4 py-2"
-          style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
-        >
-          {user ? "Add funds" : "Sign up free"}
-          <ArrowUpRight size={14} />
-        </button>
-      </div>
-    </div>
+    <LimitCard
+      signedIn={!!user}
+      pageLimit={trialStatus.searchLimit}
+      onHero={onHero}
+      onAction={user ? openAccountModal : signUpAtLimit}
+    />
   );
   const breadcrumb = selected ? nodePathToRoot(selected) : [];
 
