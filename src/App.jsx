@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo, Fragment } from "react";
-import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, ChevronDown, Share2, Check, Shuffle, HelpCircle } from "lucide-react";
+import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, Share2, Check, Shuffle, HelpCircle } from "lucide-react";
 import {
   callClaude,
   streamTextFromPrompt,
@@ -40,21 +40,6 @@ import {
 import { shareArticle } from "./lib/share.js";
 import { savePendingThread, takePendingThread } from "./lib/pendingThread.js";
 import { getAccessToken } from "./lib/auth.js";
-
-const TYPE_COLOR = {
-  root: "#C1552E",
-  direct: "#E3A73C",
-  indirect: "#7E9471",
-  tangent: "#9C6B8C",
-  custom: "#6C93A8",
-};
-
-const TYPE_LABEL = {
-  direct: "Direct",
-  indirect: "Indirect",
-  tangent: "Tangent",
-  custom: "Yours",
-};
 
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -769,6 +754,7 @@ export default function Hyfax() {
     const preset = presetChildren?.length ? placeChildren(root, presetChildren) : [];
     if (preset.length) root.generated = true;
     setTopic(t);
+    setPreviewByPage({});
     nodesRef.current = [root, ...preset];
     setNodes([root, ...preset]);
     setSelectedId(root.id);
@@ -817,6 +803,7 @@ export default function Hyfax() {
     const newNodes = [root, ...children];
 
     setTopic(root.label);
+    setPreviewByPage({});
     nodesRef.current = newNodes;
     setNodes(newNodes);
     setSelectedId(root.id);
@@ -1059,7 +1046,10 @@ export default function Hyfax() {
   // in as it's generated rather than appearing all at once when it's done,
   // so reading starts within a second or two; the result is cached on the
   // node so re-opening it later never re-streams.
-  const loadArticle = async (nodeId) => {
+  // A thread previewed from its parent's page (see togglePreview) loads the
+  // same article, cached the same way, but holds off on its own threads
+  // until it's explored — unless it was explored while still loading.
+  const loadArticle = async (nodeId, { preview = false } = {}) => {
     const node = nodesRef.current.find((n) => n.id === nodeId);
     if (!node || node.article || node.articleLoading) return;
     node.articleLoading = true;
@@ -1162,8 +1152,13 @@ export default function Hyfax() {
       // Chips start the moment the article's text is in hand — not after
       // the typing animation catches up — with this article's own links
       // already known, so they're excluded.
-      if (!trialExhaustedRef.current && !node.generated && !node.loading) expandNode(node.id, stripMarkdown(finalBody));
+      const threadsWanted = !preview || selectedIdRef.current === node.id;
+      if (threadsWanted && !trialExhaustedRef.current && !node.generated && !node.loading) expandNode(node.id, stripMarkdown(finalBody));
       await reveal.finish(finalBody);
+      // Explored while its preview was still typing out: its threads start now.
+      if (!threadsWanted && selectedIdRef.current === node.id && !trialExhaustedRef.current && !node.generated && !node.loading) {
+        expandNode(node.id, stripMarkdown(finalBody));
+      }
       node.article = stripMarkdown(cleanStrayBrackets(finalBody));
       node.articleStreaming = false;
       node.articleLoading = false;
@@ -1250,18 +1245,22 @@ export default function Hyfax() {
     // Dig In always gets a full standalone page — it just can't be branched
     // into any further.
     if (trialExhausted && node.type !== "root") return;
+    // Opened as its own page (not just previewed) — what marks its card as
+    // visited on the page above.
+    node.explored = true;
 
     // loadArticle starts the chips itself once its text has arrived; this
     // only covers revisiting a page whose chips never landed.
     if (!node.article && !node.articleLoading) {
       loadArticle(selectedId);
-    } else if (node.article && !node.generated && !node.loading && !trialExhausted) {
+    } else if (node.article && !node.articleStreaming && !node.generated && !node.loading && !trialExhausted) {
       expandNode(selectedId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, trialExhausted]);
 
   const reset = () => {
+    setPreviewByPage({});
     nodesRef.current = [];
     setNodes([]);
     setSelectedId(null);
@@ -1283,6 +1282,31 @@ export default function Hyfax() {
     const { sessionId } = touchSession();
     trackEvent("tap", { page: node?.label, sessionId });
   };
+
+  // Thread previews: tapping a thread card (or an inline link) rolls its
+  // first paragraph open on the current page instead of going there, and
+  // tapping another rolls that one closed. Each page remembers its open
+  // preview, so going back up the trail finds it still open. The preview's
+  // article is the thread's real one (cached the same way), so exploring
+  // it opens a page that's already written.
+  const [previewByPage, setPreviewByPage] = useState({});
+  const previewId = selectedId ? previewByPage[selectedId] ?? null : null;
+  const togglePreview = (nodeId) => {
+    const opening = previewId !== nodeId;
+    setPreviewByPage((prev) => ({ ...prev, [selectedId]: opening ? nodeId : null }));
+    if (!opening) return;
+    const node = nodesRef.current.find((n) => n.id === nodeId);
+    const { sessionId } = touchSession();
+    trackEvent("tap", { page: node?.label, sessionId });
+    if (!user && !hasDismissedSignUpPrompt() && recordChipTap() === 3) setShowSignUpPrompt(true);
+    if (node && !node.article && !node.articleLoading && !trialExhaustedRef.current) loadArticle(nodeId, { preview: true });
+  };
+  // Explore: the previewed thread becomes the page (its tap was already
+  // counted when the preview opened).
+  const explorePreview = (nodeId) => setSelectedId(nodeId);
+  // The trail at the top shows the last two steps; "…" opens the rest.
+  const [trailFull, setTrailFull] = useState(false);
+  useEffect(() => setTrailFull(false), [selectedId]);
 
   // Word-of-mouth growth tool — snapshots the currently-open article to a
   // public, no-signin-required link (see lib/share.js) and either hands it
@@ -1369,7 +1393,8 @@ export default function Hyfax() {
       ) : (
         <button
           key={i}
-          onClick={() => jumpToNode(piece.nodeId)}
+          onClick={() => togglePreview(piece.nodeId)}
+          aria-expanded={previewId === piece.nodeId}
           data-precompute="thread"
           className="rh-link-accent"
           style={{ color: "#E3A73C", fontWeight: 500, textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: "2px" }}
@@ -1377,6 +1402,69 @@ export default function Hyfax() {
           {piece.label}
         </button>
       )
+    );
+  };
+
+  // A thread's preview: its article's first paragraph (shimmering while it
+  // loads, typing in as it streams), then Explore. Rolls open and closed
+  // via grid rows, so the close plays out instead of snapping shut; the
+  // body stays mounted once loaded and is inert while closed.
+  const renderPreview = (child) => {
+    const open = previewId === child.id;
+    const first = (child.article || "").split(/\n\s*\n/)[0] || "";
+    const text = stripLinkMarkers(first.replace(/\[\[[^\]]*$/, ""));
+    const stillTyping = child.articleStreaming && !/\n\s*\n/.test(child.article || "");
+    const hasBody = open || child.article || child.articleLoading || child.articleError;
+    return (
+      <div className="rh-roll" style={{ gridTemplateRows: open ? "1fr" : "0fr" }} {...(open ? {} : { inert: "" })}>
+        <div className="overflow-hidden">
+          {hasBody && (
+            <div className="px-4 pb-4">
+              {child.articleError && !child.article ? (
+                <div className="mb-3">
+                  <div className="flex items-center gap-1.5 text-sm" style={{ color: "#D98A6E" }}>
+                    <AlertCircle size={13} /> {child.articleError}
+                  </div>
+                  {!trialExhausted && (
+                    <button
+                      type="button"
+                      onClick={() => loadArticle(child.id, { preview: true })}
+                      className="mt-1 text-sm font-medium rh-link-accent"
+                      style={{ color: "#E3A73C" }}
+                    >
+                      Try again
+                    </button>
+                  )}
+                </div>
+              ) : text ? (
+                <p className="rh-body text-base leading-relaxed mb-3" style={{ color: "#F1E6D3" }}>
+                  {text}
+                  {stillTyping && (
+                    <span className="rh-cursor-blink" style={{ color: "#E3A73C" }}>
+                      {"▌"}
+                    </span>
+                  )}
+                </p>
+              ) : (
+                <div className="grid gap-2 mb-3" aria-label="Loading preview">
+                  <i className="rh-shimmer" />
+                  <i className="rh-shimmer" />
+                  <i className="rh-shimmer" style={{ width: "64%" }} />
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => explorePreview(child.id)}
+                data-precompute={open ? "explore" : undefined}
+                className="rh-body inline-flex items-center rounded-full px-3.5 py-1 text-sm font-semibold rh-btn-accent"
+                style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
+              >
+                Explore this thread →
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     );
   };
 
@@ -1466,6 +1554,13 @@ export default function Hyfax() {
   // Inline [[link]] pages live in the article text; the chip row is only
   // the indirect/tangent threads generated after it.
   const chipChildren = selectedChildren.filter((n) => !n.fromLink);
+  // Each inline link's page, with the paragraph its link first appears in
+  // (where its preview opens).
+  const articleParas = (selected?.article || "").split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const inlineLinkChildren = selectedChildren
+    .filter((n) => n.fromLink)
+    .map((n) => ({ ...n, linkPara: articleParas.findIndex((p) => linkLabelsIn(p).some((l) => l.toLowerCase() === n.label.toLowerCase())) }))
+    .filter((n) => n.linkPara !== -1);
   // Once the trial's exhausted, Dig In still works for a fresh general
   // topic, but nothing it produces should offer a further hyperlink to
   // dig into — passing an empty list here means renderLinked below just
@@ -1550,6 +1645,17 @@ export default function Hyfax() {
         .rh-nudge { animation: rh-nudge 2.4s ease-in-out infinite; }
         @media (prefers-reduced-motion: reduce) { .rh-nudge { animation: none; } }
         .rh-crumb:hover { color: #EDB94F !important; }
+        .rh-roll { display: grid; transition: grid-template-rows 0.35s ease; }
+        .rh-chev { transition: transform 0.3s; }
+        .rh-shimmer { display: block; height: 11px; border-radius: 6px; background: linear-gradient(90deg, #1F1811 0%, #3A2D1D 50%, #1F1811 100%); background-size: 200% 100%; animation: rh-shimmer 1.1s linear infinite; }
+        @keyframes rh-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+        @media (prefers-reduced-motion: reduce) { .rh-roll, .rh-chev { transition: none; } .rh-shimmer { animation: none; } }
+        /* The trail: one line; earlier steps give up their width first. */
+        .rh-trail { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; overflow: hidden; }
+        .rh-trail > * { flex: none; }
+        .rh-trail .rh-step { min-width: 2.5em; overflow: hidden; text-overflow: ellipsis; flex: 0 3 auto; }
+        .rh-trail .rh-step-here { flex: 0 1 auto; }
+        .rh-trail.rh-trail-full { flex-wrap: wrap; white-space: normal; }
         .rh-text-10 { font-size: 10px; }
         .rh-tracking-30 { letter-spacing: 0.3em; }
         .rh-tracking-25 { letter-spacing: 0.25em; }
@@ -2184,23 +2290,57 @@ export default function Hyfax() {
         <>
           <div ref={contentRef} className="flex-1 overflow-y-auto px-5 md:px-7 pb-10">
             <div className="max-w-2xl mx-auto rh-fade-in" key={selected.id}>
-              <div className="flex items-center justify-between mb-3">
-                <span
-                  className="rh-mono rh-text-10 uppercase tracking-wider px-2 py-0.5 rounded-full inline-block"
-                  style={{
-                    color: TYPE_COLOR[selected.type] || "#E3A73C",
-                    border: `1px solid ${TYPE_COLOR[selected.type] || "#E3A73C"}55`,
-                  }}
-                >
-                  {selected.type === "root" ? "Origin" : TYPE_LABEL[selected.type]}
-                </span>
+              {/* The trail — where this page sits in the thread, pinned to
+                  the top while reading. Shows the page before this one and
+                  this one; "…" opens the rest. Any earlier step goes back
+                  to it, with its open preview still open. */}
+              <div
+                className="sticky top-0 z-10 flex items-center justify-between gap-3 mb-3 py-2 -mx-5 px-5 md:-mx-7 md:px-7"
+                style={{ backgroundColor: "#14100C" }}
+              >
+                {breadcrumb.length > 1 ? (
+                  <nav aria-label="Your thread" className={`rh-trail rh-body text-sm ${trailFull ? "rh-trail-full" : ""}`} style={{ color: "#A89478" }}>
+                    {!trailFull && breadcrumb.length > 2 && (
+                      <>
+                        <button type="button" onClick={() => setTrailFull(true)} className="rh-crumb px-0.5" aria-label="Show the whole trail">
+                          …
+                        </button>
+                        <ChevronRight size={11} style={{ color: "#6B5B45" }} aria-hidden="true" />
+                      </>
+                    )}
+                    {(trailFull ? breadcrumb : breadcrumb.slice(-2)).map((n, i, shown) => (
+                      <Fragment key={n.id}>
+                        {i > 0 && <ChevronRight size={11} style={{ color: "#6B5B45" }} aria-hidden="true" />}
+                        {i === shown.length - 1 ? (
+                          <span className="rh-step rh-step-here" style={{ color: "#F1E6D3", fontWeight: 600 }} aria-current="page">
+                            {n.label}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => jumpToNode(n.id)}
+                            className="rh-step rh-crumb"
+                            style={{ textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: "3px" }}
+                          >
+                            {n.label}
+                          </button>
+                        )}
+                      </Fragment>
+                    ))}
+                  </nav>
+                ) : (
+                  <span />
+                )}
 
                 {selected.article && !selected.articleStreaming && (
                   <button
                     type="button"
                     onClick={() => handleShare(selected)}
                     disabled={shareStatus === "sharing"}
-                    className="flex items-center gap-1.5 rh-mono rh-text-10 uppercase tracking-wider transition-colors disabled:opacity-50 rounded-full px-3 py-1.5 border font-semibold"
+                    aria-label="Share"
+                    className={`shrink-0 flex items-center gap-1.5 rh-mono rh-text-10 uppercase tracking-wider transition-colors disabled:opacity-50 rounded-full border font-semibold ${
+                      breadcrumb.length > 1 ? "p-2" : "px-3 py-1.5"
+                    }`}
                     style={{
                       borderColor: shareStatus === "error" ? "#D98A6E" : "#E3A73C",
                       color: shareStatus === "error" ? "#D98A6E" : "#E3A73C",
@@ -2216,8 +2356,9 @@ export default function Hyfax() {
                         <AlertCircle size={13} /> Couldn't share
                       </>
                     ) : (
+                      // Just the icon beside the trail, so the trail keeps the room.
                       <>
-                        <Share2 size={13} /> Share
+                        <Share2 size={13} /> {breadcrumb.length > 1 ? null : "Share"}
                       </>
                     )}
                   </button>
@@ -2227,9 +2368,16 @@ export default function Hyfax() {
               <h2 className="rh-display text-3xl italic mb-4" style={{ color: "#F1E6D3" }}>
                 {selected.label}
               </h2>
+              {/* How this page follows from the one before: its card's
+                  description, which is written to say exactly that. */}
+              {selected.type !== "root" && selected.teaser && (
+                <p className="rh-body text-base italic leading-snug -mt-2 mb-4" style={{ color: "#A89478" }}>
+                  {selected.teaser}
+                </p>
+              )}
 
               <div ref={articleTextRef} className="text-base leading-relaxed" style={{ color: "#F5EDDC" }}>
-                {!overviewGone && (selected.type === "root" ? selected.overview || selected.teaser : selected.teaser) ? (
+                {!overviewGone && selected.type === "root" && (selected.overview || selected.teaser) ? (
                   // Stays visible for as long as the article is generating
                   // (that's the point — a headline and an opening line to
                   // read while the rest streams in), then collapses away
@@ -2255,7 +2403,7 @@ export default function Hyfax() {
                         className="transition-opacity ease-out"
                         style={{ transitionDuration: `${OVERVIEW_FADE_MS}ms`, opacity: overviewFading ? 0 : 1 }}
                       >
-                        {renderLinked(selected.type === "root" ? selected.overview || selected.teaser : selected.teaser, linkableChildren)}
+                        {renderLinked(selected.overview || selected.teaser, linkableChildren)}
                       </p>
                     </div>
                   </div>
@@ -2276,7 +2424,54 @@ export default function Hyfax() {
                                 {"▌"}
                               </span>
                             ) : null}
+                            {/* light-touch, not a primary action — capped
+                                to one extra round (selected.deepened), and
+                                sitting at the end of the last sentence
+                                rather than as a button of its own */}
+                            {i === arr.length - 1 &&
+                              !selected.articleStreaming &&
+                              !selected.articleLoading &&
+                              !selected.deepened &&
+                              !trialExhausted &&
+                              digDeeperVisible && (
+                                <>
+                                  {" "}
+                                  <button
+                                    type="button"
+                                    onClick={() => deepenArticle(selected.id)}
+                                    className="rh-link-accent font-semibold whitespace-nowrap ml-0.5"
+                                    style={{ color: "#E3A73C" }}
+                                  >
+                                    Read more on this →
+                                  </button>
+                                </>
+                              )}
                           </p>
+                          {/* An inline link's preview opens right under its
+                              paragraph. */}
+                          {!trialExhausted &&
+                            inlineLinkChildren
+                              .filter((c) => c.linkPara === i)
+                              .map((c) => (
+                                // Takes no room while closed (the -1rem
+                                // cancels the article's paragraph spacing).
+                                <div
+                                  key={c.id}
+                                  className="rounded-2xl"
+                                  style={
+                                    previewId === c.id
+                                      ? { border: "1px solid #E3A73C", backgroundColor: "#2A2015", marginTop: "0.5rem" }
+                                      : { marginTop: "-1rem" }
+                                  }
+                                >
+                                  {previewId === c.id && (
+                                    <div className="rh-mono rh-text-10 uppercase tracking-wider px-4 pt-3 pb-1.5" style={{ color: "#E3A73C" }}>
+                                      Previewing · {c.label}
+                                    </div>
+                                  )}
+                                  {renderPreview(c)}
+                                </div>
+                              ))}
                           {/* House ad (Section H) — one per article, funded
                               accounts don't see these at all. Seeded off the
                               node so the same node always shows the same ad
@@ -2308,21 +2503,6 @@ export default function Hyfax() {
                         </Fragment>
                       ))}
 
-                    {/* light-touch, not a primary action — this app is
-                        entertainment, not a research tool, so this is
-                        deliberately understated and capped to one extra
-                        round (selected.deepened) rather than open-ended
-                        pagination for the minority who want a bit more
-                        before moving on */}
-                    {!selected.articleStreaming && !selected.articleLoading && !selected.deepened && !trialExhausted && digDeeperVisible && (
-                      <button
-                        onClick={() => deepenArticle(selected.id)}
-                        className="flex items-center gap-1.5 text-sm font-semibold transition-colors rh-link-accent"
-                        style={{ color: "#E3A73C" }}
-                      >
-                        <ChevronDown size={15} /> Read more on this
-                      </button>
-                    )}
                     {selected.deepenError && (
                       <div className="flex items-center gap-1.5 text-sm" style={{ color: "#D98A6E" }}>
                         <AlertCircle size={13} /> {selected.deepenError}
@@ -2394,34 +2574,6 @@ export default function Hyfax() {
                   them shouldn't be treated as "explore this word" the way
                   selecting actual article text is meant to be */}
               <div>
-                {/* breadcrumb — every earlier stop is tappable, jumps
-                    straight back with no need to retrace taps one at a
-                    time. Sits right above "Explore next" now, inline, as a
-                    "here's how you got here" just before "here's where you
-                    can go" instead of pinned above the article itself. */}
-                {/* Only once there's somewhere to go back to — on a topic's
-                    own page it would just repeat the page's title. */}
-                {breadcrumb.length > 1 && (
-                <div className="flex items-center gap-1.5 flex-wrap rh-body text-xs mt-10 mb-4">
-                  {breadcrumb.map((n, i) => (
-                    <span key={n.id} className="flex items-center gap-1.5">
-                      {i > 0 && <ChevronRight size={10} style={{ color: "#6B5B45" }} aria-hidden="true" />}
-                      {i === breadcrumb.length - 1 ? (
-                        <span style={{ color: "#F1E6D3", fontWeight: 500 }}>{n.label}</span>
-                      ) : (
-                        <button
-                          onClick={() => jumpToNode(n.id)}
-                          className="rh-crumb transition-colors"
-                          style={{ color: "#A89478", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: "2px" }}
-                        >
-                          {n.label}
-                        </button>
-                      )}
-                    </span>
-                  ))}
-                </div>
-                )}
-
                 {/* explore next — full-width cards rather than small pills
                     so they read as the obvious next step: the thread's
                     name, its one-line teaser, and an arrow. Hidden once
@@ -2436,51 +2588,65 @@ export default function Hyfax() {
                         Where to next?
                       </div>
                       <div className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: "#A89478" }}>
-                        Tap a thread
+                        Tap to preview
                       </div>
                     </div>
                     <div className="flex flex-col gap-2.5">
                       {chipChildren.map((child, i) => {
-                        const visited = !!child.article;
-                        const firstFresh = !visited && chipChildren.findIndex((c) => !c.article) === i;
+                        // Visited means explored as its own page, not just
+                        // previewed here.
+                        const visited = !!child.explored;
+                        const open = previewId === child.id;
+                        const firstFresh = !visited && chipChildren.findIndex((c) => !c.explored) === i;
                         return (
-                          <button
+                          <div
                             key={child.id}
-                            onClick={() => {
-                              jumpToNode(child.id);
-                              if (!user && !hasDismissedSignUpPrompt() && recordChipTap() === 3) {
-                                setShowSignUpPrompt(true);
-                              }
-                            }}
-                            data-precompute="thread"
-                            className="rh-chip rh-thread-card rh-chip-stagger-in w-full text-left rounded-2xl border px-4 py-3 flex items-center gap-3"
+                            className={`rh-chip-stagger-in rounded-2xl border transition-colors ${open ? "" : "rh-thread-card"}`}
                             style={{
-                              borderColor: visited ? "#4A3C2C" : "#E3A73C88",
-                              backgroundColor: visited ? "#1A140E" : "#241B12",
+                              borderColor: open ? "#E3A73C" : visited ? "#4A3C2C" : "#E3A73C88",
+                              backgroundColor: open ? "#2A2015" : visited ? "#1A140E" : "#241B12",
                               // One at a time rather than all popping in
                               // together — see the ad brief's "reveal chips
                               // one at a time as they arrive" ask.
                               animationDelay: `${i * 90}ms`,
                             }}
                           >
-                            <div className="min-w-0 flex-1">
-                              <div className="rh-body text-base font-semibold" style={{ color: visited ? "#B8A886" : "#F1E6D3" }}>
-                                {child.label}
-                              </div>
-                              {child.teaser && (
-                                <div className="rh-body text-sm mt-0.5 leading-snug" style={{ color: visited ? "#8A7A62" : "#B8A886" }}>
-                                  {child.teaser}
-                                </div>
-                              )}
-                            </div>
-                            <span
-                              className={`shrink-0 flex items-center justify-center rounded-full w-8 h-8 ${firstFresh ? "rh-nudge" : ""}`}
-                              style={{ backgroundColor: visited ? "transparent" : "#E3A73C", color: visited ? "#8A7A62" : "#14100C" }}
-                              aria-hidden="true"
+                            <button
+                              type="button"
+                              onClick={() => togglePreview(child.id)}
+                              aria-expanded={open}
+                              data-precompute="thread"
+                              className="w-full text-left px-4 py-3 flex items-center gap-3"
                             >
-                              {visited ? <Check size={16} /> : <ChevronRight size={18} />}
-                            </span>
-                          </button>
+                              <div className="min-w-0 flex-1">
+                                <div className="rh-body text-base font-semibold flex items-center gap-2 flex-wrap" style={{ color: visited && !open ? "#B8A886" : "#F1E6D3" }}>
+                                  {child.label}
+                                  {open && (
+                                    <span className="rh-mono rh-text-10 uppercase tracking-wider rounded-full px-2 py-0.5 font-medium" style={{ backgroundColor: "#E3A73C", color: "#14100C" }}>
+                                      Previewing
+                                    </span>
+                                  )}
+                                </div>
+                                {child.teaser && (
+                                  <div className="rh-body text-sm mt-0.5 leading-snug" style={{ color: visited && !open ? "#8A7A62" : "#B8A886" }}>
+                                    {child.teaser}
+                                  </div>
+                                )}
+                              </div>
+                              <span
+                                className={`shrink-0 flex items-center justify-center rounded-full w-8 h-8 ${firstFresh && !open ? "rh-nudge" : ""}`}
+                                style={{ backgroundColor: visited && !open ? "transparent" : "#E3A73C", color: visited && !open ? "#8A7A62" : "#14100C" }}
+                                aria-hidden="true"
+                              >
+                                {visited && !open ? (
+                                  <Check size={16} />
+                                ) : (
+                                  <ChevronRight size={18} className="rh-chev" style={{ transform: open ? "rotate(90deg)" : "none" }} />
+                                )}
+                              </span>
+                            </button>
+                            {renderPreview(child)}
+                          </div>
                         );
                       })}
                     </div>

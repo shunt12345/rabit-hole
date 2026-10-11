@@ -1,6 +1,8 @@
 // Daily hero precompute: opens every hero topic on the live site, then
 // every first-level thread under it (its thread cards and inline links),
-// so each page is generated once and cached before visitors arrive. Run by
+// so each page is generated once and cached before visitors arrive. A
+// thread tap opens its preview (which loads and caches the thread's page);
+// Explore then opens it, which caches its own threads too. Run by
 // .github/workflows/precompute-hero.yml shortly after the 07:00 UTC hero
 // switch, or by hand.
 //
@@ -156,7 +158,12 @@ for (let i = 0; i < heroCount; i++) {
       continue;
     }
     await link.click();
-    const done = await waitUntilDone();
+    let done = await waitUntilDone();
+    const explore = page.locator('[data-precompute="explore"]').first();
+    if (await explore.count()) {
+      await explore.click();
+      done = (await waitUntilDone()) && done;
+    }
     pages++;
     if (!done) failures++;
     console.log(`   - ${label}: ${done ? "ok" : "timed out"} (${((Date.now() - t) / 1000).toFixed(1)}s)`);

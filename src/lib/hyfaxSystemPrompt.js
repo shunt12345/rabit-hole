@@ -99,7 +99,7 @@ const spec = childrenSpec();
 
 const CHILD_FORMAT_RULES = `Each child needs:
    - "label": 1-3 words, title case, as short as possible while staying specific — trim filler words like "Methods", "Process", "Techniques", "Overview", or "in [X]" unless they're truly essential to tell it apart from a sibling. "Friction Fire Methods" → "Friction Fire". "Controlled Burns in Ecology" → "Controlled Burns". Never generic on its own though ("History", "Overview"). Keep this literal regardless of tone — it's a label, not a punchline.
-   - "teaser": one enticing sentence, max 10 words, written like a caption that makes you want to click, fully in the tone above
+   - "teaser": max 16 words that say how this thread follows from the topic on screen — the shared idea, cause, or contrast that links the two — while still making the reader want to tap it, fully in the tone above. It's shown on the thread's card and again under its title once opened, as the reason the reader got there, so never a teaser that could sit under any topic. E.g. from "Why Bread Goes Stale" to "Chocolate Bloom": "Stale bread's crystal comeback, happening in cocoa butter. That chalky film isn't mold."
    - "type": ${spec.allowedTypes}`;
 
 const APP_FRAMING = `You're building "Hyfax," an educational curiosity-exploration app for curious learners. Every response you write follows the tone rules and the specific task instructions below — the user turn tells you exactly which task this call is for (its heading matches one of the "TASK:" sections below), plus the actual topic, path, and any other per-request specifics.
