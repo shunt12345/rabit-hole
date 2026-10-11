@@ -96,6 +96,14 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
   }, [key]);
   useEffect(() => () => clearTimeout(openTimer.current), []);
 
+  // The daily email's "Make your guess" link (?play=riddle) lands here.
+  const cardRef = useRef(null);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("play") !== "riddle") return;
+    const t = setTimeout(() => cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
+    return () => clearTimeout(t);
+  }, []);
+
   const update = (next) => {
     setProgress(next);
     saveProgress(key, next);
@@ -182,7 +190,7 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
   const done = !!progress.outcome;
 
   return (
-    <div className="mt-10">
+    <div className="mt-10" id="riddle" ref={cardRef}>
       <div className="flex items-center justify-center gap-1.5 mb-6">
         <HelpCircle size={14} style={{ color: C.label }} />
         <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: C.label }}>
