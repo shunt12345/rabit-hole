@@ -115,99 +115,6 @@ function timeZoneField() {
   }
 }
 
-// Shared fetch + timeout + error-surfacing logic, returning the raw text
-// content from Claude's response. callClaude (JSON mode) and article
-// fetching (plain prose) both build on this instead of duplicating it.
-//
-// `endpoint` is a short label (e.g. "root", "expand", "article",
-// "continuation") the proxy logs alongside an anonymous session id per
-// request — see the handoff brief's Phase 1 logging note: this is what lets
-// Phase 2's usage caps be set from real numbers instead of a guess.
-async function fetchClaudeText(system, prompt, maxTokens, endpoint, nodeCacheKey, newsCacheKey) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 25000);
-  let res;
-  try {
-    res = await fetch(PROXY_URL, {
-      method: "POST",
-      headers: proxyHeaders(),
-      body: JSON.stringify({
-        max_tokens: maxTokens || 1200,
-        system: systemBlock(system),
-        messages: [{ role: "user", content: prompt }],
-        endpoint,
-        sessionId: getSessionId(),
-        // Branch-node cache key (see App.jsx's expandNode) — only ever set
-        // for a "expand" call on a direct child of an already-cached root,
-        // same idea as streamRaw's newsCacheKey but one level deeper (see
-        // rabbit-hole-proxy-v2's node_cache table).
-        ...(nodeCacheKey ? { nodeCacheKey } : {}),
-        // A cached topic's own chips (see App.jsx's expandNode) — read from
-        // that topic's news_root_cache row instead of generated per visitor.
-        ...(newsCacheKey ? { newsCacheKey } : {}),
-        // Keeps the operator's own test traffic out of /admin usage.
-        isTest: isTestMode(),
-        // The proxy sets the free-page limit from utmSource (a Reddit ad
-        // visitor gets more), so a thread-card call needs it as much as an
-        // article call — without it, this call came back at the normal
-        // limit and was refused once that was used up.
-        ...attributionFields(),
-        ...(await authField()),
-        ...timeZoneField(),
-      }),
-      signal: controller.signal,
-    });
-  } catch (networkErr) {
-    if (networkErr.name === "AbortError") {
-      throw new Error("Request timed out after 25s — no response from the API.");
-    }
-    console.error("Hyfax: network error calling Claude", networkErr);
-    throw new Error(`Network error: ${networkErr.message || "fetch failed"}`);
-  } finally {
-    clearTimeout(timeoutId);
-  }
-
-  captureActionsToday(res);
-  captureTrialStatus(res);
-
-  if (res.status === 402) {
-    let message;
-    try {
-      message = (await res.json()).message;
-    } catch (_) {}
-    throw new TrialExhaustedError(message);
-  }
-
-  if (!res.ok) {
-    let bodySnippet = "";
-    let friendlyMessage = null;
-    try {
-      bodySnippet = (await res.text()).slice(0, 200);
-      friendlyMessage = JSON.parse(bodySnippet)?.message || null;
-    } catch (_) {}
-    console.error("Hyfax: API returned non-OK status", res.status, bodySnippet);
-    throw new Error(friendlyMessage || `API returned ${res.status}${bodySnippet ? `: ${bodySnippet}` : ""}`);
-  }
-
-  const data = await res.json();
-  const text = (data.content || [])
-    .filter((b) => b.type === "text")
-    .map((b) => b.text)
-    .join("");
-  if (!text) {
-    console.error("Hyfax: no text content in API response", data);
-    throw new Error("Empty response from the API.");
-  }
-  return { text, usage: data.usage || null };
-}
-
-// `onUsage`, when given, is called with this call's real {input_tokens,
-// output_tokens} — only meaningful for a genuinely fresh generation (a
-// cache hit's usage is always zeroed, see rabbit-hole-proxy-v2). Lets
-// expandNode capture a branch's real cost in the SAME request that writes
-// its node_cache row (see writeNodeCache), avoiding a race against the
-// server's own background billing task the way root's rootUsage already
-// does for its own cache write.
 // Ad-attribution signals (see lib/attribution.js), sent with every proxy
 // call so a session's cost and behavior trace back to its source.
 function attributionFields() {
@@ -220,9 +127,120 @@ function attributionFields() {
   };
 }
 
-export async function callClaude(system, prompt, endpoint, nodeCacheKey, onUsage, newsCacheKey) {
-  const { text, usage } = await fetchClaudeText(system, prompt, undefined, endpoint, nodeCacheKey, newsCacheKey);
-  if (onUsage) onUsage(usage);
+// The body of every Claude call to the proxy. One builder for every kind of
+// call, so a field the proxy relies on can't be sent on one and missed on
+// another — a thread-card call once lacked utmSource and was held to the
+// wrong free-page limit.
+//
+// `endpoint` is a short label ("article", "expand", "continuation", ...)
+// the proxy logs, counts and caches by. The rest:
+// - newsCacheKey: a cached topic's key (its article, or its own threads).
+// - nodeCacheKey: "<topic>::<thread>", a cached topic's direct thread, one
+//   level deeper (rabbit-hole-proxy-v2's node_cache); never sent alongside
+//   newsCacheKey.
+// - nodeType: the page's thread type (root/direct/indirect/tangent/custom),
+//   logged for analysis.
+// - heroSource: which hero-page section (or freeform/spin-a-thread/shared
+//   link) led to a topic page's call, for /admin.
+// - extra: admin Tone Lab only (e.g. { modelOverride }); the proxy ignores it
+//   for anyone not on its ADMIN_USER_IDS list.
+async function proxyBody({ system, prompt, maxTokens, stream, endpoint, newsCacheKey, nodeCacheKey, nodeType, heroSource, extra }) {
+  return JSON.stringify({
+    max_tokens: maxTokens,
+    ...(stream ? { stream: true } : {}),
+    system: systemBlock(system),
+    messages: [{ role: "user", content: prompt }],
+    endpoint,
+    // The long-lived free-limit id; never expires.
+    sessionId: getSessionId(),
+    // Adoption analytics identity (lib/visitor.js, migration 0049): resets
+    // after a 30-minute gap. The proxy logs an article call's article_view
+    // with it, so there's no separate client round-trip per page.
+    visitorId: getVisitorId(),
+    visitorSessionId: touchSession().sessionId,
+    // Keeps the operator's own test traffic out of /admin usage.
+    isTest: isTestMode(),
+    ...(newsCacheKey ? { newsCacheKey } : {}),
+    ...(nodeCacheKey ? { nodeCacheKey } : {}),
+    ...(nodeType ? { nodeType } : {}),
+    ...(heroSource ? { heroSource } : {}),
+    // The proxy also sets the free-page limit from utmSource (a Reddit ad
+    // visitor gets more).
+    ...attributionFields(),
+    ...(await authField()),
+    ...timeZoneField(),
+    ...(extra || {}),
+  });
+}
+
+// Sends a proxy call and handles what every call shares: network errors and
+// timeouts, the usage/trial headers, the free-limit 402 and other error
+// statuses. Returns the OK response; `controller` aborts it on timeout.
+async function postToProxy(body, controller, onAbandon) {
+  let res;
+  try {
+    res = await fetch(PROXY_URL, { method: "POST", headers: proxyHeaders(), body, signal: controller.signal });
+  } catch (networkErr) {
+    onAbandon();
+    if (networkErr.name === "AbortError") throw new Error("Request timed out — no response from the API.");
+    console.error("Hyfax: network error calling the proxy", networkErr);
+    throw new Error(`Network error: ${networkErr.message || "fetch failed"}`);
+  }
+
+  captureActionsToday(res);
+  captureTrialStatus(res);
+
+  if (res.status === 402) {
+    onAbandon();
+    let message;
+    try {
+      message = (await res.json()).message;
+    } catch (_) {}
+    throw new TrialExhaustedError(message);
+  }
+  if (!res.ok) {
+    onAbandon();
+    let bodySnippet = "";
+    let friendlyMessage = null;
+    try {
+      bodySnippet = (await res.text()).slice(0, 200);
+      friendlyMessage = JSON.parse(bodySnippet)?.message || null;
+    } catch (_) {}
+    console.error("Hyfax: proxy returned non-OK status", res.status, bodySnippet);
+    throw new Error(friendlyMessage || `API returned ${res.status}${bodySnippet ? `: ${bodySnippet}` : ""}`);
+  }
+  return res;
+}
+
+function textOf(data) {
+  return (data.content || [])
+    .filter((b) => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+}
+
+// A JSON-mode call (a page's threads): waits for the whole response and
+// parses the first JSON object in it. `onUsage`, when given, gets this
+// call's real {input_tokens, output_tokens} (zeroed on a cache hit), so a
+// thread set's real cost can ride along with its own cache write (see
+// writeNodeCache) instead of racing the proxy's background billing.
+export async function callClaude({ system, prompt, endpoint, nodeCacheKey, newsCacheKey, onUsage }) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
+  let data;
+  try {
+    const body = await proxyBody({ system, prompt, maxTokens: 1200, endpoint, nodeCacheKey, newsCacheKey });
+    const res = await postToProxy(body, controller, () => {});
+    data = await res.json();
+  } finally {
+    clearTimeout(timeoutId);
+  }
+  const text = textOf(data);
+  if (!text) {
+    console.error("Hyfax: no text content in API response", data);
+    throw new Error("Empty response from the API.");
+  }
+  if (onUsage) onUsage(data.usage || null);
   const cleaned = text.replace(/```json|```/g, "").trim();
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
@@ -238,111 +256,28 @@ export async function callClaude(system, prompt, endpoint, nodeCacheKey, onUsage
   }
 }
 
-// Shared streaming core: opens the request with stream:true, parses the
-// API's server-sent-event chunks, and calls onChunk with the accumulated
-// text so far after every delta. Returns the final raw accumulated text —
-// callers apply their own cleanup/parsing on top (plain prose vs. JSON).
-async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey, nodeCacheKey, nodeType, onUsage, heroSource, extraBody) {
+// A streaming call (an article or its continuation): parses the API's
+// server-sent events and calls onChunk with the accumulated text after every
+// delta. Returns the final text, with any stray markdown fences removed.
+// `timeoutMs` bounds the wait for the first chunk and every gap after it.
+// Takes the same options as proxyBody, plus onChunk, onUsage and timeoutMs.
+export async function streamTextFromPrompt({ onChunk, onUsage, timeoutMs, ...request }) {
   const controller = new AbortController();
   let timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  let res;
-  try {
-    res = await fetch(PROXY_URL, {
-      method: "POST",
-      headers: proxyHeaders(),
-      body: JSON.stringify({
-        max_tokens: maxTokens,
-        stream: true,
-        system: systemBlock(system),
-        messages: [{ role: "user", content: prompt }],
-        endpoint,
-        sessionId: getSessionId(),
-        // Adoption analytics identity (see lib/visitor.js + migration 0049)
-        // — a SEPARATE id from sessionId above (that one's the long-lived
-        // free-trial rate-limit id and never expires; this one resets after
-        // a 30-minute gap). Attached to every call, same as the
-        // attribution fields below, so the proxy can log an article_view
-        // event server-side (see rabbit-hole-proxy-v2's logRequest) without
-        // a second, separate client round-trip for every article.
-        visitorId: getVisitorId(),
-        visitorSessionId: touchSession().sessionId,
-        isTest: isTestMode(),
-        ...(newsCacheKey ? { newsCacheKey } : {}),
-        // Branch-node equivalent of newsCacheKey, one level deeper — only
-        // ever set for a branch's own article (see App.jsx's loadArticle),
-        // never alongside newsCacheKey (mutually exclusive by construction).
-        ...(nodeCacheKey ? { nodeCacheKey } : {}),
-        ...(nodeType ? { nodeType } : {}),
-        // Which hero-page section (or freeform/spin-a-thread/shared-link)
-        // led to this ROOT call — see App.jsx's startTopic. Analytics only,
-        // logged onto rabbit_hole_request_logs so the admin dashboard can
-        // show what people actually click into from the hero page.
-        ...(heroSource ? { heroSource } : {}),
-        // Ad-attribution signals (see lib/attribution.js) — attached to
-        // EVERY request, not just root, so a full session's cost/behavior
-        // can be traced back to its source, not just the one call that
-        // happened to carry the URL params.
-        ...attributionFields(),
-        ...(await authField()),
-        ...timeZoneField(),
-        // Admin Tone Lab only (e.g. { modelOverride }) — the proxy ignores
-        // it for anyone not on its ADMIN_USER_IDS list.
-        ...(extraBody || {}),
-      }),
-      signal: controller.signal,
-    });
-  } catch (networkErr) {
-    clearTimeout(timeoutId);
-    if (networkErr.name === "AbortError") {
-      throw new Error("Request timed out — no response from the API.");
-    }
-    console.error("Hyfax: network error streaming", networkErr);
-    throw new Error(`Network error: ${networkErr.message || "fetch failed"}`);
-  }
+  const stopTimer = () => clearTimeout(timeoutId);
+  const res = await postToProxy(await proxyBody({ ...request, stream: true }), controller, stopTimer);
 
-  captureActionsToday(res);
-  captureTrialStatus(res);
-
-  if (res.status === 402) {
-    clearTimeout(timeoutId);
-    let message;
-    try {
-      message = (await res.json()).message;
-    } catch (_) {}
-    throw new TrialExhaustedError(message);
-  }
-
-  if (!res.ok) {
-    clearTimeout(timeoutId);
-    let bodySnippet = "";
-    let friendlyMessage = null;
-    try {
-      bodySnippet = (await res.text()).slice(0, 200);
-      friendlyMessage = JSON.parse(bodySnippet)?.message || null;
-    } catch (_) {}
-    console.error("Hyfax: stream returned non-OK status", res.status, bodySnippet);
-    throw new Error(friendlyMessage || `API returned ${res.status}${bodySnippet ? `: ${bodySnippet}` : ""}`);
-  }
-
-  // A `newsCacheKey` cache HIT comes back as one complete JSON object
-  // (Content-Type: application/json), not an SSE stream — this always
-  // requests stream:true, so that's the one case where the server's
-  // response shape doesn't match what was asked for. Handle it the same
-  // way as the "environment doesn't support streaming" fallback: read it
-  // as a whole and hand it to onChunk once, rather than feeding it through
-  // the SSE line-parser below where it would never match a "data:" line.
+  // A cache hit comes back as one complete JSON object, not an SSE stream —
+  // as does an environment without streaming. Read it whole and hand it to
+  // onChunk once. Its usage is zeroed (see rabbit-hole-proxy-v2).
   const contentType = res.headers.get("Content-Type") || "";
   if (!res.body || !res.body.getReader || contentType.includes("application/json")) {
-    clearTimeout(timeoutId);
+    stopTimer();
     const data = await res.json();
-    const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+    const text = textOf(data);
     onChunk(text);
-    // A cache-hit response's usage is always zeroed (see rabbit-hole-proxy)
-    // — nothing to report, and onUsage only matters for a genuinely fresh
-    // generation anyway (see its callers for why: seeding the cache with
-    // real cost, not re-reporting a cache hit's already-known zero cost).
     if (onUsage) onUsage(data.usage || null);
-    return text;
+    return text.replace(/```/g, "").trim();
   }
 
   const reader = res.body.getReader();
@@ -350,26 +285,19 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
   let buffer = "";
   let fullText = "";
   let gotAnyData = false;
-  // Mirrors rabbit-hole-proxy's own parseSSEUsage — input/cache tokens
-  // arrive on message_start, the true final output-token count arrives on
-  // the LAST message_delta before the stream ends (each one is a running
-  // total, not an increment). Only captured client-side so a root
-  // generation's real cost can travel along with its OWN cache write (see
-  // writeNewsRootCache's new usage args) — avoids a race against the
-  // server's background billing task, which can't reliably attach usage to
-  // a news_root_cache row the client hasn't created yet at that point.
+  // Mirrors the proxy's own parseSSEUsage: input tokens arrive on
+  // message_start, the final output-token count on the last message_delta
+  // (each is a running total). Captured so a generation's real cost can
+  // travel with its own cache write (see writeNewsArticleCache).
   let capturedUsage = null;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       gotAnyData = true;
-      // Re-armed on every chunk, not just cleared once — this bounds the
-      // gap between chunks, not just the time to the first one. A stream
-      // that produces one chunk and then stalls (server-side hang,
-      // network black hole) used to hang here forever, since the timeout
-      // was cleared on the first chunk and never reset.
-      clearTimeout(timeoutId);
+      // Re-armed on every chunk, so a stream that stalls after its first
+      // chunk still times out.
+      stopTimer();
       timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
@@ -399,113 +327,50 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
   } catch (streamErr) {
     console.error("Hyfax: stream failed", streamErr);
     if (!gotAnyData) throw streamErr;
-    // if we already streamed in some real text before failing, keep it rather
-    // than throwing the whole thing away — partial content is still useful
+    // Text that already streamed in is kept rather than thrown away.
   } finally {
-    clearTimeout(timeoutId);
+    stopTimer();
   }
 
   if (onUsage) onUsage(capturedUsage);
-  return fullText;
-}
-
-// "Read more" content: real prose, not JSON, so no parsing needed beyond
-// trimming stray markdown fences a model might add out of habit.
-//
-// `nodeType` (direct/indirect/tangent/custom/root) is logged alongside this
-// request purely for analysis — which branch types people actually choose
-// to read, so the obscurity mix (hyfaxSystemPrompt.js's OBSCURITY_LEVELS)
-// can eventually be tuned toward what resonates instead of a guess.
-export async function streamTextFromPrompt(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, nodeType, newsCacheKey, nodeCacheKey, onUsage, heroSource, extraBody) {
-  const fullText = await streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk, newsCacheKey, nodeCacheKey, nodeType, onUsage, heroSource, extraBody);
   return fullText.replace(/```/g, "").trim();
 }
 
+// The cache writes below are fire-and-forget: errors are swallowed, since a
+// failed write only means the next visitor generates the page fresh too.
+// `usage` is the generation's real cost, so later cache hits can be billed
+// like a fresh page.
+function writeCache(kind, fields, usage) {
+  fetch(PROXY_URL, {
+    method: "POST",
+    headers: proxyHeaders(),
+    body: JSON.stringify({
+      [kind]: { ...fields, ...(usage ? { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens } : {}) },
+    }),
+  }).catch((e) => console.error(`Hyfax: cache write (${kind}) failed`, e));
+}
 
-// Fire-and-forget: caches a cached topic's chips (its indirect/tangent
-// threads, generated after its article) on that topic's news_root_cache
-// row, so the next visitor to open the same card gets them instantly.
-// Creates the row if the article write hasn't yet; otherwise fills in the
-// still-empty chips on the row that write made. `usage` is the chip call's
-// real cost, so later cache hits can be billed like a fresh generation.
-// Errors are swallowed: a failed write just means the next visitor
-// generates fresh too.
+// A cached topic's threads, on its news_root_cache row (creating the row if
+// its article write hasn't yet).
 export function writeNewsRootCache(cacheKey, rootLabel, overview, children, usage) {
-  fetch(PROXY_URL, {
-    method: "POST",
-    headers: proxyHeaders(),
-    body: JSON.stringify({
-      newsCacheWrite: {
-        cacheKey,
-        rootLabel,
-        overview,
-        children,
-        ...(usage ? { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens } : {}),
-      },
-    }),
-  }).catch((e) => console.error("Hyfax: failed to write news root cache", e));
+  writeCache("newsCacheWrite", { cacheKey, rootLabel, overview, children }, usage);
 }
 
-// Same idea as writeNewsRootCache, but for the root's own full article text
-// — called from loadArticle in App.jsx only for a news-context ROOT node
-// (never a child), once its article has finished streaming. The row this
-// updates already exists (created by writeNewsRootCache moments earlier in
-// the same visitor's flow); the server-side handler only fills in the
-// article column if it's still null, so this is safe to fire even if two
-// visitors finish generating around the same time.
-// The article now finishes BEFORE the topic's chips exist, so this write
-// can be the one that creates the cache row — it carries the title and the
-// real usage itself rather than relying on a row the chips write made first.
+// A cached topic's own article — this can be the write that creates the row
+// (the article finishes before the threads exist), so it carries the title.
+// The server only fills in the article if it's still empty.
 export function writeNewsArticleCache(cacheKey, article, usage, rootLabel) {
-  fetch(PROXY_URL, {
-    method: "POST",
-    headers: proxyHeaders(),
-    body: JSON.stringify({
-      newsArticleCacheWrite: {
-        cacheKey,
-        article,
-        ...(rootLabel ? { rootLabel } : {}),
-        ...(usage ? { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens } : {}),
-      },
-    }),
-  }).catch((e) => console.error("Hyfax: failed to write news article cache", e));
+  writeCache("newsArticleCacheWrite", { cacheKey, article, ...(rootLabel ? { rootLabel } : {}) }, usage);
 }
 
-// Branch-node equivalent of writeNewsRootCache — see App.jsx's expandNode.
-// cacheKey is "<root's own cache key>::<this child's label>" (see
-// rabbit-hole-proxy-v2's parseNodeCacheKey); only ever called for a direct
-// child of an already-cached root, never a grandchild.
+// A cached topic's direct thread's own threads; cacheKey is
+// "<topic>::<thread>" (see rabbit-hole-proxy-v2's parseNodeCacheKey).
 export function writeNodeCache(cacheKey, children, usage) {
-  fetch(PROXY_URL, {
-    method: "POST",
-    headers: proxyHeaders(),
-    body: JSON.stringify({
-      nodeCacheWrite: {
-        cacheKey,
-        children,
-        ...(usage ? { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens } : {}),
-      },
-    }),
-  }).catch((e) => console.error("Hyfax: failed to write node cache", e));
+  writeCache("nodeCacheWrite", { cacheKey, children }, usage);
 }
 
-// Branch-node equivalent of writeNewsArticleCache — see App.jsx's
-// loadArticle. Unlike writeNewsArticleCache, the underlying row may not
-// exist yet when this fires (a visitor can open a branch's article without
-// ever expanding it), so the server handler creates it here if needed —
-// which means, unlike the root article case, usage has to travel in THIS
-// same write rather than a later server-side update (nothing guarantees
-// the row exists yet for that update to find).
+// That thread's article; the row may not exist yet (a thread can be read
+// without being explored), so the server creates it if needed.
 export function writeNodeArticleCache(cacheKey, article, usage) {
-  fetch(PROXY_URL, {
-    method: "POST",
-    headers: proxyHeaders(),
-    body: JSON.stringify({
-      nodeArticleCacheWrite: {
-        cacheKey,
-        article,
-        ...(usage ? { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens } : {}),
-      },
-    }),
-  }).catch((e) => console.error("Hyfax: failed to write node article cache", e));
+  writeCache("nodeArticleCacheWrite", { cacheKey, article }, usage);
 }

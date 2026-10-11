@@ -156,7 +156,19 @@ function splitTitleLine(raw) {
 // render it growing in real time rather than sitting on a spinner.
 async function fetchArticleTextStreaming(topicLabel, path, onChunk, newsContext, nodeType, articleCacheKey, nodeCacheKey, onUsage, heroSource) {
   const userContent = articleUserPrompt({ topicLabel, path, newsContext, nodeType });
-  return streamTextFromPrompt(HYFAX_SYSTEM, userContent, ARTICLE_MAX_TOKENS, 30000, "article", onChunk, nodeType, articleCacheKey, nodeCacheKey, onUsage, heroSource);
+  return streamTextFromPrompt({
+    system: HYFAX_SYSTEM,
+    prompt: userContent,
+    maxTokens: ARTICLE_MAX_TOKENS,
+    timeoutMs: 30000,
+    endpoint: "article",
+    onChunk,
+    nodeType,
+    newsCacheKey: articleCacheKey,
+    nodeCacheKey,
+    onUsage,
+    heroSource,
+  });
 }
 
 // "Read more on this" — this app is entertainment, not a research tool, so this is
@@ -180,7 +192,7 @@ What they already read:
 ${existingArticle}
 """`;
 
-  return streamTextFromPrompt(HYFAX_SYSTEM, userContent, 500, 30000, "continuation", onChunk, nodeType);
+  return streamTextFromPrompt({ system: HYFAX_SYSTEM, prompt: userContent, maxTokens: 500, timeoutMs: 30000, endpoint: "continuation", onChunk, nodeType });
 }
 
 // Chips are only the indirect/tangent leaps now — direct subtopics are
@@ -997,16 +1009,16 @@ export default function Hyfax() {
     let nodeUsage = null;
 
     try {
-      const data = await callClaude(
-        HYFAX_SYSTEM,
-        childPrompt(node.label, path, existingLabels, node.depth + 1, stripLinkMarkers(articleText ?? node.article ?? "")),
-        "expand",
+      const data = await callClaude({
+        system: HYFAX_SYSTEM,
+        prompt: childPrompt(node.label, path, existingLabels, node.depth + 1, stripLinkMarkers(articleText ?? node.article ?? "")),
+        endpoint: "expand",
         nodeCacheKey,
-        (usage) => {
+        newsCacheKey: rootCacheKey,
+        onUsage: (usage) => {
           nodeUsage = usage;
         },
-        rootCacheKey
-      );
+      });
       if (nodeCacheKey) writeNodeCache(nodeCacheKey, data.children, nodeUsage);
       if (rootCacheKey) writeNewsRootCache(rootCacheKey, node.label, "", data.children, nodeUsage);
       const taken = new Set(ownLinkLabels.map((l) => l.toLowerCase()));

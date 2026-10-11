@@ -96,26 +96,22 @@ function ToneLab() {
       const startedAt = performance.now();
       let firstAt = null;
       const update = (patch) => setRuns((prev) => prev.map((r) => (r.slot === run.slot ? { ...r, ...patch } : r)));
-      streamTextFromPrompt(
-        HYFAX_SYSTEM,
+      streamTextFromPrompt({
+        system: HYFAX_SYSTEM,
         prompt,
-        ARTICLE_MAX_TOKENS,
-        60000,
-        "article",
-        (partial) => {
+        maxTokens: ARTICLE_MAX_TOKENS,
+        timeoutMs: 60000,
+        endpoint: "article",
+        onChunk: (partial) => {
           if (firstAt == null) {
             firstAt = performance.now();
             update({ ttftMs: firstAt - startedAt });
           }
           update({ text: partial });
         },
-        "root",
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        { modelOverride: run.id }
-      )
+        nodeType: "root",
+        extra: { modelOverride: run.id },
+      })
         .then((finalText) => update({ text: finalText, totalMs: performance.now() - startedAt, loading: false }))
         .catch((err) => update({ error: err.message || "Generation failed", loading: false }));
     });

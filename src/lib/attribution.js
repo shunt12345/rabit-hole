@@ -4,7 +4,7 @@
 // rather than sticking around indefinitely the way the anonymous session
 // id (lib/session.js) deliberately does. Read once on load (see App.jsx),
 // then threaded onto every proxy request from then on (see api.js's
-// streamRaw) so every logged row, not just the root call that happened to
+// proxyBody) so every logged row, not just the root call that happened to
 // carry the URL params, can be attributed back to its source.
 const KEY = "hyfax-attribution";
 
