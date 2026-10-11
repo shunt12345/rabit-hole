@@ -9,6 +9,8 @@ import {
   writeNewsArticleCache,
   writeNodeCache,
   writeNodeArticleCache,
+  claimPage,
+  TrialExhaustedError,
 } from "./lib/api.js";
 import { HYFAX_SYSTEM, OBSCURITY_LEVELS, FIXED_OBSCURITY } from "./lib/hyfaxSystemPrompt.js";
 import { createPacedReveal } from "./lib/pacedReveal.js";
@@ -156,7 +158,7 @@ function splitTitleLine(raw) {
 // parses the API's server-sent-event chunks directly and calls onChunk
 // with the accumulated text so far after every delta, so the screen can
 // render it growing in real time rather than sitting on a spinner.
-async function fetchArticleTextStreaming(topicLabel, path, onChunk, newsContext, nodeType, articleCacheKey, nodeCacheKey, onUsage, heroSource) {
+async function fetchArticleTextStreaming(topicLabel, path, onChunk, newsContext, nodeType, articleCacheKey, nodeCacheKey, onUsage, heroSource, preview) {
   const userContent = articleUserPrompt({ topicLabel, path, newsContext, nodeType });
   return streamTextFromPrompt({
     system: HYFAX_SYSTEM,
@@ -170,6 +172,7 @@ async function fetchArticleTextStreaming(topicLabel, path, onChunk, newsContext,
     nodeCacheKey,
     onUsage,
     heroSource,
+    preview,
   });
 }
 
@@ -957,6 +960,10 @@ export default function Hyfax() {
     node.articleLoading = true;
     node.articleStreaming = false;
     node.articleError = null;
+    // A preview's page isn't one of the reader's free pages until it's
+    // explored (see explorePreview); any other load counts it now.
+    if (preview) node.previewLoaded = true;
+    else node.counted = true;
     setNodes([...nodesRef.current]);
 
     // Optimistic bump — this is the actual unit that counts as "one
@@ -970,7 +977,7 @@ export default function Hyfax() {
     // the moment the call completes (correcting it back down if the call
     // was actually blocked, e.g. trial exhausted), so it can't drift
     // permanently wrong.
-    setTrialStatus((prev) => ({ ...prev, searchesUsed: Math.min(prev.searchesUsed + 1, prev.searchLimit) }));
+    if (!preview) setTrialStatus((prev) => ({ ...prev, searchesUsed: Math.min(prev.searchesUsed + 1, prev.searchLimit) }));
 
     const path = pathToNode(node);
     // The ROOT of a news/today/quote-sourced topic caches its article — same
@@ -1045,7 +1052,8 @@ export default function Hyfax() {
         (usage) => {
           nodeUsage = usage;
         },
-        node.type === "root" ? node.heroSource || undefined : undefined
+        node.type === "root" ? node.heroSource || undefined : undefined,
+        preview
       );
       const { title, body: rawBody } = splitTitleLine(finalText);
       const finalBody = trimToLastSentence(rawBody);
@@ -1058,10 +1066,12 @@ export default function Hyfax() {
       // the typing animation catches up — with this article's own links
       // already known, so they're excluded.
       const threadsWanted = !preview || selectedIdRef.current === node.id;
-      if (threadsWanted && !trialExhaustedRef.current && !node.generated && !node.loading) expandNode(node.id, stripMarkdown(finalBody));
+      // The proxy allows a page's threads while the count is AT the limit,
+      // so the last free page still gets its threads to preview.
+      if (threadsWanted && !node.generated && !node.loading) expandNode(node.id, stripMarkdown(finalBody));
       await reveal.finish(finalBody);
       // Explored while its preview was still typing out: its threads start now.
-      if (!threadsWanted && selectedIdRef.current === node.id && !trialExhaustedRef.current && !node.generated && !node.loading) {
+      if (!threadsWanted && selectedIdRef.current === node.id && !node.generated && !node.loading) {
         expandNode(node.id, stripMarkdown(finalBody));
       }
       node.article = stripMarkdown(cleanStrayBrackets(finalBody));
@@ -1146,15 +1156,14 @@ export default function Hyfax() {
     // Opened as its own page (not just previewed) — what marks its card as
     // visited on the page above.
     node.explored = true;
-    // Out of free pages: no page or thread calls (the proxy would refuse
-    // them); the page shows the free-limit offer instead.
-    if (trialExhausted) return;
-
     // loadArticle starts the chips itself once its text has arrived; this
-    // only covers revisiting a page whose chips never landed.
+    // covers a page explored from a preview that had already loaded, and
+    // revisiting a page whose chips never landed. Out of free pages, no new
+    // page is loaded (the proxy would refuse it; the page shows the
+    // free-limit offer), but a page already read still gets its threads.
     if (!node.article && !node.articleLoading) {
-      loadArticle(selectedId);
-    } else if (node.article && !node.articleStreaming && !node.generated && !node.loading && !trialExhausted) {
+      if (!trialExhausted) loadArticle(selectedId);
+    } else if (node.article && !node.articleStreaming && !node.generated && !node.loading && !node.claimRefused) {
       expandNode(selectedId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1205,13 +1214,14 @@ export default function Hyfax() {
       trackEvent("tap", { page: node.label, sessionId });
       if (!user && !hasDismissedSignUpPrompt() && recordChipTap() === 3) setShowSignUpPrompt(true);
     }
-    if (node && !node.article && !node.articleLoading && !trialExhaustedRef.current) loadArticle(nodeId, { preview: true });
+    // Previews are free (a page counts when it's explored), so they work at
+    // the free limit too; a prefetched paragraph needs no load at all.
+    if (node && !node.article && !node.articleLoading && !node.previewText) loadArticle(nodeId, { preview: true });
   };
   // A cached topic's threads (one tap from a hero/starter topic) have their
   // pages in node_cache, which anyone can read, so their first paragraphs
   // are fetched as soon as the threads appear and a preview opens with its
-  // text already there. Opening it still goes through the proxy (see
-  // togglePreview), so it counts as a page just the same.
+  // text already there, with no call to the proxy at all.
   const prefetchedRef = useRef(new Set());
   useEffect(() => {
     const page = nodesRef.current.find((n) => n.id === selectedId);
@@ -1242,9 +1252,41 @@ export default function Hyfax() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, nodes.length]);
-  // Explore: the previewed thread becomes the page (its tap was already
-  // counted when the preview opened).
-  const explorePreview = (nodeId) => setSelectedId(nodeId);
+  // Explore: the previewed thread becomes the page — and this is where it
+  // counts as one of the reader's free pages. Out of free pages, it opens
+  // the sign-up (or add-funds) offer instead. A page its preview already
+  // loaded is counted with claimPage; one that isn't loaded yet (a
+  // prefetched paragraph, or a failed preview) loads, and counts, as a page.
+  // (Its tap was already tracked when the preview opened.)
+  const explorePreview = (nodeId) => {
+    const node = nodesRef.current.find((n) => n.id === nodeId);
+    if (!node) return;
+    if (trialExhaustedRef.current && !node.counted) {
+      if (user) openAccountModal();
+      else signUpAtLimit();
+      return;
+    }
+    if ((node.article || node.articleLoading) && node.previewLoaded && !node.counted) {
+      node.counted = true;
+      setTrialStatus((prev) => ({ ...prev, searchesUsed: Math.min(prev.searchesUsed + 1, prev.searchLimit) }));
+      // Keyed like loadArticle's cache key, so /admin's page view names the
+      // page the same way a loaded page's does.
+      const parent = nodesRef.current.find((n) => n.id === node.parentId);
+      const cachedThread = node.depth === 1 && parent?.type === "root" && parent.newsContext;
+      claimPage({ nodeType: node.type, nodeCacheKey: cachedThread ? `${parent.fullTopic}::${node.label}` : undefined })
+        .catch((e) => {
+          // Refused (the free pages ran out first): the page shows the
+          // free-limit offer instead of its text.
+          if (e instanceof TrialExhaustedError) node.claimRefused = true;
+          else console.error("Hyfax: counting an explored page failed", e);
+        })
+        .finally(() => {
+          syncActionsToday();
+          setNodes([...nodesRef.current]);
+        });
+    }
+    setSelectedId(nodeId);
+  };
   // The trail at the top shows the last two steps; "…" opens the rest.
   const [trailFull, setTrailFull] = useState(false);
   useEffect(() => setTrailFull(false), [selectedId]);
@@ -1402,7 +1444,8 @@ export default function Hyfax() {
                 className="rh-body inline-flex items-center rounded-full px-3.5 py-1 text-sm font-semibold rh-btn-accent"
                 style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
               >
-                Explore this thread →
+                {/* At the free limit, exploring a new page offers sign-up. */}
+                {trialExhausted && !child.counted ? (user ? "Add funds to explore →" : "Sign up free to explore →") : "Explore this thread →"}
               </button>
             </div>
           )}
@@ -1472,9 +1515,9 @@ export default function Hyfax() {
   // Inline [[link]] pages live in the article text; the chip row is only
   // the indirect/tangent threads generated after it.
   const chipChildren = selectedChildren.filter((n) => !n.fromLink);
-  // At the free limit, only threads whose page is already loaded stay —
-  // the preview that used the last free page still opens and explores.
-  const shownChips = trialExhausted ? chipChildren.filter((n) => n.article) : chipChildren;
+  // Threads stay at the free limit too: previewing is free, and exploring
+  // one offers sign-up (see explorePreview).
+  const shownChips = chipChildren;
   // Each inline link's page, with the paragraph its link first appears in
   // (where its preview opens).
   const articleParas = (selected?.article || "").split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
@@ -1482,9 +1525,7 @@ export default function Hyfax() {
     .filter((n) => n.fromLink)
     .map((n) => ({ ...n, linkPara: articleParas.findIndex((p) => linkLabelsIn(p).some((l) => l.toLowerCase() === n.label.toLowerCase())) }))
     .filter((n) => n.linkPara !== -1);
-  // Out of free pages, an article's inline links render as plain text —
-  // there's nowhere further to go for free.
-  const linkableChildren = trialExhausted ? [] : selectedChildren;
+  const linkableChildren = selectedChildren;
 
   // The free-limit offer. A visitor without an account is offered a free
   // one (more pages a day), and their thread is saved so the sign-in link
@@ -1959,7 +2000,7 @@ export default function Hyfax() {
                   </div>
                 ) : null}
 
-                {selected.article ? (
+                {selected.article && !selected.claimRefused ? (
                   <div className="mt-4 pt-4 border-t space-y-4 rh-fade-in" style={{ borderColor: "#4A3C2C", color: "#F1E6D3" }}>
                     {selected.article
                       .split(/\n\s*\n/)
@@ -2000,7 +2041,7 @@ export default function Hyfax() {
                           {/* An inline link's preview opens right under its
                               paragraph. */}
                           {inlineLinkChildren
-                              .filter((c) => c.linkPara === i && (!trialExhausted || c.article))
+                              .filter((c) => c.linkPara === i)
                               .map((c) => (
                                 // Takes no room while closed (no top margin
                                 // of its own from the article's spacing).

@@ -20,6 +20,8 @@ function snapshotNode(n) {
     depth: n.depth,
     fromLink: !!n.fromLink,
     explored: !!n.explored,
+    previewLoaded: !!n.previewLoaded,
+    counted: !!n.counted,
     pinned: !!n.pinned,
     titled: !!n.titled,
     generated: !!n.generated,

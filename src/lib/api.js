@@ -142,15 +142,18 @@ function attributionFields() {
 //   logged for analysis.
 // - heroSource: which hero-page section (or freeform/spin-a-thread/shared
 //   link) led to a topic page's call, for /admin.
+// - preview: a thread's preview, which doesn't count as a free page (it
+//   counts once explored; see claimPage).
 // - extra: admin Tone Lab only (e.g. { modelOverride }); the proxy ignores it
 //   for anyone not on its ADMIN_USER_IDS list.
-async function proxyBody({ system, prompt, maxTokens, stream, endpoint, newsCacheKey, nodeCacheKey, nodeType, heroSource, extra }) {
+async function proxyBody({ system, prompt, maxTokens, stream, endpoint, newsCacheKey, nodeCacheKey, nodeType, heroSource, preview, extra }) {
   return JSON.stringify({
-    max_tokens: maxTokens,
+    ...(prompt != null
+      ? { max_tokens: maxTokens, system: systemBlock(system), messages: [{ role: "user", content: prompt }] }
+      : {}),
     ...(stream ? { stream: true } : {}),
-    system: systemBlock(system),
-    messages: [{ role: "user", content: prompt }],
     endpoint,
+    ...(preview ? { preview: true } : {}),
     // The long-lived free-limit id; never expires.
     sessionId: getSessionId(),
     // Adoption analytics identity (lib/visitor.js, migration 0049): resets
@@ -334,6 +337,20 @@ export async function streamTextFromPrompt({ onChunk, onUsage, timeoutMs, ...req
 
   if (onUsage) onUsage(capturedUsage);
   return fullText.replace(/```/g, "").trim();
+}
+
+// Exploring a thread whose page its preview already loaded: counts that
+// page as one of the reader's free pages (no text is fetched). Throws
+// TrialExhaustedError if the free pages are already used up.
+export async function claimPage({ nodeType, newsCacheKey, nodeCacheKey }) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  try {
+    const body = await proxyBody({ endpoint: "article", nodeType, newsCacheKey, nodeCacheKey, extra: { claimPage: true } });
+    await postToProxy(body, controller, () => {});
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 // The cache writes below are fire-and-forget: errors are swallowed, since a

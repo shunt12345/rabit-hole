@@ -180,6 +180,11 @@ const SIGNED_IN_SEARCH_LIMIT = Number(Deno.env.get("SIGNED_IN_SEARCH_LIMIT") ?? 
 // limit. The utm value is client-supplied — an accepted looseness, same
 // as the free tier's timezone-based reset.
 const REDDIT_SEARCH_LIMIT = Number(Deno.env.get("REDDIT_SEARCH_LIMIT") ?? "10");
+// Previews are free — a page counts when it's explored — but each one can
+// mean writing a page, so they get their own daily cap, generous enough
+// that a reader never meets it, and low enough that marking every request a
+// preview isn't a way around the page limit.
+const PREVIEW_DAILY_LIMIT = Number(Deno.env.get("PREVIEW_DAILY_LIMIT") ?? "40");
 
 function searchLimitFor(userId: string | null, utmSource?: string) {
   if (userId) return SIGNED_IN_SEARCH_LIMIT;
@@ -637,7 +642,8 @@ async function logRequest(
   // lib/attribution.js, which captures/reads them as one unit).
   attribution?: { utmSource?: string; utmCampaign?: string; rdtCid?: string },
   cacheHit = false,
-  isTest = false
+  isTest = false,
+  preview = false
 ): Promise<number | null> {
   try {
     const { data, error } = await supabase
@@ -673,6 +679,8 @@ async function logRequest(
         // The operator's own ?hyfax_test=1 traffic (migration 0052), left
         // out of admin-usage-stats.
         is_test: isTest,
+        // A thread preview (migration 0061): not counted as a page.
+        preview,
       })
       .select("id")
       .single();
@@ -893,6 +901,23 @@ function isServableCacheHit(endpoint: string, nodeCacheKey: string | undefined, 
 // count from Section 14.1. Signed-in callers count against their real
 // account; anonymous callers still count against their session_id (see
 // the top-of-file note on why that stays loose on purpose).
+// Today's thread previews (see PREVIEW_DAILY_LIMIT), counted the same way.
+async function countPreviews(userId: string | null, sessionId: string, timeZone: string) {
+  let query = supabase
+    .from("rabbit_hole_request_logs")
+    .select("*", { count: "exact", head: true })
+    .eq("endpoint", "article")
+    .eq("preview", true)
+    .gte("created_at", trialDayStartIso(timeZone));
+  query = userId ? query.eq("user_id", userId) : query.eq("session_id", sessionId || "unknown");
+  const { count, error } = await query;
+  if (error) {
+    console.error("rabbit-hole-proxy: preview count check failed, allowing request", error);
+    return null;
+  }
+  return count ?? 0;
+}
+
 async function countSearches(userId: string | null, sessionId: string, timeZone: string) {
   const since = trialDayStartIso(timeZone);
   let query = supabase
@@ -900,6 +925,7 @@ async function countSearches(userId: string | null, sessionId: string, timeZone:
     .select("*", { count: "exact", head: true })
     .eq("endpoint", "article")
     .eq("refunded", false)
+    .eq("preview", false)
     .gte("created_at", since);
   // Cached pages count like any other — readers can't tell them apart.
   // A page that failed to load doesn't (see refundPage).
@@ -1301,7 +1327,14 @@ serve(async (req) => {
       isTest,
       modelOverride,
       precomputeSecret,
+      preview,
+      claimPage,
     } = body;
+    // A free-page model in two steps: a thread's preview loads its page
+    // without counting it (`preview`), and exploring it then counts the page
+    // (`claimPage`, no Anthropic call — the text is already loaded).
+    const isPreview = endpoint === "article" && preview === true;
+    const isClaim = endpoint === "article" && claimPage === true;
     const isPrecompute =
       PRECOMPUTE_SECRET.length >= 16 && typeof precomputeSecret === "string" && precomputeSecret.trim() === PRECOMPUTE_SECRET;
     // Tells the precompute job why a secret it sent wasn't accepted (never
@@ -1317,7 +1350,7 @@ serve(async (req) => {
         : null;
     const effectiveTimeZone = isValidTimeZone(timeZone) ? timeZone : DEFAULT_TIME_ZONE;
 
-    if (!Array.isArray(messages) || messages.length === 0) {
+    if (!isClaim && (!Array.isArray(messages) || messages.length === 0)) {
       return new Response(JSON.stringify({ error: "messages is required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1403,12 +1436,13 @@ serve(async (req) => {
     // The cache lookup runs alongside the other preflight reads; a hit is
     // marked on the request's log row (cache_hit) for analytics, and is
     // billed and counted toward the free limit like a fresh page.
-    const [spendResult, searchCount, cacheResult] = await Promise.all([
+    const [spendResult, searchCount, cacheResult, previewCount] = await Promise.all([
       !funded
         ? supabase.rpc("get_recent_spend_usd", { since })
         : Promise.resolve({ data: null as number | null, error: null as Error | null }),
       countSearches(userId, sessionId, effectiveTimeZone),
-      cacheLookup(endpoint, nodeCacheKey, newsCacheKey),
+      isClaim ? Promise.resolve(null) : cacheLookup(endpoint, nodeCacheKey, newsCacheKey),
+      isPreview ? countPreviews(userId, sessionId, effectiveTimeZone) : Promise.resolve(null),
     ]);
     if (cacheResult?.error) console.error(`rabbit-hole-proxy: ${endpoint} cache lookup failed`, cacheResult.error);
     // deno-lint-ignore no-explicit-any
@@ -1437,13 +1471,18 @@ serve(async (req) => {
     }
 
     const searchLimit = searchLimitFor(userId, utmSource);
+    const exempt = funded || isAdmin || isPrecompute;
+    // A preview is held to the preview cap, not the page limit. A page's
+    // threads (expand) are allowed while the count is AT the limit, so the
+    // last free page still gets its threads to preview; reading another
+    // page (article, explore, continuation) is not.
     const trialBlocked =
-      !funded &&
-      !isAdmin &&
-      !isPrecompute &&
-      searchCount !== null &&
-      searchCount >= searchLimit &&
-      GATED_ENDPOINTS.has(endpoint);
+      !exempt &&
+      (isPreview
+        ? previewCount !== null && previewCount >= PREVIEW_DAILY_LIMIT
+        : searchCount !== null &&
+          GATED_ENDPOINTS.has(endpoint) &&
+          (endpoint === "expand" ? searchCount > searchLimit : searchCount >= searchLimit));
     // +1 only when THIS call is itself an "article" call that's actually
     // going to be allowed through — countSearches queried
     // rabbit_hole_request_logs before logRequest() below inserts this
@@ -1454,7 +1493,7 @@ serve(async (req) => {
     // either — that bug briefly showed counts like "7/6", climbing by one
     // on every retry after the trial was already exhausted, since each
     // rejected retry still claimed credit for a call that never happened.
-    const displaySearchCount = (searchCount ?? 0) + (!trialBlocked && endpoint === "article" ? 1 : 0);
+    const displaySearchCount = (searchCount ?? 0) + (!trialBlocked && endpoint === "article" && !isPreview ? 1 : 0);
     const responseHeaders = {
       ...corsHeaders,
       ...usageHeaders(count),
@@ -1465,8 +1504,10 @@ serve(async (req) => {
     if (trialBlocked) {
       return new Response(
         JSON.stringify({
-          error: "trial_exhausted",
-          message: userId
+          error: isPreview ? "previews_exhausted" : "trial_exhausted",
+          message: isPreview
+            ? `That's today's ${PREVIEW_DAILY_LIMIT} previews — explore a thread to keep going, or come back tomorrow.`
+            : userId
             ? `Free pages used up for today (${searchLimit}) — resets at 3am your time. Add funds for full access.`
             : `Free pages used up for today (${searchLimit}) — resets at 3am your time. Sign up free for more.`,
         }),
@@ -1499,17 +1540,27 @@ serve(async (req) => {
       utmSource,
       utmCampaign,
       rdtCid,
-    }, cacheHit, !!isTest);
-    if (endpoint === "article" && !cacheHit) refundThisPage = () => background(refundPage(logRowIdPromise));
+    }, cacheHit, !!isTest, isPreview);
+    if (endpoint === "article" && !cacheHit && !isPreview && !isClaim) refundThisPage = () => background(refundPage(logRowIdPromise));
 
     // Adoption analytics (see logArticleViewEvent above) — only an
     // "article" call counts as an article_view; root/expand/continuation
     // calls aren't page views. Fire-and-forget, same as logRequest.
-    if (endpoint === "article") {
+    if (endpoint === "article" && !isPreview) {
       logArticleViewEvent(visitorId, visitorSessionId, newsCacheKey || nodeCacheKey || heroSource || null, userId, !!isTest, {
         utmSource,
         utmCampaign,
         utmContent,
+      });
+    }
+
+    // Exploring a previewed thread: its text is already on screen, so this
+    // only counts the page (the log row above) and its page view.
+    if (isClaim) {
+      await logRowIdPromise;
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { ...responseHeaders, "Content-Type": "application/json" },
       });
     }
 
