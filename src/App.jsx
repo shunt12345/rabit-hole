@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, Fragment } from "react";
+import { useState, useRef, useEffect, Fragment } from "react";
 import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, Share2, Check, Shuffle, HelpCircle } from "lucide-react";
 import {
   callClaude,
@@ -9,13 +9,12 @@ import {
   writeNewsArticleCache,
   writeNodeCache,
   writeNodeArticleCache,
-  TrialExhaustedError,
 } from "./lib/api.js";
 import { HYFAX_SYSTEM, OBSCURITY_LEVELS, FIXED_OBSCURITY } from "./lib/hyfaxSystemPrompt.js";
 import { createPacedReveal } from "./lib/pacedReveal.js";
-import { getCurrentUser, onAuthStateChange, isNewAccount } from "./lib/auth.js";
+import { getCurrentUser, onAuthStateChange, isNewAccount, getAccessToken } from "./lib/auth.js";
 import { maybeReportSignUp, maybeReportLead } from "./lib/redditPixel.js";
-import { getAttribution, isRedditVisit } from "./lib/attribution.js";
+import { isRedditVisit } from "./lib/attribution.js";
 import { touchSession } from "./lib/visitor.js";
 import { trackEvent } from "./lib/track.js";
 import { recordChipTap, hasDismissedSignUpPrompt, dismissSignUpPrompt } from "./lib/chipTaps.js";
@@ -39,7 +38,6 @@ import {
 } from "./lib/exploredHistory.js";
 import { shareArticle } from "./lib/share.js";
 import { savePendingThread, takePendingThread } from "./lib/pendingThread.js";
-import { getAccessToken } from "./lib/auth.js";
 
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -161,7 +159,7 @@ async function fetchArticleTextStreaming(topicLabel, path, onChunk, newsContext,
   return streamTextFromPrompt(HYFAX_SYSTEM, userContent, ARTICLE_MAX_TOKENS, 30000, "article", onChunk, nodeType, articleCacheKey, nodeCacheKey, onUsage, heroSource);
 }
 
-// "Dig deeper" — this app is entertainment, not a research tool, so this is
+// "Read more on this" — this app is entertainment, not a research tool, so this is
 // deliberately capped to ONE extra round per node (enforced by the caller
 // via node.deepened) rather than open-ended pagination. The prompt gets the
 // existing article text so it can continue naturally instead of repeating
@@ -392,7 +390,6 @@ export default function Hyfax() {
   // (not a scored quiz — just stops a reader from immediately re-tapping
   // the same wrong answer). Reset below whenever the riddle's real answer
   // changes (a new day's pick), so yesterday's wrong guesses don't linger.
-  const [riddleWrongPicks, setRiddleWrongPicks] = useState([]);
   const [selectedRiddle, setSelectedRiddle] = useState(false);
   // Raw action count from the proxy's X-Session-Actions-Today header —
   // kept for the existing 300/day safety-net visibility; the real
@@ -755,6 +752,7 @@ export default function Hyfax() {
     if (preset.length) root.generated = true;
     setTopic(t);
     setPreviewByPage({});
+    prefetchedRef.current.clear();
     nodesRef.current = [root, ...preset];
     setNodes([root, ...preset]);
     setSelectedId(root.id);
@@ -804,6 +802,7 @@ export default function Hyfax() {
 
     setTopic(root.label);
     setPreviewByPage({});
+    prefetchedRef.current.clear();
     nodesRef.current = newNodes;
     setNodes(newNodes);
     setSelectedId(root.id);
@@ -1185,7 +1184,7 @@ export default function Hyfax() {
     setNodes([...nodesRef.current]);
   };
 
-  // "Dig deeper" — capped to one extra round per node (the `deepened` flag
+  // "Read more on this" — capped to one extra round per node (the `deepened` flag
   // below), reusing the same streaming cursor UI as the initial load by
   // appending onto the existing text rather than replacing it. Unlike a
   // failed initial load (which has nothing worth keeping), a failed
@@ -1224,7 +1223,7 @@ export default function Hyfax() {
       reveal.cancel();
       node.article = baseArticle;
       node.articleStreaming = false;
-      node.deepenError = e.message || "Couldn't dig deeper — try again.";
+      node.deepenError = e.message || "Couldn't load more — try again.";
     }
     syncActionsToday();
     setNodes([...nodesRef.current]);
@@ -1247,10 +1246,10 @@ export default function Hyfax() {
     // call specifically (see rabbit-hole-proxy's isRootArticle) so a fresh
     // Dig In always gets a full standalone page — it just can't be branched
     // into any further.
-    if (trialExhausted && node.type !== "root") return;
     // Opened as its own page (not just previewed) — what marks its card as
     // visited on the page above.
     node.explored = true;
+    if (trialExhausted && node.type !== "root") return;
 
     // loadArticle starts the chips itself once its text has arrived; this
     // only covers revisiting a page whose chips never landed.
@@ -1264,6 +1263,7 @@ export default function Hyfax() {
 
   const reset = () => {
     setPreviewByPage({});
+    prefetchedRef.current.clear();
     nodesRef.current = [];
     setNodes([]);
     setSelectedId(null);
@@ -1299,9 +1299,13 @@ export default function Hyfax() {
     setPreviewByPage((prev) => ({ ...prev, [selectedId]: opening ? nodeId : null }));
     if (!opening) return;
     const node = nodesRef.current.find((n) => n.id === nodeId);
-    const { sessionId } = touchSession();
-    trackEvent("tap", { page: node?.label, sessionId });
-    if (!user && !hasDismissedSignUpPrompt() && recordChipTap() === 3) setShowSignUpPrompt(true);
+    // A thread's first opening is its tap; reopening it isn't another.
+    if (node && !node.tapped) {
+      node.tapped = true;
+      const { sessionId } = touchSession();
+      trackEvent("tap", { page: node.label, sessionId });
+      if (!user && !hasDismissedSignUpPrompt() && recordChipTap() === 3) setShowSignUpPrompt(true);
+    }
     if (node && !node.article && !node.articleLoading && !trialExhaustedRef.current) loadArticle(nodeId, { preview: true });
   };
   // A cached topic's threads (one tap from a hero/starter topic) have their
@@ -1322,7 +1326,10 @@ export default function Hyfax() {
       fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/node_cache?select=article&cache_key=eq.${encodeURIComponent(key)}`, {
         headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY, Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
       })
-        .then((res) => (res.ok ? res.json() : []))
+        .then((res) => {
+          if (!res.ok) throw new Error(`node_cache ${res.status}`);
+          return res.json();
+        })
         .then((rows) => {
           const { body } = splitTitleLine(rows?.[0]?.article || "");
           const first = stripMarkdown(body).split(/\n\s*\n/)[0]?.trim();
@@ -1330,7 +1337,9 @@ export default function Hyfax() {
           child.previewText = first;
           setNodes([...nodesRef.current]);
         })
-        .catch(() => {});
+        // A failed fetch: the preview just loads through the proxy, and the
+        // next visit to this page tries again.
+        .catch(() => prefetchedRef.current.delete(key));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, nodes.length]);
@@ -1445,7 +1454,8 @@ export default function Hyfax() {
   const renderPreview = (child) => {
     const open = previewId === child.id;
     // The article as it loads, or the cached first paragraph fetched ahead.
-    const first = (child.article || "").split(/\n\s*\n/)[0] || child.previewText || "";
+    const loaded = (child.article || "").split(/\n\s*\n/)[0] || "";
+    const first = (child.previewText || "").length > loaded.length ? child.previewText : loaded;
     const text = stripLinkMarkers(first.replace(/\[\[[^\]]*$/, ""));
     const stillTyping = !!child.article && child.articleStreaming && !/\n\s*\n/.test(child.article);
     const hasBody = open || child.article || child.articleLoading || child.articleError;
@@ -1513,24 +1523,8 @@ export default function Hyfax() {
   const quoteTopic = latestByField(trendingTopics, [QUOTE_FIELD])[0] || null;
   const riddleTopic = previewRiddle || latestByField(trendingTopics, [RIDDLE_FIELD])[0] || null;
   const perspectiveTopic = latestByField(trendingTopics, [PERSPECTIVE_FIELD])[0] || null;
-  // Shuffled once per riddle (not per render) so the answer isn't always
-  // in the same slot but also doesn't jump around while someone's staring
-  // at it deciding.
-  const riddleChoices = useMemo(() => {
-    if (!riddleTopic) return [];
-    const decoys = Array.isArray(riddleTopic.options) ? riddleTopic.options : [];
-    const all = [riddleTopic.topic, ...decoys];
-    for (let i = all.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [all[i], all[j]] = [all[j], all[i]];
-    }
-    return all;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [riddleTopic?.topic, riddleTopic?.options?.join("|")]);
-  // A fresh riddle (new day) should start with a clean slate, not carry
-  // over yesterday's wrong guesses or highlight state.
+  // A fresh riddle (new day) shouldn't carry over the highlight.
   useEffect(() => {
-    setRiddleWrongPicks([]);
     setSelectedRiddle(false);
   }, [riddleTopic?.topic]);
   const selected = nodes.find((n) => n.id === selectedId) || null;
@@ -1588,6 +1582,9 @@ export default function Hyfax() {
   // Inline [[link]] pages live in the article text; the chip row is only
   // the indirect/tangent threads generated after it.
   const chipChildren = selectedChildren.filter((n) => !n.fromLink);
+  // At the free limit, only threads whose page is already loaded stay —
+  // the preview that used the last free page still opens and explores.
+  const shownChips = trialExhausted ? chipChildren.filter((n) => n.article) : chipChildren;
   // Each inline link's page, with the paragraph its link first appears in
   // (where its preview opens).
   const articleParas = (selected?.article || "").split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
@@ -1691,7 +1688,6 @@ export default function Hyfax() {
         .rh-trail .rh-step-here { flex: 0 1 auto; }
         .rh-trail.rh-trail-full { flex-wrap: wrap; white-space: normal; }
         .rh-text-10 { font-size: 10px; }
-        .rh-tracking-30 { letter-spacing: 0.3em; }
         .rh-tracking-25 { letter-spacing: 0.25em; }
         /* One step below article titles (text-3xl). */
         .rh-hero-headline { font-size: 1.5rem; line-height: 1.25; }
@@ -2131,52 +2127,6 @@ export default function Hyfax() {
                     </p>
                   </button>
                 </div>
-
-                {/* Multiple-choice guess UI — hidden, not erased, in case
-                    this comes back in a different form. */}
-                {false && (
-                  <div
-                    className="max-w-md mx-auto mt-2 p-5 rounded-2xl border"
-                    style={{ borderColor: "#4A3826", backgroundColor: "#241B12" }}
-                  >
-                    <div className="flex flex-col gap-2">
-                      {riddleChoices.map((choice) => {
-                        const isCorrectPick = selectedRiddle && choice === riddleTopic.topic;
-                        const isWrong = riddleWrongPicks.includes(choice);
-                        return (
-                          <button
-                            key={choice}
-                            type="button"
-                            onClick={() => {
-                              if (choice === riddleTopic.topic) {
-                                setSelectedRiddle(true);
-                                setSelectedNewsIdx(null);
-                                setSelectedTodayIdx(null);
-                                setSelectedQuote(false);
-                                setSelectedPerspective(false);
-                                startTopic(riddleTopic.topic, riddleTopic.teaser, RIDDLE_FIELD);
-                              } else {
-                                setRiddleWrongPicks((prev) => (prev.includes(choice) ? prev : [...prev, choice]));
-                              }
-                            }}
-                            disabled={rootLoading || isWrong}
-                            className={`rh-chip rh-body text-sm text-left rounded-xl px-4 py-2.5 border transition-colors ${
-                              rootLoading && !isCorrectPick ? "opacity-40" : ""
-                            } ${rootLoading && isCorrectPick ? "cursor-default" : ""}`}
-                            style={{
-                              borderColor: isCorrectPick ? "#E3A73C" : "#5A4630",
-                              backgroundColor: isCorrectPick ? "#2A2015" : "transparent",
-                              color: isWrong ? "#6B5B45" : "#F1E6D3",
-                              textDecoration: isWrong ? "line-through" : "none",
-                            }}
-                          >
-                            {choice}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
@@ -2483,19 +2433,18 @@ export default function Hyfax() {
                           </p>
                           {/* An inline link's preview opens right under its
                               paragraph. */}
-                          {!trialExhausted &&
-                            inlineLinkChildren
-                              .filter((c) => c.linkPara === i)
+                          {inlineLinkChildren
+                              .filter((c) => c.linkPara === i && (!trialExhausted || c.article))
                               .map((c) => (
-                                // Takes no room while closed (the -1rem
-                                // cancels the article's paragraph spacing).
+                                // Takes no room while closed (no top margin
+                                // of its own from the article's spacing).
                                 <div
                                   key={c.id}
                                   className="rounded-2xl"
                                   style={
                                     previewId === c.id
                                       ? { border: "1px solid #E3A73C", backgroundColor: "#2A2015", marginTop: "0.5rem" }
-                                      : { marginTop: "-1rem" }
+                                      : { marginTop: 0 }
                                   }
                                 >
                                   {previewId === c.id && (
@@ -2615,7 +2564,7 @@ export default function Hyfax() {
                     dead-end into content that's guaranteed to be rejected,
                     matching linkableChildren's same rule for in-text
                     links above. */}
-                {!trialExhausted && chipChildren.length > 0 && (
+                {shownChips.length > 0 && (
                   <div className="mt-8">
                     <div className="flex items-baseline justify-between gap-3 mb-3">
                       <div className="rh-display text-xl italic" style={{ color: "#F1E6D3" }}>
@@ -2626,12 +2575,12 @@ export default function Hyfax() {
                       </div>
                     </div>
                     <div className="flex flex-col gap-2.5">
-                      {chipChildren.map((child, i) => {
+                      {shownChips.map((child, i) => {
                         // Visited means explored as its own page, not just
                         // previewed here.
                         const visited = !!child.explored;
                         const open = previewId === child.id;
-                        const firstFresh = !visited && chipChildren.findIndex((c) => !c.explored) === i;
+                        const firstFresh = !visited && shownChips.findIndex((c) => !c.explored) === i;
                         return (
                           <div
                             key={child.id}

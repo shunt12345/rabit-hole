@@ -137,23 +137,6 @@ function cleanRiddleGame(raw: any): RiddleGame | null {
   return { clues, hints, answers };
 }
 
-// On approving a riddle with game pieces: the answer's topic page gets its
-// four clues as its "Where to next?" thread cards, so a player who solves
-// it lands on threads matching what they just worked through. Keyed the
-// way the hero page opens the answer (news_root_cache by topic). Pinned so
-// the article naming one doesn't drop it (see expandNode in App.jsx). A
-// page already cached for the topic (a past riddle, or a preview) keeps
-// its article but gets these threads in place of its own. The hero page
-// also opens the answer with the clues directly; this covers the cache.
-async function precacheRiddleAnswer(topic: string, game: RiddleGame) {
-  const children = game.clues.map((c, i) => ({ label: c.title, teaser: c.teaser, type: i < 2 ? "indirect" : "tangent", pinned: true }));
-  const { data: existing } = await supabase.from("news_root_cache").select("cache_key").eq("cache_key", topic).maybeSingle();
-  const { error } = existing
-    ? await supabase.from("news_root_cache").update({ children }).eq("cache_key", topic)
-    : await supabase.from("news_root_cache").insert({ cache_key: topic, root_label: topic, overview: "", children });
-  if (error) console.error("admin-review-queue: failed to pre-cache riddle answer", error);
-}
-
 // Same shared project secrets generate-trending-topics itself reads (every
 // function in this project draws from one pool, not per-function secrets
 // — see that function's DEPLOY STEPS comment) — lets this function call it
@@ -309,11 +292,11 @@ serve(async (req) => {
       }
       const slot = nextSlot();
       if (action === "approve") {
+        // Nothing is cached for a riddle here: a public cache row keyed by
+        // the answer would give tomorrow's answer away tonight. The hero
+        // page opens the answer with its clues as threads itself, and the
+        // 07:03 precompute caches the page once it's live.
         const error = await approveIntoSlot(id, existing.field, slot);
-        if (!error && existing.riddle_game) {
-          const game = cleanRiddleGame(existing.riddle_game);
-          if (game) await precacheRiddleAnswer(existing.topic, game);
-        }
         if (error) {
           return new Response(JSON.stringify({ error: error.message }), {
             status: 500,

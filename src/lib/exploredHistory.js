@@ -21,7 +21,15 @@ const KEY = "hyfax-explored-topics";
 const MAX_ENTRIES = 8;
 
 function normalizeChildren(children) {
-  return (children || []).map((c) => ({ label: c.label, teaser: c.teaser, type: c.type }));
+  // fromLink keeps an inline link's thread under its paragraph (not in the
+  // cards) when the topic is resumed; pinned keeps a hand-set card.
+  return (children || []).map((c) => ({
+    label: c.label,
+    teaser: c.teaser,
+    type: c.type,
+    ...(c.fromLink ? { fromLink: true } : {}),
+    ...(c.pinned ? { pinned: true } : {}),
+  }));
 }
 
 // ---- Local tier (localStorage) ----

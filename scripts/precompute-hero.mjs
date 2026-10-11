@@ -104,7 +104,9 @@ async function openHero(i) {
 }
 
 async function threadLabels() {
-  return (await page.locator('[data-precompute="thread"]').allInnerTexts()).map((t) => t.split("\n")[0].trim()).filter(Boolean);
+  // One entry per thread element, in page order (so an index here is its
+  // locator's nth).
+  return (await page.locator('[data-precompute="thread"]').allInnerTexts()).map((t) => t.split("\n")[0].trim());
 }
 
 // Mark every riddle solved for this browser so the game card offers
@@ -135,7 +137,7 @@ for (let i = 0; i < heroCount; i++) {
   const topic = (await page.locator("h2").first().textContent())?.trim();
   pages++;
   if (!ok) failures++;
-  const labels = [...new Set(await threadLabels())].slice(0, MAX_THREADS);
+  const labels = [...new Set((await threadLabels()).filter(Boolean))].slice(0, MAX_THREADS);
   threadsFound += labels.length;
   if (secretAccepted === false) {
     const why = {
@@ -151,22 +153,31 @@ for (let i = 0; i < heroCount; i++) {
 
   for (const label of labels) {
     t = Date.now();
-    await openHero(i);
-    const link = page.locator('[data-precompute="thread"]', { hasText: label }).first();
-    if (!(await link.count())) {
-      console.log(`   - ${label}: not found on reopen, skipped`);
-      continue;
+    try {
+      await openHero(i);
+      // Matched on the exact label (a card's first line, or a link's text),
+      // so "Ice" never clicks "Glacier Ice".
+      const index = (await threadLabels()).indexOf(label);
+      if (index === -1) {
+        console.log(`   - ${label}: not found on reopen, skipped`);
+        failures++;
+        continue;
+      }
+      await page.locator('[data-precompute="thread"]').nth(index).click();
+      let done = await waitUntilDone();
+      const explore = page.locator('[data-precompute="explore"]').first();
+      if (await explore.count()) {
+        await explore.click();
+        done = (await waitUntilDone()) && done;
+      }
+      pages++;
+      if (!done) failures++;
+      console.log(`   - ${label}: ${done ? "ok" : "timed out"} (${((Date.now() - t) / 1000).toFixed(1)}s)`);
+    } catch (e) {
+      // One thread failing shouldn't end the run for every hero after it.
+      failures++;
+      console.log(`   - ${label}: failed (${e.message.split("\n")[0]})`);
     }
-    await link.click();
-    let done = await waitUntilDone();
-    const explore = page.locator('[data-precompute="explore"]').first();
-    if (await explore.count()) {
-      await explore.click();
-      done = (await waitUntilDone()) && done;
-    }
-    pages++;
-    if (!done) failures++;
-    console.log(`   - ${label}: ${done ? "ok" : "timed out"} (${((Date.now() - t) / 1000).toFixed(1)}s)`);
   }
 }
 

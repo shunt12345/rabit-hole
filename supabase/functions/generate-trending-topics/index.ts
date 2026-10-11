@@ -1128,6 +1128,10 @@ async function fetchRecentWordTeasers(): Promise<{ topic: string; teaser: string
 }
 
 serve(async (req) => {
+  // The slot is fixed when the request starts: generation can run past
+  // 07:00, and a pick written for today's date (This Day In History) must
+  // not then be scheduled for tomorrow.
+  const requestStartedAt = new Date();
   const cronSecret = Deno.env.get("CRON_SECRET");
   if (!cronSecret || req.headers.get("x-cron-secret") !== cronSecret) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -1272,7 +1276,7 @@ serve(async (req) => {
   const errors: string[] = [];
   const errorLogRows: { batch_date: string; field: string; error_message: string }[] = [];
   const today = new Date().toISOString().slice(0, 10);
-  const publishAt = nextPublishAt().toISOString();
+  const publishAt = nextPublishAt(requestStartedAt).toISOString();
 
   results.forEach((r, i) => {
     if (r.status === "fulfilled") {

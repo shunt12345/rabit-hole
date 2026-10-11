@@ -148,7 +148,7 @@ function corsHeadersFor(req: Request) {
     // custom header is invisible to fetch()'s res.headers.get() client-side
     // without this, even though it's plainly there on the wire.
     "Access-Control-Expose-Headers":
-      "X-Session-Actions-Today, X-Trial-Searches-Used, X-Trial-Search-Limit, X-Trial-Funded",
+      "X-Session-Actions-Today, X-Trial-Searches-Used, X-Trial-Search-Limit, X-Trial-Funded, X-Precompute",
   };
 }
 
@@ -427,10 +427,11 @@ function parseSSEUsage(sseText: string) {
 // running under a different Deno host locally.
 function background(promise: Promise<unknown>) {
   const rt = (globalThis as any).EdgeRuntime;
+  // Caught either way: an unhandled rejection can take down the worker,
+  // cutting off other requests' streams.
+  const safe = promise.catch((e) => console.error("rabbit-hole-proxy: background task failed", e));
   if (rt && typeof rt.waitUntil === "function") {
-    rt.waitUntil(promise);
-  } else {
-    promise.catch((e) => console.error("rabbit-hole-proxy: background task failed", e));
+    rt.waitUntil(safe);
   }
 }
 
@@ -651,8 +652,10 @@ async function logRequest(
         utm_source: typeof attribution?.utmSource === "string" ? attribution.utmSource.slice(0, 60) : null,
         utm_campaign: typeof attribution?.utmCampaign === "string" ? attribution.utmCampaign.slice(0, 120) : null,
         rdt_cid: typeof attribution?.rdtCid === "string" ? attribution.rdtCid.slice(0, 120) : null,
-        // Served from cache (migration 0051) — still billed, but not
-        // counted against the free daily limit (see countSearches).
+        // Served from cache (migration 0051) — billed and counted against
+        // the free daily limit like a fresh page (see countSearches); left
+        // out of the free-tier spend backstop (migration 0059), since no
+        // Anthropic call was made.
         cache_hit: cacheHit,
         // The operator's own ?hyfax_test=1 traffic (migration 0052), left
         // out of admin-usage-stats.
@@ -1347,7 +1350,7 @@ serve(async (req) => {
     if (countError) {
       // fail open — a logging/count hiccup shouldn't block a real request
       console.error("rabbit-hole-proxy: usage count check failed, allowing request", countError);
-    } else if ((count ?? 0) >= DAILY_REQUEST_LIMIT) {
+    } else if ((count ?? 0) >= DAILY_REQUEST_LIMIT && !isPrecompute) {
       return new Response(
         "Daily limit reached for this browser — try again tomorrow. (This app runs on a shared demo key with a safety cap to prevent runaway costs.)",
         { status: 429, headers: { ...corsHeaders, ...usageHeaders(count), "Content-Type": "text/plain" } }
@@ -1364,7 +1367,7 @@ serve(async (req) => {
     if (clientIp) {
       if (ipCountError) {
         console.error("rabbit-hole-proxy: IP usage count check failed, allowing request", ipCountError);
-      } else if ((ipCount ?? 0) >= DAILY_REQUEST_LIMIT_PER_IP) {
+      } else if ((ipCount ?? 0) >= DAILY_REQUEST_LIMIT_PER_IP && !isPrecompute) {
         return new Response(
           "Daily limit reached for this network — try again tomorrow. (This app runs on a shared demo key with a safety cap to prevent runaway costs.)",
           { status: 429, headers: { ...corsHeaders, ...usageHeaders(count), "Content-Type": "text/plain" } }

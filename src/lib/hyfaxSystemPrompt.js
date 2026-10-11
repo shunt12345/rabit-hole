@@ -149,7 +149,7 @@ If the user turn asks for a title line, the very first line of the response must
 Respond with ONLY the article text itself (after the title line, if one was asked for): plain prose paragraphs separated by a blank line. No JSON, no markdown formatting, no preamble like "Here's an article about...".`;
 
 const CONTINUATION_TASK = `=== TASK: continue article ===
-You're extending the "read more" content for a node in this app — the reader already read the deep-dive quoted in the user turn and tapped "dig deeper" because they want a bit more on this SAME topic before moving on.
+You're extending the "read more" content for a node in this app — the reader already read the deep-dive quoted in the user turn and tapped "Read more on this" because they want a bit more on this SAME topic before moving on.
 
 Write one or two more paragraphs (roughly 90-160 words total) that continue naturally from where that left off — genuinely new angles, facts, or texture not already covered above, not a rephrasing of it. This app is entertainment, not a research tool, so don't try to be exhaustive or academic — just give a satisfying next layer for someone who's curious enough to want a little more, then let it end there. Structure as flowing prose paragraphs — not a bulleted list, no headers, no title line, and don't repeat the topic name as an opener the way an article intro would.
 
