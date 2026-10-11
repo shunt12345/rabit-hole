@@ -54,6 +54,9 @@ const RIDDLE_FIELD = "Riddle";
 const PERSPECTIVE_FIELD = "Perspective";
 const TRENDING_FIELDS = ["Trending 1", "Trending 2"];
 const TODAY_FIELDS = ["This Day In History", "Word Of The Day"];
+// How long a pick stays on the hero page (MAX_STALE_HOURS in
+// src/lib/heroPicks.js); the email leaves out anything older too.
+const MAX_STALE_HOURS = 36;
 const FIELD_LABELS: Record<string, string> = {
   "Trending 1": "Trending",
   "Trending 2": "Trending",
@@ -321,8 +324,8 @@ serve(async (req) => {
     );
   }
 
-  // Latest row per field — same "most recent per named field" semantics as
-  // the client's latestByField, just expressed as SQL here. Explicitly
+  // Approved, already-public picks; the pick per field is chosen below, by
+  // the same rule as the hero page (src/lib/heroPicks.js). Explicitly
   // scoped to status='approved' (see migration 0045) even though this
   // function uses the service-role key, which bypasses the RLS policy
   // that enforces the same thing for the anon-key hero page — nothing
@@ -337,19 +340,27 @@ serve(async (req) => {
     // Same "not public until its publish time" rule as the hero page's
     // read policy (migration 0053).
     .or(`publish_at.is.null,publish_at.lte.${new Date().toISOString()}`)
-    // Most recently published first (same rule as the hero page), so this
-    // morning's slot wins even over a pick generated later.
-    .order("publish_at", { ascending: false, nullsFirst: false })
-    .order("generated_at", { ascending: false });
+    // Bounded, so the read never hits the API's row cap as picks pile up; a
+    // pick goes live within days of being generated.
+    .gte("generated_at", new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString());
   if (topicsError) {
     return new Response(JSON.stringify({ error: `Failed to read topics: ${topicsError.message}` }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
   }
-  const latestByField = new Map<string, { field: string; topic: string; teaser: string; riddle_game?: { clues?: { title: string }[] } | null }>();
+  // The hero page's rule, so the email shows exactly the picks on the site:
+  // per field, the pick that went live most recently (its publish_at, or
+  // generated_at for a row without one, such as a hand-added seed), and
+  // none older than 36 hours — a field with no fresh pick is left out, the
+  // way the hero page drops its card.
+  const liveSince = (r: { publish_at: string | null; generated_at: string }) => new Date(r.publish_at || r.generated_at).getTime();
+  const freshSince = Date.now() - MAX_STALE_HOURS * 60 * 60 * 1000;
+  const latestByField = new Map<string, { field: string; topic: string; teaser: string; publish_at: string | null; generated_at: string; riddle_game?: { clues?: { title: string }[] } | null }>();
   for (const row of topicRows || []) {
-    if (!latestByField.has(row.field)) latestByField.set(row.field, row);
+    if (liveSince(row) < freshSince) continue;
+    const best = latestByField.get(row.field);
+    if (!best || liveSince(row) > liveSince(best)) latestByField.set(row.field, row);
   }
   type Topic = { field: string; topic: string; teaser: string };
   const quote = latestByField.get(QUOTE_FIELD) ?? null;
@@ -370,14 +381,11 @@ serve(async (req) => {
       headers: { "Content-Type": "application/json" },
     });
   }
-  // Same semantics as the hero page's mostRecentDate — the latest time a
-  // pick in the WHOLE fetched batch went live (its publish_at, migration
-  // 0053, or generated_at for rows from before that), so the badge shows
-  // the day the batch is for rather than the day it was generated.
+  // Same as the hero page's date badge (mostRecentDate): the latest time a
+  // pick went live, so the badge shows the day the batch is for rather than
+  // the day it was generated.
   const asOfDate =
-    topicRows && topicRows.length
-      ? new Date(Math.max(...topicRows.map((r) => new Date(r.publish_at || r.generated_at).getTime())))
-      : null;
+    latestByField.size ? new Date(Math.max(...[...latestByField.values()].map(liveSince))) : null;
 
   const { data: recipients, error: recipientsError } = await supabase
     .from("profiles")
