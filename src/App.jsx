@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, Fragment } from "react";
-import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, Share2, Check, Shuffle, HelpCircle } from "lucide-react";
+import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, Share2, Check, Shuffle } from "lucide-react";
 import {
   callClaude,
   streamTextFromPrompt,
@@ -26,7 +26,8 @@ import { nextSurpriseTopic } from "./lib/surpriseTopics.js";
 import UsageGauge from "./UsageGauge.jsx";
 import MiniGauge from "./MiniGauge.jsx";
 import AdCard from "./AdCard.jsx";
-import RiddleGame from "./RiddleGame.jsx";
+import HeroSections from "./HeroSections.jsx";
+import { TRENDING_TOPICS_URL, RIDDLE_FIELD } from "./lib/heroPicks.js";
 import { pickHouseAd, getHouseAdById, engagementStage } from "./lib/houseAds.js";
 import { getSessionId } from "./lib/session.js";
 import {
@@ -247,53 +248,6 @@ function nextId() {
   return idCounter;
 }
 
-// Real live topics now — see supabase/functions/generate-trending-topics.
-// A scheduled job (pg_cron, twice daily) does one Claude web-search call per
-// field — 2 mainstream-trending picks, plus date-anchored/evergreen fields
-// ("This Day In History", "Word Of The Day") — and caches each result in
-// trending_topics_cache; this just reads a batch of recent rows with the
-// anon key. No live search happens on the client or per page load.
-// NEWS_FIELDS / SPECIAL_FIELDS below pick the latest row per named field
-// out of that batch, so a field that's been renamed or retired (like the
-// old "World News"/"Science"/"Technology" beats this replaced, or the
-// "Trending Wildcard" offbeat pick) just stops rendering on its own instead
-// of lingering until its rows age out.
-// status=eq.approved is belt-and-suspenders, not the real enforcement —
-// RLS itself only allows reading approved rows now (migration 0045), so a
-// pending/rejected row is unreadable with the anon key regardless of this
-// query string. Kept explicit anyway so this file's own intent reads
-// clearly without having to know the DB-side policy exists.
-const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=id,field,topic,teaser,source_url,options,category,direction,generated_at,riddle_game,publish_at&status=eq.approved&order=generated_at.desc,id.desc&limit=40`;
-const NEWS_FIELDS = ["Trending 1", "Trending 2"];
-// What each internal field key actually displays as — kept separate from
-// the field key itself so latestByField (below) can still tell the two
-// mainstream picks apart for lookup purposes while both show the same
-// "Trending" badge on screen; a field with no entry here just falls back
-// to showing its raw key.
-const NEWS_FIELD_LABELS = { "Trending 1": "Trending", "Trending 2": "Trending" };
-const SPECIAL_FIELDS = ["This Day In History", "Word Of The Day"];
-// Same source table/cron cadence as SPECIAL_FIELDS (see promptForField in
-// generate-trending-topics), but rendered as its own dedicated section
-// above "Trending" instead of grouped into "Today" — deliberately kept OUT
-// of SPECIAL_FIELDS above so it doesn't also show up a second time in that
-// list.
-const QUOTE_FIELD = "Quote Of The Day";
-// "Reverse Hyfax" — a withheld-register riddle describing a topic without
-// naming it, plus a multiple-choice guess (the real topic + 2 decoys from
-// `options`). Same source table/cadence as SPECIAL_FIELDS but kept out of
-// that list for the same reason QUOTE_FIELD is: it needs its own card
-// treatment (the guess UI), not the plain topic+teaser list layout.
-const RIDDLE_FIELD = "Riddle";
-// Reframes something by shifting scale (zoom into the microscopic/
-// molecular, or out to the planetary/cosmic) rather than searching for
-// what's currently interesting — same source table/cadence as
-// SPECIAL_FIELDS, but kept out of that list for the same reason
-// QUOTE_FIELD/RIDDLE_FIELD are: its own dedicated card, placed right after
-// "Today" rather than grouped into that list (see
-// supabase/functions/generate-trending-topics' perspectivePrompt/
-// nextPerspectiveFocus for the Human/Nature/Space rotation this reads).
-const PERSPECTIVE_FIELD = "Perspective";
-
 // No longer rendered as hero chips (removed in favor of "Spin a thread"
 // taking that spot), but still the precomputed-cache lookup table for the
 // Reddit ad landing flow's ?q= override (see the Reddit entry-flow effect
@@ -314,51 +268,6 @@ const STARTER_QUESTIONS = [
   { topic: "why do we get goosebumps", teaser: "A shiver left over from fur you stopped growing thousands of years ago." },
 ];
 
-// How old a row can be before it's treated as stale rather than shown as
-// today's pick — generous past the ~24h cron cadence (36h) to tolerate
-// normal timing jitter, but still short enough to catch a genuinely failed
-// run. Confirmed live this matters: generate-trending-topics silently
-// failed for one field one day (no error surfaced anywhere a visitor could
-// see), and with no staleness check at all, the PREVIOUS day's row for
-// that field just kept showing indefinitely as if it were current —
-// exactly the kind of thing "Trending" can't afford to get wrong.
-const MAX_STALE_HOURS = 36;
-// When a pick went public: its scheduled publish time (migration 0053),
-// or its generation time for rows from before that existed.
-function liveSince(row) {
-  return new Date(row.publish_at || row.generated_at).getTime();
-}
-function isFresh(row) {
-  return Date.now() - liveSince(row) <= MAX_STALE_HOURS * 60 * 60 * 1000;
-}
-
-// The "as of" badge's actual date — the max across all rows, not just
-// rows[0]. Confirmed live why this matters: when one field's generation
-// silently failed for a day, rows[0] (Trending 1, alphabetically/order
-// first) was the stale leftover while the other two fields were genuinely
-// fresh from today, so a naive rows[0] read showed yesterday's date even
-// though most of the section was current.
-function mostRecentDate(rows) {
-  return new Date(Math.max(...rows.map(liveSince)));
-}
-
-// Picks the single most recent row for each field in `fields`, in that
-// order — not just the first N rows in the batch, since stale rows from a
-// retired field or a partially-failed cron run could otherwise crowd out a
-// field that's actually still active. Drops anything past MAX_STALE_HOURS
-// outright — better to show fewer cards than a visibly-dated one.
-// The pick most recently published for each field — by when it went live
-// rather than when it was generated, since a pick approved into the
-// morning's slot can be older than one already live (an alternative from
-// an earlier batch, say) and must still replace it.
-function latestByField(rows, fields) {
-  return fields
-    .map((field) =>
-      rows.filter((r) => r.field === field).reduce((best, r) => (!best || liveSince(r) > liveSince(best) ? r : best), null)
-    )
-    .filter(Boolean)
-    .filter(isFresh);
-}
 
 export default function Hyfax() {
   const [topic, setTopic] = useState("");
@@ -387,22 +296,6 @@ export default function Hyfax() {
   // with no flash of empty state while the account fetch (if any) is
   // still in flight.
   const [exploredHistory, setExploredHistory] = useState(() => getLocalHistory());
-  // Which "Trending" card was clicked, so only that one highlights
-  // instead of all three dimming identically once rootLoading flips on.
-  const [selectedNewsIdx, setSelectedNewsIdx] = useState(null);
-  // Same idea, for the "Today" list (This Day In History / Word Of The Day).
-  const [selectedTodayIdx, setSelectedTodayIdx] = useState(null);
-  // Same idea, for the single Quote Of The Day card — a plain boolean since
-  // there's only ever one of these on screen, unlike the indexed lists above.
-  const [selectedQuote, setSelectedQuote] = useState(false);
-  // Same idea, for the single Perspective card.
-  const [selectedPerspective, setSelectedPerspective] = useState(false);
-  // Riddle card: which decoy(s) the reader has already guessed wrong, so
-  // that option can grey out and stay wrong instead of being re-clickable
-  // (not a scored quiz — just stops a reader from immediately re-tapping
-  // the same wrong answer). Reset below whenever the riddle's real answer
-  // changes (a new day's pick), so yesterday's wrong guesses don't linger.
-  const [selectedRiddle, setSelectedRiddle] = useState(false);
   // Raw action count from the proxy's X-Session-Actions-Today header —
   // kept for the existing 300/day safety-net visibility; the real
   // free-trial gate (below) is search-count-based, not this.
@@ -715,10 +608,6 @@ export default function Hyfax() {
         setRootError("Type a topic first.");
         return;
       }
-      setSelectedNewsIdx(null);
-      setSelectedTodayIdx(null);
-      setSelectedQuote(false);
-      setSelectedPerspective(false);
       startTopic(inputVal, undefined, isSurprise ? "spin_a_thread" : "freeform");
     } catch (syncErr) {
       console.error("Hyfax: synchronous error on click", syncErr);
@@ -1530,15 +1419,6 @@ export default function Hyfax() {
   // rather than waiting for the root's data to come back — the opening
   // sentence generates on the topic page itself, not on the hero page.
   const showTopicPage = hasStarted || rootLoading;
-  const newsTopics = latestByField(trendingTopics, NEWS_FIELDS);
-  const todayTopics = latestByField(trendingTopics, SPECIAL_FIELDS);
-  const quoteTopic = latestByField(trendingTopics, [QUOTE_FIELD])[0] || null;
-  const riddleTopic = previewRiddle || latestByField(trendingTopics, [RIDDLE_FIELD])[0] || null;
-  const perspectiveTopic = latestByField(trendingTopics, [PERSPECTIVE_FIELD])[0] || null;
-  // A fresh riddle (new day) shouldn't carry over the highlight.
-  useEffect(() => {
-    setSelectedRiddle(false);
-  }, [riddleTopic?.topic]);
   const selected = nodes.find((n) => n.id === selectedId) || null;
 
   // Smooth "opener sentence" transition-out once its article starts being
@@ -1892,322 +1772,25 @@ export default function Hyfax() {
               </div>
             )}
 
-            {/* Quote Of The Day — same source table/cron cadence as "Today"
-                (see promptForField in generate-trending-topics), but placed
-                above "Trending" as its own section rather than grouped into
-                the "Today" list, since a full quote needs more visual room
-                than a short topic label + teaser. Reuses the "Today"
-                feature toggle for gating (todayVisible) rather than adding
-                a whole new toggle for one field. Clickable the same way as
-                every other card — the quote text itself becomes the topic
-                dug into, with the author/context teaser passed through as
-                newsContext so the resulting article covers the quote's
-                real history, significance, and author (see ARTICLE_TASK's
-                dedicated Quote Of The Day guidance in hyfaxSystemPrompt.js). */}
-            {quoteTopic && todayVisible && (
-              <div className="mt-10">
-                {/* Date badge — moved here from the top of "Trending" so
-                    the whole hero batch's freshness reads once, up front,
-                    rather than being tucked under one specific section.
-                    Uses the most recent publish across the whole fetched
-                    batch (trendingTopics), not just newsTopics, since every
-                    field now refreshes together on the same once-daily cron. */}
-                <div className="rh-mono text-lg font-semibold mb-2" style={{ color: "#E3A73C" }}>
-                  {mostRecentDate(trendingTopics).toLocaleDateString(undefined, {
-                    month: "long",
-                    day: "numeric",
-                  })}
-                </div>
-                <div className="flex items-center justify-center gap-1.5 mb-6">
-                  <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
-                    Quote of the Day
-                  </span>
-                </div>
-                <div className="max-w-md mx-auto">
-                  <button
-                    data-precompute="hero"
-                    type="button"
-                    onClick={() => {
-                      setSelectedQuote(true);
-                      setSelectedNewsIdx(null);
-                      setSelectedTodayIdx(null);
-                      setSelectedPerspective(false);
-                      startTopic(quoteTopic.topic, quoteTopic.teaser, QUOTE_FIELD);
-                    }}
-                    disabled={rootLoading}
-                    className={`rh-chip text-left p-5 rounded-2xl border transition-colors w-full ${
-                      rootLoading && !selectedQuote ? "opacity-40" : ""
-                    } ${rootLoading && selectedQuote ? "cursor-default" : ""}`}
-                    style={{
-                      borderColor: selectedQuote ? "#E3A73C" : "#4A3826",
-                      backgroundColor: selectedQuote ? "#2A2015" : "#241B12",
-                    }}
-                  >
-                    <div className="rh-display italic text-xl leading-snug" style={{ color: "#F1E6D3" }}>
-                      {quoteTopic.topic}
-                    </div>
-                    <p className="rh-body text-sm mt-3" style={{ color: "#B8A886" }}>
-                      {quoteTopic.teaser}
-                    </p>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* "Today" — This Day In History + Word Of The Day, same
-                source table and card treatment as "Trending"
-                but date-anchored/evergreen rather than searched-for-recency.
-                See promptForField in supabase/functions/generate-trending-topics.
-                Same funded-only gate as "Trending" below. */}
-            {todayTopics.length > 0 && todayVisible && (
-              <div className="mt-10">
-                <div className="flex items-center justify-center gap-1.5 mb-6">
-                  <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
-                    Today
-                  </span>
-                </div>
-                <div className="flex flex-col gap-3 max-w-md mx-auto">
-                  {todayTopics.map((t, i) => {
-                    const isSelected = selectedTodayIdx === i;
-                    return (
-                      <button
-                        data-precompute="hero"
-                        key={`${t.field}-${i}`}
-                        type="button"
-                        onClick={() => {
-                          setSelectedTodayIdx(i);
-                          setSelectedNewsIdx(null);
-                          setSelectedQuote(false);
-                          setSelectedPerspective(false);
-                          startTopic(t.topic, t.teaser, t.field);
-                        }}
-                        disabled={rootLoading}
-                        className={`rh-chip text-left p-4 rounded-2xl border transition-colors ${
-                          rootLoading && !isSelected ? "opacity-40" : ""
-                        } ${rootLoading && isSelected ? "cursor-default" : ""}`}
-                        style={{
-                          borderColor: isSelected ? "#E3A73C" : "#4A3826",
-                          backgroundColor: isSelected ? "#2A2015" : "#241B12",
-                        }}
-                      >
-                        <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
-                          {t.field}
-                        </span>
-                        <div className="rh-body text-lg font-semibold mt-1" style={{ color: "#F1E6D3" }}>
-                          {t.topic}
-                        </div>
-                        <p className="rh-body text-sm mt-1" style={{ color: "#B8A886" }}>
-                          {t.teaser}
-                        </p>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* "Perspective" — same source table/cron cadence as "Today,"
-                but its own dedicated single-item card rather than grouped
-                into that list, same reasoning as Quote Of The Day/Riddle
-                above. Reframes one specific thing by shifting scale (zoom
-                in to the microscopic, or out to the cosmic) instead of
-                searching for recency — see perspectivePrompt in
-                generate-trending-topics. Rotates through a fixed
-                Human/Nature/Space sequence server-side (one per day, not
-                model-chosen — see nextPerspectiveFocus). Unlike Riddle/
-                Quote, this field's category (the Human/Nature/Space focus)
-                and direction (micro/macro, see migration 0048) ARE shown
-                here, in place of the badge just repeating the section
-                header's own "Perspective" label right above it. Reuses the
-                "Today" feature toggle (todayVisible) rather than adding a
-                whole new one for a single field, same call Quote Of The
-                Day already made. */}
-            {perspectiveTopic && todayVisible && (
-              <div className="mt-10">
-                <div className="flex items-center justify-center gap-1.5 mb-6">
-                  <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
-                    Perspective
-                  </span>
-                </div>
-                <div className="max-w-md mx-auto">
-                  <button
-                    data-precompute="hero"
-                    type="button"
-                    onClick={() => {
-                      setSelectedPerspective(true);
-                      setSelectedNewsIdx(null);
-                      setSelectedTodayIdx(null);
-                      setSelectedQuote(false);
-                      startTopic(perspectiveTopic.topic, perspectiveTopic.teaser, PERSPECTIVE_FIELD);
-                    }}
-                    disabled={rootLoading}
-                    className={`rh-chip text-left p-4 rounded-2xl border transition-colors w-full ${
-                      rootLoading && !selectedPerspective ? "opacity-40" : ""
-                    } ${rootLoading && selectedPerspective ? "cursor-default" : ""}`}
-                    style={{
-                      borderColor: selectedPerspective ? "#E3A73C" : "#4A3826",
-                      backgroundColor: selectedPerspective ? "#2A2015" : "#241B12",
-                    }}
-                  >
-                    <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
-                      {[perspectiveTopic.category, perspectiveTopic.direction].filter(Boolean).join(" · ") || "Perspective"}
-                    </span>
-                    <div className="rh-body text-lg font-semibold mt-1" style={{ color: "#F1E6D3" }}>
-                      {perspectiveTopic.topic}
-                    </div>
-                    <p className="rh-body text-sm mt-1" style={{ color: "#B8A886" }}>
-                      {perspectiveTopic.teaser}
-                    </p>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* "Riddle me this...." — the branching mechanic run backwards:
-                instead of a topic branching OUT into surprising tangents,
-                this weaves the tangents into one withheld-register riddle
-                first. Was a multiple-choice guess (real answer + 2 decoys)
-                — that UI is hidden below, not deleted, per feedback that
-                the guessing element wasn't landing — replaced with a plain
-                "click to find out" reveal: the whole card IS the answer
-                button now, same one-tap pattern as Quote Of The Day. Still
-                a real billable Dig In on click, same as every other hero
-                card. Has its own toggle (featureRiddle) rather than reusing
-                "Today"'s, so a funded user can turn it off independently,
-                same as every other à la carte feature. */}
-            {/* The guessing game ("What am I?", see RiddleGame.jsx) for a
-                riddle curated with game pieces; older riddles keep the
-                one-tap card below. */}
-            {riddleTopic && riddleVisible && riddleTopic.riddle_game && (
-              <RiddleGame
-                riddle={riddleTopic}
-                user={user}
-                onSignUp={openAccountModal}
-                disabled={rootLoading}
-                onOpenAnswer={() => {
-                  setSelectedRiddle(true);
-                  setSelectedNewsIdx(null);
-                  setSelectedTodayIdx(null);
-                  setSelectedQuote(false);
-                  setSelectedPerspective(false);
-                  // The answer page's threads are the clues just solved.
-                  startTopic(
-                    riddleTopic.topic,
-                    riddleTopic.teaser,
-                    RIDDLE_FIELD,
-                    riddleTopic.riddle_game.clues.map((c, i) => ({
-                      label: c.title,
-                      teaser: c.teaser,
-                      type: i < 2 ? "indirect" : "tangent",
-                      pinned: true,
-                    }))
-                  );
-                }}
-              />
-            )}
-            {riddleTopic && riddleVisible && !riddleTopic.riddle_game && (
-              <div className="mt-10">
-                <div className="flex items-center justify-center gap-1.5 mb-6">
-                  <HelpCircle size={14} style={{ color: "#C9B896" }} />
-                  <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
-                    Riddle me this....
-                  </span>
-                </div>
-                <div className="max-w-md mx-auto">
-                  <button
-                    data-precompute="hero"
-                    type="button"
-                    onClick={() => {
-                      setSelectedRiddle(true);
-                      setSelectedNewsIdx(null);
-                      setSelectedTodayIdx(null);
-                      setSelectedQuote(false);
-                      setSelectedPerspective(false);
-                      startTopic(riddleTopic.topic, riddleTopic.teaser, RIDDLE_FIELD);
-                    }}
-                    disabled={rootLoading}
-                    className={`rh-chip text-left p-5 rounded-2xl border transition-colors w-full ${
-                      rootLoading && !selectedRiddle ? "opacity-40" : ""
-                    } ${rootLoading && selectedRiddle ? "cursor-default" : ""}`}
-                    style={{
-                      borderColor: selectedRiddle ? "#E3A73C" : "#4A3826",
-                      backgroundColor: selectedRiddle ? "#2A2015" : "#241B12",
-                    }}
-                  >
-                    <p className="rh-display italic text-lg leading-relaxed" style={{ color: "#F1E6D3" }}>
-                      {riddleTopic.teaser}
-                    </p>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* House ad (Section H) — between "Reverse Hyfax" and
-                "Trending", the same "not first, not last" depth it held in
-                the previous section order. Funded accounts don't see ads at
-                all — this is specifically aimed at engaging free/
-                unsubscribed users, not a house ad slot everyone gets.
-                Seeded off the browser's own session id, so it's stable for
-                one visitor across a visit but varies visitor to visitor. */}
-            {!funded && (
-              <div className="mt-10">
-                <AdCard ad={pickHouseAd(getSessionId(), adStage)} onClick={openAccountModal} />
-              </div>
-            )}
-
-            {/* real, live-searched stories — see
-                supabase/functions/generate-trending-topics. The "as of"
-                date that used to live here moved to the top of the hero
-                page, above "Quote of the Day" — see that section below.
-                Hidden once the free trial's used up (production punch
-                list, Section B) — Trending is a funded-only feature per
-                the monetization outline's Section 14.1 feature matrix. */}
-            {newsTopics.length > 0 && newsVisible && (
-              <div className="mt-10">
-                <div className="flex items-center justify-center gap-1.5 mb-6">
-                  <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
-                    Trending
-                  </span>
-                </div>
-                <div className="flex flex-col gap-3 max-w-md mx-auto">
-                  {newsTopics.map((t, i) => {
-                    const isSelected = selectedNewsIdx === i;
-                    return (
-                      <button
-                        data-precompute="hero"
-                        key={`${t.field}-${i}`}
-                        type="button"
-                        onClick={() => {
-                          setSelectedNewsIdx(i);
-                          setSelectedTodayIdx(null);
-                          setSelectedQuote(false);
-                          setSelectedPerspective(false);
-                          startTopic(t.topic, t.teaser, t.field);
-                        }}
-                        disabled={rootLoading}
-                        className={`rh-chip text-left p-4 rounded-2xl border transition-colors ${
-                          rootLoading && !isSelected ? "opacity-40" : ""
-                        } ${rootLoading && isSelected ? "cursor-default" : ""}`}
-                        style={{
-                          borderColor: isSelected ? "#E3A73C" : "#4A3826",
-                          backgroundColor: isSelected ? "#2A2015" : "#241B12",
-                        }}
-                      >
-                        <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
-                          {NEWS_FIELD_LABELS[t.field] || t.field}
-                        </span>
-                        <div className="rh-body text-lg font-semibold mt-1" style={{ color: "#F1E6D3" }}>
-                          {t.topic}
-                        </div>
-                        <p className="rh-body text-sm mt-1" style={{ color: "#B8A886" }}>
-                          {t.teaser}
-                        </p>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+            <HeroSections
+              trendingTopics={trendingTopics}
+              previewRiddle={previewRiddle}
+              visible={{ news: newsVisible, today: todayVisible, riddle: riddleVisible }}
+              rootLoading={rootLoading}
+              user={user}
+              onStartTopic={startTopic}
+              onSignUp={openAccountModal}
+              adSlot={
+                // House ad (Section H) — between the riddle and "Trending".
+                // Funded accounts don't see ads. Seeded off the browser's
+                // session id, so it's stable for one visitor across a visit.
+                !funded && (
+                  <div className="mt-10">
+                    <AdCard ad={pickHouseAd(getSessionId(), adStage)} onClick={openAccountModal} />
+                  </div>
+                )
+              }
+            />
 
             {/* Free trial used up (production punch list, Section B) — the
                 "hero placement promoting the paid balance" the
