@@ -147,6 +147,11 @@ async function fetchClaudeText(system, prompt, maxTokens, endpoint, nodeCacheKey
         ...(newsCacheKey ? { newsCacheKey } : {}),
         // Keeps the operator's own test traffic out of /admin usage.
         isTest: isTestMode(),
+        // The proxy sets the free-page limit from utmSource (a Reddit ad
+        // visitor gets more), so a thread-card call needs it as much as an
+        // article call — without it, this call came back at the normal
+        // limit and was refused once that was used up.
+        ...attributionFields(),
         ...(await authField()),
         ...timeZoneField(),
       }),
@@ -203,6 +208,18 @@ async function fetchClaudeText(system, prompt, maxTokens, endpoint, nodeCacheKey
 // its node_cache row (see writeNodeCache), avoiding a race against the
 // server's own background billing task the way root's rootUsage already
 // does for its own cache write.
+// Ad-attribution signals (see lib/attribution.js), sent with every proxy
+// call so a session's cost and behavior trace back to its source.
+function attributionFields() {
+  const attr = getAttribution();
+  return {
+    ...(attr.utmSource ? { utmSource: attr.utmSource } : {}),
+    ...(attr.utmCampaign ? { utmCampaign: attr.utmCampaign } : {}),
+    ...(attr.utmContent ? { utmContent: attr.utmContent } : {}),
+    ...(attr.rdtCid ? { rdtCid: attr.rdtCid } : {}),
+  };
+}
+
 export async function callClaude(system, prompt, endpoint, nodeCacheKey, onUsage, newsCacheKey) {
   const { text, usage } = await fetchClaudeText(system, prompt, undefined, endpoint, nodeCacheKey, newsCacheKey);
   if (onUsage) onUsage(usage);
@@ -265,15 +282,7 @@ async function streamRaw(system, prompt, maxTokens, timeoutMs, endpoint, onChunk
         // EVERY request, not just root, so a full session's cost/behavior
         // can be traced back to its source, not just the one call that
         // happened to carry the URL params.
-        ...(() => {
-          const attr = getAttribution();
-          return {
-            ...(attr.utmSource ? { utmSource: attr.utmSource } : {}),
-            ...(attr.utmCampaign ? { utmCampaign: attr.utmCampaign } : {}),
-            ...(attr.utmContent ? { utmContent: attr.utmContent } : {}),
-            ...(attr.rdtCid ? { rdtCid: attr.rdtCid } : {}),
-          };
-        })(),
+        ...attributionFields(),
         ...(await authField()),
         ...timeZoneField(),
         // Admin Tone Lab only (e.g. { modelOverride }) — the proxy ignores
