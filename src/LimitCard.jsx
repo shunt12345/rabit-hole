@@ -2,8 +2,8 @@
 // pages are used up: a visitor without an account is offered a free one
 // (more pages a day), an account at its limit is offered funds. Styled like
 // the house ads (AdCard) so it reads as an offer, not as more article text.
-// onHero: the hero page's version, which notes that new topics and today's
-// picks still open (a topic page's version promises to bring them back to it).
+// onHero: the hero page's version (a topic page's version also promises to
+// bring them back to that page after signing up).
 import { ArrowUpRight } from "lucide-react";
 
 // What a free account gets per day. Mirrors the proxy's SIGNED_IN_SEARCH_LIMIT
@@ -30,7 +30,6 @@ export default function LimitCard({ signedIn, pageLimit, onHero, onAction }) {
             : `You've read today's ${pageLimit} free pages. Sign up free for ${SIGNED_IN_PAGE_LIMIT} more today${
                 onHero ? "." : ", and we'll bring you right back to this page."
               }`}
-          {onHero ? " New topics and today's picks still open any time." : ""}
         </p>
         <button
           type="button"

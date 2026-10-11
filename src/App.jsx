@@ -622,6 +622,12 @@ export default function Hyfax() {
   const startTopic = (raw, newsContext, heroSource, presetChildren) => {
     const t = raw.trim();
     if (!t) return;
+    // Out of free pages: a new topic is a page too, so this opens the
+    // sign-up (or add-funds) offer instead of a page the proxy would refuse.
+    if (trialExhaustedRef.current) {
+      openAccountModal();
+      return;
+    }
     setRootError(null);
     idCounter = 0;
     const root = {
@@ -1137,16 +1143,12 @@ export default function Hyfax() {
     const node = nodesRef.current.find((n) => n.id === selectedId);
     if (!node) return;
 
-    // Once the trial's exhausted, don't even attempt an expand or a child's
-    // article call — those are guaranteed to be rejected server-side. The
-    // one exception is a topic page's OWN article: the server exempts that
-    // call specifically (see rabbit-hole-proxy's isRootArticle) so a fresh
-    // Dig In always gets a full standalone page — it just can't be branched
-    // into any further.
     // Opened as its own page (not just previewed) — what marks its card as
     // visited on the page above.
     node.explored = true;
-    if (trialExhausted && node.type !== "root") return;
+    // Out of free pages: no page or thread calls (the proxy would refuse
+    // them); the page shows the free-limit offer instead.
+    if (trialExhausted) return;
 
     // loadArticle starts the chips itself once its text has arrived; this
     // only covers revisiting a page whose chips never landed.
@@ -1480,10 +1482,8 @@ export default function Hyfax() {
     .filter((n) => n.fromLink)
     .map((n) => ({ ...n, linkPara: articleParas.findIndex((p) => linkLabelsIn(p).some((l) => l.toLowerCase() === n.label.toLowerCase())) }))
     .filter((n) => n.linkPara !== -1);
-  // Once the trial's exhausted, Dig In still works for a fresh general
-  // topic, but nothing it produces should offer a further hyperlink to
-  // dig into — passing an empty list here means renderLinked below just
-  // renders plain text instead of clickable child names.
+  // Out of free pages, an article's inline links render as plain text —
+  // there's nowhere further to go for free.
   const linkableChildren = trialExhausted ? [] : selectedChildren;
 
   // The free-limit offer. A visitor without an account is offered a free
@@ -2092,8 +2092,7 @@ export default function Hyfax() {
                     the threads under a page that can't branch any further
                     for free. Shown once even when both the article and
                     chips calls were refused. */}
-                {trialExhausted &&
-                  (selected.error || selected.articleError || (selected.article && !selected.articleStreaming)) && (
+                {trialExhausted && !selected.articleStreaming && !selected.articleLoading && (
                     <div className="mt-4">{renderLimitCard(false)}</div>
                   )}
 
