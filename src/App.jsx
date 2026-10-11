@@ -1086,10 +1086,13 @@ export default function Hyfax() {
     const root = node.type !== "root" && node.depth === 1 ? nodesRef.current.find((n) => n.id === node.parentId) : null;
     const nodeCacheKey = root && root.type === "root" && root.newsContext ? `${root.fullTopic}::${node.label}` : undefined;
     let nodeUsage = null;
-    const reveal = createPacedReveal((revealed) => {
+    const show = (revealed) => {
       node.article = stripMarkdown(revealed);
       setNodes([...nodesRef.current]);
-    });
+    };
+    // A preview shows its text the moment it arrives (a cached one all at
+    // once) rather than typing it out at reading pace like a page does.
+    const reveal = preview ? { push: show, finish: async (text) => show(text), cancel: () => {} } : createPacedReveal(show);
 
     // Turns each closed [[link]] into a real child page as soon as it has
     // streamed in, so links are tappable while the rest is still writing.
@@ -1301,6 +1304,36 @@ export default function Hyfax() {
     if (!user && !hasDismissedSignUpPrompt() && recordChipTap() === 3) setShowSignUpPrompt(true);
     if (node && !node.article && !node.articleLoading && !trialExhaustedRef.current) loadArticle(nodeId, { preview: true });
   };
+  // A cached topic's threads (one tap from a hero/starter topic) have their
+  // pages in node_cache, which anyone can read, so their first paragraphs
+  // are fetched as soon as the threads appear and a preview opens with its
+  // text already there. Opening it still goes through the proxy (see
+  // togglePreview), so it counts as a page just the same.
+  const prefetchedRef = useRef(new Set());
+  useEffect(() => {
+    const page = nodesRef.current.find((n) => n.id === selectedId);
+    if (!page || page.type !== "root" || !page.newsContext) return;
+    const wanted = nodesRef.current.filter(
+      (n) => n.parentId === page.id && !n.article && !n.previewText && !prefetchedRef.current.has(`${page.fullTopic}::${n.label}`)
+    );
+    wanted.forEach((child) => {
+      const key = `${page.fullTopic}::${child.label}`;
+      prefetchedRef.current.add(key);
+      fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/node_cache?select=article&cache_key=eq.${encodeURIComponent(key)}`, {
+        headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY, Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+      })
+        .then((res) => (res.ok ? res.json() : []))
+        .then((rows) => {
+          const { body } = splitTitleLine(rows?.[0]?.article || "");
+          const first = stripMarkdown(body).split(/\n\s*\n/)[0]?.trim();
+          if (!first || child.article) return;
+          child.previewText = first;
+          setNodes([...nodesRef.current]);
+        })
+        .catch(() => {});
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, nodes.length]);
   // Explore: the previewed thread becomes the page (its tap was already
   // counted when the preview opened).
   const explorePreview = (nodeId) => setSelectedId(nodeId);
@@ -1411,9 +1444,10 @@ export default function Hyfax() {
   // body stays mounted once loaded and is inert while closed.
   const renderPreview = (child) => {
     const open = previewId === child.id;
-    const first = (child.article || "").split(/\n\s*\n/)[0] || "";
+    // The article as it loads, or the cached first paragraph fetched ahead.
+    const first = (child.article || "").split(/\n\s*\n/)[0] || child.previewText || "";
     const text = stripLinkMarkers(first.replace(/\[\[[^\]]*$/, ""));
-    const stillTyping = child.articleStreaming && !/\n\s*\n/.test(child.article || "");
+    const stillTyping = !!child.article && child.articleStreaming && !/\n\s*\n/.test(child.article);
     const hasBody = open || child.article || child.articleLoading || child.articleError;
     return (
       <div className="rh-roll" style={{ gridTemplateRows: open ? "1fr" : "0fr" }} {...(open ? {} : { inert: "" })}>
