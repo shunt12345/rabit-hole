@@ -267,6 +267,9 @@ function digestHtml(
             <div style="margin-top:8px; font-family:'Courier New',monospace; font-size:10px; letter-spacing:3px; text-transform:uppercase; color:${COLOR_TEXT_FAINT};">
               thinking with threads
             </div>
+            <div style="margin-top:18px; font-family:Georgia,'Times New Roman',serif; font-style:italic; font-size:20px; line-height:1.35; color:${COLOR_TEXT_PRIMARY};">
+              Problem solving isn't linear.<br />Neither is your learning.
+            </div>
           </td>
         </tr>
         <tr>
