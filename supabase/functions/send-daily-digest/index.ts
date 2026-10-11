@@ -273,10 +273,7 @@ function digestHtml(
           </td>
         </tr>
         <tr>
-          <td style="padding:32px 40px 8px;">
-            <h1 style="margin:0 0 8px; font-family:Georgia,'Times New Roman',serif; font-style:italic; font-size:22px; line-height:1.3; color:${COLOR_TEXT_PRIMARY};">Today's threads</h1>
-            <p style="margin:0 0 24px; font-size:14px; line-height:1.6; color:${COLOR_TEXT_MUTED};">Pick one — it drops you straight into the app.</p>
-          </td>
+          <td style="padding:32px 40px 0; font-size:0; line-height:0;">&nbsp;</td>
         </tr>
         ${sectionsHtml}
         <tr>
