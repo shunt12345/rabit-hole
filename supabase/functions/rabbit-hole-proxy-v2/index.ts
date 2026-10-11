@@ -493,6 +493,17 @@ async function billAndLog(
   }
 }
 
+// A page that failed to load — Anthropic returned an error, the call
+// threw, or the stream ended without writing anything — gives back the free
+// page it was counted as: its log row is marked refunded (migration 0060),
+// which countSearches skips. Any real input-token cost is still billed.
+async function refundPage(logRowIdPromise: Promise<number | null>) {
+  const rowId = await logRowIdPromise;
+  if (!rowId) return;
+  const { error } = await supabase.from("rabbit_hole_request_logs").update({ refunded: true }).eq("id", rowId);
+  if (error) console.error("rabbit-hole-proxy: failed to refund a failed page", error);
+}
+
 // cacheContext is set only for a genuinely fresh (non-cached) article
 // generation tied to a newsCacheKey — when present, this also persists the
 // real usage onto news_root_cache (best-effort, first-write-wins via
@@ -504,7 +515,8 @@ async function extractUsageAndBill(
   userId: string | null,
   anthropicCallStartedAt: number,
   cacheContext?: { newsCacheKey: string; endpoint: string },
-  model: string = MODEL
+  model: string = MODEL,
+  countsAsPage = false
 ) {
   try {
     const contentType = meterRes.headers.get("Content-Type") || "";
@@ -515,6 +527,9 @@ async function extractUsageAndBill(
     } else {
       usage = parseSSEUsage(await meterRes.text());
     }
+    // Nothing written (a stream that errored before its first words): not a
+    // page the reader got, so it doesn't count as one.
+    if (countsAsPage && !((usage?.output_tokens ?? 0) > 0)) await refundPage(logRowIdPromise);
     if (!usage) return;
 
     const latencyMs = Date.now() - anthropicCallStartedAt;
@@ -884,8 +899,10 @@ async function countSearches(userId: string | null, sessionId: string, timeZone:
     .from("rabbit_hole_request_logs")
     .select("*", { count: "exact", head: true })
     .eq("endpoint", "article")
+    .eq("refunded", false)
     .gte("created_at", since);
   // Cached pages count like any other — readers can't tell them apart.
+  // A page that failed to load doesn't (see refundPage).
   query = userId ? query.eq("user_id", userId) : query.eq("session_id", sessionId || "unknown");
   const { count, error } = await query;
   if (error) {
@@ -1232,6 +1249,9 @@ serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  // Set once a page has been counted (its log row written), so a call that
+  // then throws gives the page back (see refundPage).
+  let refundThisPage: (() => void) | null = null;
   try {
     const body = await req.json();
 
@@ -1480,6 +1500,7 @@ serve(async (req) => {
       utmCampaign,
       rdtCid,
     }, cacheHit, !!isTest);
+    if (endpoint === "article" && !cacheHit) refundThisPage = () => background(refundPage(logRowIdPromise));
 
     // Adoption analytics (see logArticleViewEvent above) — only an
     // "article" call counts as an article_view; root/expand/continuation
@@ -1641,9 +1662,16 @@ serve(async (req) => {
           userId,
           anthropicCallStartedAt,
           newsCacheKey ? { newsCacheKey, endpoint } : undefined,
-          effectiveModel
+          effectiveModel,
+          endpoint === "article"
         )
       );
+    } else if (refundThisPage) {
+      // Anthropic refused or failed (overloaded, a 500, ...): the page is
+      // given back, and the count sent with this response says so.
+      refundThisPage();
+      refundThisPage = null;
+      responseHeaders["X-Trial-Searches-Used"] = String(Math.max(0, displaySearchCount - 1));
     }
 
     // stream the response straight through unmodified — the client's own
@@ -1659,6 +1687,7 @@ serve(async (req) => {
     });
   } catch (e) {
     console.error("rabbit-hole-proxy: unexpected error", e);
+    refundThisPage?.();
     return new Response(JSON.stringify({ error: String(e) }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
