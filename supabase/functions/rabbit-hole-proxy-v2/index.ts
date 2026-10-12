@@ -1149,7 +1149,21 @@ async function verifyRootChildPair(rootCacheKey: string, childLabel: string): Pr
   if (rootChildren.some((c: any) => typeof c?.label === "string" && c.label === childLabel)) return true;
   const wanted = childLabel.trim().replace(/\s+/g, " ").toLowerCase();
   const article = typeof rootRow?.article === "string" ? rootRow.article : "";
-  return [...article.matchAll(/\[\[([^[\]]+?)\]\]/g)].some((m) => m[1].trim().replace(/\s+/g, " ").toLowerCase() === wanted);
+  if ([...article.matchAll(/\[\[([^[\]]+?)\]\]/g)].some((m) => m[1].trim().replace(/\s+/g, " ").toLowerCase() === wanted)) return true;
+  // A riddle's answer page opens with its clues as its threads, which aren't
+  // stored on the answer's cache row (approving a riddle no longer writes
+  // one, so the answer can't leak the evening before). They're accepted
+  // here instead — only once the riddle is published.
+  const { data: riddles } = await supabase
+    .from("trending_topics_cache")
+    .select("riddle_game")
+    .eq("field", "Riddle")
+    .eq("topic", rootCacheKey)
+    .eq("status", "approved")
+    .lte("publish_at", new Date().toISOString());
+  return (riddles || []).some((r: any) =>
+    (r?.riddle_game?.clues || []).some((c: any) => typeof c?.title === "string" && c.title.trim().replace(/\s+/g, " ").toLowerCase() === wanted)
+  );
 }
 
 // Same anti-poisoning rule as handleNewsCacheWrite always had: a client can
