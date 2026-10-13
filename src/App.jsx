@@ -2110,7 +2110,7 @@ export default function Hyfax() {
                               <AdCard
                                 ad={
                                   selected.type === "root" && selected.fullTopic === "why does bread go stale"
-                                    ? getHouseAdById("what-are-you-looking-for")
+                                    ? getHouseAdById("connect-the-dots")
                                     : pickHouseAd(selected.id, adStage)
                                 }
                                 onClick={openAccountModal}

@@ -1,5 +1,5 @@
-// House ads promoting Hyfax's own subscription/funding (production punch
-// list, Section H) — replaces the third-party MOCK_SPONSOR placeholders
+// House ads promoting Hyfax itself — learning, problem solving, planting
+// ideas, and that it's free (production punch list, Section H) — replaces the third-party MOCK_SPONSOR placeholders
 // in the hero and in-article ad slots. The "Explore next" chip ad is a
 // separate, constant slot and stays out of this rotation (see App.jsx).
 //
@@ -15,7 +15,7 @@
 // AdCard.jsx for the parser/renderer.
 //
 // Optional `stage` field: "early" | "mid" | "late" — lets an unsubscribed
-// session see a different slice of the 24 the longer it's stuck around
+// session see a different slice of the ads the longer it's stuck around
 // (see engagementStage below), e.g. a soft/curious hook early on vs. a
 // more direct subscribe pitch once someone's clearly engaged. An ad with
 // no `stage` is eligible at every stage — leave it off for anything that
@@ -25,90 +25,48 @@ import { PAYMENTS_ENABLED } from "./billing.js";
 
 export const HOUSE_ADS = [
   {
-    id: "death-scrolling",
-    body: "**Death scrolling again?!** Come on. I get it, you got some __you-time__ finally, but replacing the social with Hyfax will give you that fresh feeling of knowledge rather than … well you know.",
+    id: "remember-when",
+    body: "**Remember when learning felt like this?** Before tests, before deadlines — just you, one good question, and the itch to find out what's behind the next door. Hyfax brings that back. *Free, too.*",
     cta: "Let's go",
     stage: "early",
   },
   {
-    id: "im-exhausted",
-    body: "**I'm exhausted!!** I just went from learning about macadamia nuts to woodpecker toy physics to Black Monday in '87. What a long, strange trip it is.",
-    cta: "Let's go",
-    stage: "early",
-  },
-  {
-    id: "great-bob",
-    body: "**That is great, Bob.** But can you connect the origins of peaches in China to the design of the Apollo space suits, Bob? Get on Hyfax, and you will.",
-    cta: "Let's go",
-    stage: "early",
-  },
-  {
-    id: "what-are-you-looking-for",
-    body: "**What are you looking for?** An environment that keeps you entertained while you learn. A place that enhances your general knowledge, making you a master problem solver. We got you.",
-    cta: "Let's go",
-    stage: "early",
-  },
-  {
-    id: "hey-you",
-    body: "**Hey, you.** Did you know that if you click on any word or phrase, you can start a new search thread? Again, you are the boss of bosses.",
-    cta: "Let's go",
-    stage: "early",
-  },
-  {
-    id: "do-you-want-to-join",
-    body: "**So….do you want to join?** Sorry, my boss is making me ask. You know there is no commitment, time frame, or obligation. You control your knowledge destiny like the boss you are.",
+    id: "stuck-on-a-problem",
+    body: "**Stuck on a problem?** The answer usually isn't further down the same road. It's sideways, in some field you'd never think to check. Hyfax walks you sideways on purpose. That's the whole trick.",
     cta: "Let's go",
     stage: "mid",
   },
   {
-    id: "just-saying",
-    money: true,
-    body: "**Just saying….** Give me ten fast ones, and you will not regret it, I promise. Each one of those hard-earned dollar bills will wait silently for you to use them… a month, a year…. Doesn't matter.",
+    id: "plant-one-question",
+    body: "**Plant one question.** Water it with a few taps. Come back to find a whole tree of things you didn't know you wanted to know. Gardening for the brain, no green thumb required.",
+    cta: "Let's go",
+    stage: "early",
+  },
+  {
+    // Says outright there's no paid tier, so it sits out if paid plans
+    // come back (see pickHouseAd).
+    id: "free-no-catch",
+    body: "**Yes, it's free. No, there's no catch.** No card, no trial clock, no \"premium\" door slamming shut at page five. Make a free account and pull on as many threads as you like. *We'll wait.*",
+    cta: "Let's go",
+    stage: "late",
+    freeOnly: true,
+  },
+  {
+    id: "connect-the-dots",
+    body: "**Every expert you admire has one thing in common.** They connect dots other people don't even see. Turns out that's a learnable skill — and Hyfax is where you practice it, one thread at a time.",
+    cta: "Let's go",
+    stage: "early",
+  },
+  {
+    id: "five-minutes-a-day",
+    body: "**Five minutes a day.** That's all it takes to plant a new idea in your head. Do it daily and you'll be the person with the oddly perfect fact for every conversation. Costs you nothing but curiosity.",
     cta: "Let's go",
     stage: "mid",
-  },
-  {
-    id: "does-money-buy-everything",
-    money: true,
-    body: "**Does money buy everything?** Obviously not, just the things that cost money. Speaking of money, your brain needs fuel, and fuel costs money.",
-    cta: "Let's go",
-    stage: "mid",
-  },
-  {
-    id: "no-permission-slip",
-    money: true,
-    body: "**You don't need a permission slip.** Just a funded subscription is all for this guided rabbit hole trip that will leave you breathless and yearning for more. *Yearning!!*",
-    cta: "Let's go",
-    stage: "mid",
-  },
-  {
-    id: "do-or-die",
-    body: "**It's do or die**. Okay, that was a little extreme, but your time is running thin. I don't want to start pulling functions, but a deal is a deal.",
-    cta: "Let's go",
-    stage: "late",
-  },
-  {
-    id: "tiktok",
-    body: "**Tick-Tock.** If I had a foot, I would be tapping it right now. Did you know there is a whole thing called 'fidgeting physiology' *(type that 5 times fast)?*",
-    cta: "Let's go",
-    stage: "late",
-  },
-  {
-    id: "worst-that-could-happen",
-    body: "**What is the worst that could happen?** You become the life of the party by dropping knowledge bombs to the point that you gain enough confidence to dust off the windmill on the dance floor?",
-    cta: "Let's go",
-    stage: "late",
-  },
-  {
-    id: "cant-click-subscribe-for-you",
-    body: "**I can't click subscribe for you.** Apparently that is a no-no, says Bill over at the Consumer Protection Agency. This one is all you, and I promise it is worth it.",
-    cta: "Let's go",
-    stage: "late",
   },
 ];
 
 // Pins one specific ad by id instead of rotating — used for the Reddit ad
-// campaign's "why do cats purr" landing (see App.jsx), where the copy was
+// campaign's landing ("why does bread go stale", see App.jsx), where the copy was
 // picked deliberately for a first-time visitor rather than left to whatever
 // the normal seeded rotation happens to land on.
 export function getHouseAdById(id) {
@@ -128,8 +86,8 @@ export function getHouseAdById(id) {
 // undefined/omit for a funded account, which isn't mid-conversion-funnel
 // and just gets plain rotation across the whole list.
 export function pickHouseAd(seed, stage) {
-  // Ads about paying (money: true) sit out while paid plans are off.
-  const ads = PAYMENTS_ENABLED ? HOUSE_ADS : HOUSE_ADS.filter((ad) => !ad.money);
+  // An ad that promises it's all free sits out if paid plans come back.
+  const ads = PAYMENTS_ENABLED ? HOUSE_ADS.filter((ad) => !ad.freeOnly) : HOUSE_ADS;
   if (!ads.length) return null;
   const pool = stage ? ads.filter((ad) => !ad.stage || ad.stage === stage) : ads;
   const candidates = pool.length ? pool : ads; // fail open if a stage has nothing tagged yet
