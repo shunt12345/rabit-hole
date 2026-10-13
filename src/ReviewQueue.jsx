@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, AlertCircle, RefreshCw, LogOut, Check, X, Sparkles, ArrowUp, ArrowDown, RotateCw } from "lucide-react";
 import { getCurrentUser, onAuthStateChange, sendMagicLink, signOut, getAccessToken } from "./lib/auth.js";
-import { riddleBalanceIssues, clueLine } from "./lib/riddle.js";
+import { riddleBalanceIssues, clueLine, answerBlocks } from "./lib/riddle.js";
 
 // Mirrors admin-review-queue's own SUGGESTIBLE_FIELDS allowlist — every
 // field slot "suggest a topic" (below) can seed. Kept as a literal copy
@@ -125,7 +125,7 @@ const inputStyle = { backgroundColor: COLORS.bg, borderColor: COLORS.border, col
 // accepted answers, editable in place, with a balance check that has to
 // pass (or be overridden) before it can be approved. Edits are saved with
 // "Save", or automatically when approving.
-function RiddleReviewCard({ row, onDecide, busy, replaces, call }) {
+export function RiddleReviewCard({ row, onDecide, busy, replaces, call }) {
   const [game, setGame] = useState(row.riddle_game);
   const [dirty, setDirty] = useState(false);
   const [working, setWorking] = useState(null); // "save" | clue index being regenerated
@@ -194,6 +194,25 @@ function RiddleReviewCard({ row, onDecide, busy, replaces, call }) {
           <div className="text-base font-semibold" style={{ color: COLORS.text }}>
             Answer: {row.topic}
           </div>
+          {/* As the game shows it: one block per letter. */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
+            {answerBlocks(row.topic).map((word, w) => (
+              <span key={w} className="flex gap-0.5">
+                {word.map((b, i) => (
+                  <span
+                    key={i}
+                    className="inline-block rounded-sm"
+                    style={b.blank ? { width: "12px", height: "14px", border: `1.5px solid ${COLORS.dim}` } : { color: COLORS.dim, fontSize: "11px" }}
+                  >
+                    {b.blank ? "" : b.ch}
+                  </span>
+                ))}
+              </span>
+            ))}
+            <span className="rh-mono rh-text-10" style={{ color: COLORS.dim }}>
+              {answerBlocks(row.topic).flat().filter((b) => b.blank).length} letters
+            </span>
+          </div>
         </div>
         <span
           className="shrink-0 rounded-full px-2.5 py-1 text-xs font-medium"
@@ -204,51 +223,56 @@ function RiddleReviewCard({ row, onDecide, busy, replaces, call }) {
       </div>
 
       <div className="flex flex-col gap-2">
+        {/* Each clue as players meet it: clue 1 (the hardest) is shown,
+            2-4 are revealed one at a time. The line is what they read
+            (never the answer — the balance check flags it); the thread
+            underneath is the clue's card on the answer page once solved. */}
         {game.clues.map((c, i) => (
-          <div key={i} className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <span className="rh-mono text-xs w-14 shrink-0" style={{ color: COLORS.dim }}>
-              {i + 1}
-              {i === 0 ? " hard" : i === 3 ? " easy" : ""}
-            </span>
-            <input
-              value={c.title}
-              onChange={(e) => setClue(i, "title", e.target.value)}
-              disabled={disabled}
-              className="flex-1 min-w-0 rounded-lg border px-2 py-1 text-sm"
-              style={inputStyle}
-            />
-            <input
-              value={c.field}
-              onChange={(e) => setClue(i, "field", e.target.value)}
-              disabled={disabled}
-              className="w-24 rounded-lg border px-2 py-1 text-xs"
-              style={inputStyle}
-              aria-label={`Clue ${i + 1} field`}
-            />
-            <button onClick={() => move(i, -1)} disabled={disabled || i === 0} className="disabled:opacity-30" style={{ color: COLORS.dim }} aria-label="Move up">
-              <ArrowUp size={14} />
-            </button>
-            <button onClick={() => move(i, 1)} disabled={disabled || i === 3} className="disabled:opacity-30" style={{ color: COLORS.dim }} aria-label="Move down">
-              <ArrowDown size={14} />
-            </button>
-            <button onClick={() => regenerate(i)} disabled={disabled} className="disabled:opacity-30" style={{ color: COLORS.accent }} aria-label="New clue">
-              {working === i ? <Loader2 size={14} className="animate-spin" /> : <RotateCw size={14} />}
-            </button>
-          </div>
-          {/* The clue as players read it in the game ("What am I?"): the
-              first is shown, the rest revealed one at a time. Never names
-              the answer (the balance check flags it). Empty = the game
-              shows the description below with the answer blanked out. */}
-          <input
-            value={c.line || ""}
-            onChange={(e) => setClue(i, "line", e.target.value)}
-            disabled={disabled}
-            placeholder={clueLine({ ...c, line: "" }, row.topic, game.answers)}
-            className="ml-16 rounded-lg border px-2 py-1 text-xs italic"
-            style={inputStyle}
-            aria-label={`Clue ${i + 1} line players see`}
-          />
+          <div key={i} className="flex flex-col gap-1 rounded-xl border p-2" style={{ borderColor: COLORS.border }}>
+            <div className="flex items-center gap-2">
+              <span className="rh-mono text-xs w-20 shrink-0 whitespace-nowrap" style={{ color: i === 0 ? COLORS.accent : COLORS.dim }}>
+                {i + 1} · {i === 0 ? "shown" : "hidden"}
+              </span>
+              <input
+                value={c.line || ""}
+                onChange={(e) => setClue(i, "line", e.target.value)}
+                disabled={disabled}
+                placeholder={`No line yet — the game shows: ${clueLine({ ...c, line: "" }, row.topic, game.answers)}`}
+                className="flex-1 min-w-0 rounded-lg border px-2 py-1 text-sm"
+                style={inputStyle}
+                aria-label={`Clue ${i + 1} line players see`}
+              />
+              <button onClick={() => move(i, -1)} disabled={disabled || i === 0} className="disabled:opacity-30" style={{ color: COLORS.dim }} aria-label="Move up">
+                <ArrowUp size={14} />
+              </button>
+              <button onClick={() => move(i, 1)} disabled={disabled || i === 3} className="disabled:opacity-30" style={{ color: COLORS.dim }} aria-label="Move down">
+                <ArrowDown size={14} />
+              </button>
+              <button onClick={() => regenerate(i)} disabled={disabled} className="disabled:opacity-30" style={{ color: COLORS.accent }} aria-label="New clue">
+                {working === i ? <Loader2 size={14} className="animate-spin" /> : <RotateCw size={14} />}
+              </button>
+            </div>
+            <div className="flex items-center gap-2 pl-[5.5rem]">
+              <span className="rh-mono rh-text-10 shrink-0" style={{ color: COLORS.dim }}>
+                Thread
+              </span>
+              <input
+                value={c.title}
+                onChange={(e) => setClue(i, "title", e.target.value)}
+                disabled={disabled}
+                className="flex-1 min-w-0 rounded-lg border px-2 py-0.5 text-xs"
+                style={inputStyle}
+                aria-label={`Clue ${i + 1} thread title`}
+              />
+              <input
+                value={c.field}
+                onChange={(e) => setClue(i, "field", e.target.value)}
+                disabled={disabled}
+                className="w-20 rounded-lg border px-2 py-0.5 text-xs"
+                style={inputStyle}
+                aria-label={`Clue ${i + 1} field`}
+              />
+            </div>
           </div>
         ))}
       </div>

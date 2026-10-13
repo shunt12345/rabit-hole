@@ -85,8 +85,9 @@ export function answerBlocks(topic) {
 }
 
 // What /queue flags before a riddle can be approved without an override:
-// clues sharing a field, a clue or hint that gives the answer away, a clue
-// that repeats a hint, or missing pieces. Returns plain-language problems;
+// clues sharing a field, a clue line or hint that gives the answer away, a
+// clue line that repeats a hint, or missing pieces — including a clue with
+// no line for players. Returns plain-language problems;
 // an empty list means balanced.
 export function riddleBalanceIssues(topic, game) {
   const issues = [];
@@ -108,9 +109,11 @@ export function riddleBalanceIssues(topic, game) {
     if (!normalize(c.title)) issues.push(`clue ${i + 1} is empty`);
     if (!normalize(c.field)) issues.push(`clue ${i + 1} has no field`);
     else (byField[normalize(c.field)] ||= []).push(i + 1);
-    if (givesAway(c.title)) issues.push(`clue ${i + 1} names the answer`);
-    if (c.line && givesAway(c.line)) issues.push(`clue ${i + 1}'s line names the answer`);
-    const hintWord = hints.flatMap(words).find((w) => words(c.title).includes(w));
+    // Players only see a clue's line before solving (its thread title shows
+    // on the answer page after), so the giveaway checks look at the line.
+    if (!normalize(c.line)) issues.push(`clue ${i + 1} has no line for players`);
+    else if (givesAway(c.line)) issues.push(`clue ${i + 1}'s line names the answer`);
+    const hintWord = hints.flatMap(words).find((w) => words(c.line || "").includes(w));
     if (hintWord) issues.push(`clue ${i + 1} repeats the hint "${hintWord}"`);
   });
   Object.entries(byField).forEach(([field, nums]) => {
