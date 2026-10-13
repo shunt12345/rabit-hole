@@ -186,8 +186,10 @@ function clueLine(clue: RiddleClue, topic: string, answers: string[]): string {
 
 function riddleGameRowHtml(topic: string, clues: RiddleClue[], answers: string[]): string {
   const url = `${APP_ORIGIN}/?play=riddle`;
+  // A leading "The"/"A"/"An" isn't part of the blocks, as in the game.
   const blocks = topic
     .trim()
+    .replace(/^(the|a|an)\s+(?=\S)/i, "")
     .split(/\s+/)
     .map((word) =>
       [...word]

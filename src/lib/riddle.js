@@ -76,10 +76,13 @@ export function clueLine(clue, topic, answers = []) {
 }
 
 // The answer as letter blocks: one per letter or digit, a gap between
-// words, and any other character (an apostrophe, a hyphen) shown as is.
+// words, and any other character (an apostrophe, a hyphen) shown as is. A
+// leading "The"/"A"/"An" isn't part of it ("The Dead Sea" is two words to
+// find), the same way a guess doesn't need it (see isCorrectGuess).
 export function answerBlocks(topic) {
   return String(topic || "")
     .trim()
+    .replace(/^(the|a|an)\s+(?=\S)/i, "")
     .split(/\s+/)
     .map((word) => [...word].map((ch) => ({ ch, blank: /[\p{L}\p{N}]/u.test(ch) })));
 }
