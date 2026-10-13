@@ -1026,10 +1026,14 @@ export default function Hyfax() {
 
     try {
       let first = true;
+      // A cached page arrives complete: it's shown whole, its paragraphs
+      // fading in one after another (node.arrivedWhole), instead of typing
+      // the first sentence and then dropping the rest in at once.
+      let whole = false;
       const finalText = await fetchArticleTextStreaming(
         node.label,
         path,
-        (partial) => {
+        (partial, meta) => {
           const { title, body } = splitTitleLine(partial);
           takeTitle(title);
           if (!body) {
@@ -1042,8 +1046,14 @@ export default function Hyfax() {
             first = false;
           }
           addLinkChildren(body);
-          setNodes([...nodesRef.current]);
-          reveal.push(body);
+          if (meta?.whole) {
+            whole = true;
+            node.arrivedWhole = true;
+            show(body);
+          } else {
+            setNodes([...nodesRef.current]);
+            reveal.push(body);
+          }
         },
         node.newsContext,
         node.type,
@@ -1069,7 +1079,8 @@ export default function Hyfax() {
       // The proxy allows a page's threads while the count is AT the limit,
       // so the last free page still gets its threads to preview.
       if (threadsWanted && !node.generated && !node.loading) expandNode(node.id, stripMarkdown(finalBody));
-      await reveal.finish(finalBody);
+      if (whole) reveal.cancel();
+      else await reveal.finish(finalBody);
       // Explored while its preview was still typing out: its threads start now.
       if (!threadsWanted && selectedIdRef.current === node.id && !node.generated && !node.loading) {
         expandNode(node.id, stripMarkdown(finalBody));
@@ -1580,6 +1591,9 @@ export default function Hyfax() {
         .rh-nudge { animation: rh-nudge 2.4s ease-in-out infinite; }
         @media (prefers-reduced-motion: reduce) { .rh-nudge { animation: none; } }
         .rh-crumb:hover { color: #EDB94F !important; }
+        /* A cached page's paragraphs, fading in one after another. */
+        .rh-para-in { animation: rh-fadein 0.55s ease both; }
+        @media (prefers-reduced-motion: reduce) { .rh-para-in { animation: none; } }
         .rh-roll { display: grid; transition: grid-template-rows 0.35s ease; }
         .rh-chev { transition: transform 0.3s; }
         .rh-shimmer { display: block; height: 11px; border-radius: 6px; background: linear-gradient(90deg, #1F1811 0%, #3A2D1D 50%, #1F1811 100%); background-size: 200% 100%; animation: rh-shimmer 1.1s linear infinite; }
@@ -1956,9 +1970,18 @@ export default function Hyfax() {
                 )}
               </div>
 
-              <h2 className="rh-display text-3xl italic mb-4" style={{ color: "#F1E6D3" }}>
-                {selected.label}
-              </h2>
+              {/* A topic page's title comes with its article (its first line),
+                  so until then a placeholder holds its place — rather than
+                  showing the typed query and swapping it out a moment later. */}
+              {selected.type === "root" && !selected.titled && selected.articleLoading ? (
+                <div className="mb-4 py-1.5" aria-label="Loading title">
+                  <i className="rh-shimmer" style={{ height: "26px", width: "72%", borderRadius: "8px" }} />
+                </div>
+              ) : (
+                <h2 className="rh-display text-3xl italic mb-4 rh-fade-in" style={{ color: "#F1E6D3" }}>
+                  {selected.label}
+                </h2>
+              )}
               {/* How this page follows from the one before: its card's
                   description, which is written to say exactly that. */}
               {selected.type !== "root" && selected.teaser && (
@@ -2008,7 +2031,10 @@ export default function Hyfax() {
                       .filter(Boolean)
                       .map((para, i, arr) => (
                         <Fragment key={i}>
-                          <p>
+                          <p
+                            className={selected.arrivedWhole ? "rh-para-in" : undefined}
+                            style={selected.arrivedWhole ? { animationDelay: `${i * 150}ms` } : undefined}
+                          >
                             {renderLinked(para, linkableChildren, (selected.article || "").includes("[["))}
                             {selected.articleStreaming && i === arr.length - 1 ? (
                               <span className="rh-cursor-blink" style={{ color: "#E3A73C" }}>
@@ -2081,14 +2107,19 @@ export default function Hyfax() {
                               land on. Every other topic keeps the normal
                               rotation untouched. */}
                           {!funded && !selected.articleStreaming && i === 0 && arr.length > 1 && (
-                            <AdCard
-                              ad={
-                                selected.type === "root" && selected.fullTopic === "why does bread go stale"
-                                  ? getHouseAdById("what-are-you-looking-for")
-                                  : pickHouseAd(selected.id, adStage)
-                              }
-                              onClick={openAccountModal}
-                            />
+                            <div
+                              className={selected.arrivedWhole ? "rh-para-in" : undefined}
+                              style={selected.arrivedWhole ? { animationDelay: "75ms" } : undefined}
+                            >
+                              <AdCard
+                                ad={
+                                  selected.type === "root" && selected.fullTopic === "why does bread go stale"
+                                    ? getHouseAdById("what-are-you-looking-for")
+                                    : pickHouseAd(selected.id, adStage)
+                                }
+                                onClick={openAccountModal}
+                              />
+                            </div>
                           )}
                         </Fragment>
                       ))}

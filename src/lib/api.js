@@ -261,7 +261,7 @@ export async function callClaude({ system, prompt, endpoint, nodeCacheKey, newsC
 
 // A streaming call (an article or its continuation): parses the API's
 // server-sent events and calls onChunk with the accumulated text after every
-// delta. Returns the final text, with any stray markdown fences removed.
+// delta (or once, with { whole: true }, when the text arrives complete). Returns the final text, with any stray markdown fences removed.
 // `timeoutMs` bounds the wait for the first chunk and every gap after it.
 // Takes the same options as proxyBody, plus onChunk, onUsage and timeoutMs.
 export async function streamTextFromPrompt({ onChunk, onUsage, timeoutMs, ...request }) {
@@ -278,7 +278,9 @@ export async function streamTextFromPrompt({ onChunk, onUsage, timeoutMs, ...req
     stopTimer();
     const data = await res.json();
     const text = textOf(data);
-    onChunk(text);
+    // The whole text at once (a cache hit): `whole` lets the page reveal it
+    // as one piece rather than typing it out.
+    onChunk(text, { whole: true });
     if (onUsage) onUsage(data.usage || null);
     return text.replace(/```/g, "").trim();
   }
