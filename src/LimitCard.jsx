@@ -1,15 +1,11 @@
-// The free-limit offer, shown in place of more threads once today's free
-// pages are used up: a visitor without an account is offered a free one
-// (more pages a day), an account at its limit is offered funds. Styled like
+// The free-limit offer, shown once a visitor without an account has used
+// today's free pages: a free account, which has no page limit. (The
+// signed-in "add funds" version only appears if paid plans come back and
+// accounts get a limit again.) Styled like
 // the house ads (AdCard) so it reads as an offer, not as more article text.
 // onHero: the hero page's version (a topic page's version also promises to
 // bring them back to that page after signing up).
 import { ArrowUpRight } from "lucide-react";
-
-// What a free account gets per day. Mirrors the proxy's SIGNED_IN_SEARCH_LIMIT
-// default; the proxy's own response headers stay the source of truth once a
-// call comes back.
-export const SIGNED_IN_PAGE_LIMIT = 10;
 
 export default function LimitCard({ signedIn, pageLimit, onHero, onAction }) {
   return (
@@ -27,7 +23,7 @@ export default function LimitCard({ signedIn, pageLimit, onHero, onAction }) {
         <p className="text-sm leading-relaxed mb-3" style={{ color: "#FFFFFF" }}>
           {signedIn
             ? `Your ${pageLimit} free pages reset at 3am your time. Add funds for full access now.`
-            : `You've read today's ${pageLimit} free pages. Sign up free for ${SIGNED_IN_PAGE_LIMIT} more today${
+            : `You've read today's ${pageLimit} free pages. Sign up free to keep going — free accounts are unlimited${
                 onHero ? "." : ", and we'll bring you right back to this page."
               }`}
         </p>

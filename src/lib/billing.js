@@ -51,3 +51,9 @@ export async function fetchCheckoutClientSecret(amountUsd) {
   }
   return data.clientSecret;
 }
+
+// Paid plans are off for now (free-first: free accounts are unlimited).
+// While false, the app shows no balance, add-funds form, paid feature
+// toggles or money-themed house ads; the billing code stays in place, so
+// turning this back on brings them back.
+export const PAYMENTS_ENABLED = false;

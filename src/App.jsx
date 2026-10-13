@@ -29,7 +29,8 @@ import UsageGauge from "./UsageGauge.jsx";
 import MiniGauge from "./MiniGauge.jsx";
 import AdCard from "./AdCard.jsx";
 import HeroSections from "./HeroSections.jsx";
-import LimitCard, { SIGNED_IN_PAGE_LIMIT } from "./LimitCard.jsx";
+import LimitCard from "./LimitCard.jsx";
+import { PAYMENTS_ENABLED } from "./lib/billing.js";
 import { TRENDING_TOPICS_URL, RIDDLE_FIELD } from "./lib/heroPicks.js";
 import { pickHouseAd, getHouseAdById, engagementStage } from "./lib/houseAds.js";
 import { getSessionId } from "./lib/session.js";
@@ -321,14 +322,6 @@ export default function Hyfax() {
     return onAuthStateChange((u) => {
       setUser(u);
       if (u) setShowSignUpPrompt(false);
-      // A free account counts its own pages, so a visitor who just signed
-      // up at the limit can keep going in this tab right away. The next
-      // proxy response replaces this with the account's real count.
-      if (u) {
-        setTrialStatus((prev) =>
-          prev.funded || prev.searchLimit >= SIGNED_IN_PAGE_LIMIT ? prev : { searchesUsed: 0, searchLimit: SIGNED_IN_PAGE_LIMIT, funded: false }
-        );
-      }
       // Reddit Ads conversion tracking (see lib/redditPixel.js) — reports a
       // "SignUp" event the first time this fires for a genuinely new
       // account, no-ops for a returning sign-in or when no Reddit Pixel is
@@ -448,7 +441,9 @@ export default function Hyfax() {
   // unconditional full access regardless of any toggle's stored default,
   // matching the monetization outline doc's Section 14.1 ("full access to
   // every function" during the trial, à-la-carte toggles only once funded).
-  const trialExhausted = !funded && trialStatus.searchesUsed >= trialStatus.searchLimit;
+  // Free accounts read without a page limit (the proxy doesn't count them),
+  // so only a visitor who isn't signed in can run out of free pages.
+  const trialExhausted = !funded && !user && trialStatus.searchesUsed >= trialStatus.searchLimit;
   // Read from async callbacks (an article finishing, then deciding whether
   // to fetch chips) that would otherwise see a stale render's value.
   const trialExhaustedRef = useRef(trialExhausted);
@@ -1667,9 +1662,10 @@ export default function Hyfax() {
           {/* Real free-trial status (production punch list, Section B) —
               same gauge treatment as the funded UsageGauge, just measuring
               free searches used against today's limit instead of dollars
-              spent against lifetime funded. Funded accounts aren't limited
-              by this at all, so nothing to show them here. */}
-          {!funded && (
+              spent against lifetime funded. Funded accounts and free
+              accounts aren't limited by this at all, so nothing to show
+              them here. */}
+          {!funded && !user && (
             <div style={{ width: "150px" }}>
               <MiniGauge
                 label="Free searches today"
@@ -1758,7 +1754,7 @@ export default function Hyfax() {
               </button>
             </div>
 
-            <UsageGauge profile={profile} lifetimeFunded={lifetimeFunded} />
+            {PAYMENTS_ENABLED && <UsageGauge profile={profile} lifetimeFunded={lifetimeFunded} />}
 
             {rootError && (
               <div className="mt-4 flex items-center justify-center gap-1.5 text-xs rh-body" style={{ color: "#D98A6E" }}>

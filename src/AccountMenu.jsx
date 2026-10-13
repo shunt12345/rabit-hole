@@ -3,7 +3,7 @@ import { X, User as UserIcon } from "lucide-react";
 import { EmbeddedCheckout, EmbeddedCheckoutProvider } from "@stripe/react-stripe-js";
 import { sendMagicLink, signOut } from "./lib/auth.js";
 import { updateFeatureToggles } from "./lib/profile.js";
-import { fetchCheckoutClientSecret, stripePromise, MIN_TOPUP_USD } from "./lib/billing.js";
+import { fetchCheckoutClientSecret, stripePromise, MIN_TOPUP_USD, PAYMENTS_ENABLED } from "./lib/billing.js";
 
 // Production punch list, Section C (funded experience) UI pass: a single
 // avatar/account button in the header corner, opening a modal with
@@ -396,6 +396,16 @@ export default function AccountMenu({
                   cover (someone arriving via a house ad's "Let's go" CTA
                   could easily assume signing in is the whole unlock — it
                   isn't). Disappears on its own once balanceUsd > 0. */}
+              {/* Paid plans are off for now (see PAYMENTS_ENABLED): a free
+                  account reads without a page limit, so there's no balance
+                  or add-funds form to show. */}
+              {!PAYMENTS_ENABLED && (
+                <p className="rh-body text-sm" style={{ color: "#A89478" }}>
+                  Your free account has no page limit — read as much as you like.
+                </p>
+              )}
+              {PAYMENTS_ENABLED && (
+                <>
               {profile && profile.balanceUsd === 0 && (
                 <p className="rh-body text-sm" style={{ color: "#A89478" }}>
                   Your account has been created! Fund your account to start drinking from the firehose of knowledge!
@@ -456,11 +466,17 @@ export default function AccountMenu({
 
               <ThrottleGauge profile={profile} />
 
+                </>
+              )}
+
               <div className="flex flex-col gap-3 pt-3" style={{ borderTop: "1px solid #3A2E20" }}>
                 <span className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: "#A89478" }}>
-                  Features (à la carte)
+                  {PAYMENTS_ENABLED ? "Features (à la carte)" : "Email"}
                 </span>
-                {TOGGLES.map(({ key, label, placeholder }) => (
+                {/* Without paid plans the feature switches only matter to a
+                    funded account, so a free account sees just its email
+                    digest setting. */}
+                {TOGGLES.filter(({ key }) => PAYMENTS_ENABLED || key === "featureEmail").map(({ key, label, placeholder }) => (
                   <div key={key} className="flex items-center justify-between">
                     <span className="rh-body text-sm flex items-center gap-1.5" style={{ color: "#F1E6D3" }}>
                       {label}
@@ -480,9 +496,11 @@ export default function AccountMenu({
                     />
                   </div>
                 ))}
-                <span className="rh-mono rh-text-10" style={{ color: "#6B5B45" }}>
-                  Dig In is always on. Off features stop drawing on your balance.
-                </span>
+                {PAYMENTS_ENABLED && (
+                  <span className="rh-mono rh-text-10" style={{ color: "#6B5B45" }}>
+                    Dig In is always on. Off features stop drawing on your balance.
+                  </span>
+                )}
               </div>
 
               <div className="pt-3" style={{ borderTop: "1px solid #3A2E20" }}>
@@ -531,6 +549,13 @@ export default function AccountMenu({
                 <X size={18} />
               </button>
             </div>
+
+            {/* The reason to sign up, while accounts are free and unlimited. */}
+            {!PAYMENTS_ENABLED && status !== "sent" && (
+              <span className="rh-body text-sm" style={{ color: "#A89478" }}>
+                A free account, no page limit — just your email.
+              </span>
+            )}
 
             {status === "sent" ? (
               <span className="rh-body text-sm" style={{ color: "#A89478" }}>

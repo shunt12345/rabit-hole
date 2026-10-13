@@ -21,6 +21,8 @@
 // no `stage` is eligible at every stage — leave it off for anything that
 // isn't meant to escalate. Example:
 //   { id: "example", body: "...", cta: "...", stage: "late" }
+import { PAYMENTS_ENABLED } from "./billing.js";
+
 export const HOUSE_ADS = [
   {
     id: "death-scrolling",
@@ -60,18 +62,21 @@ export const HOUSE_ADS = [
   },
   {
     id: "just-saying",
+    money: true,
     body: "**Just saying….** Give me ten fast ones, and you will not regret it, I promise. Each one of those hard-earned dollar bills will wait silently for you to use them… a month, a year…. Doesn't matter.",
     cta: "Let's go",
     stage: "mid",
   },
   {
     id: "does-money-buy-everything",
+    money: true,
     body: "**Does money buy everything?** Obviously not, just the things that cost money. Speaking of money, your brain needs fuel, and fuel costs money.",
     cta: "Let's go",
     stage: "mid",
   },
   {
     id: "no-permission-slip",
+    money: true,
     body: "**You don't need a permission slip.** Just a funded subscription is all for this guided rabbit hole trip that will leave you breathless and yearning for more. *Yearning!!*",
     cta: "Let's go",
     stage: "mid",
@@ -123,9 +128,11 @@ export function getHouseAdById(id) {
 // undefined/omit for a funded account, which isn't mid-conversion-funnel
 // and just gets plain rotation across the whole list.
 export function pickHouseAd(seed, stage) {
-  if (!HOUSE_ADS.length) return null;
-  const pool = stage ? HOUSE_ADS.filter((ad) => !ad.stage || ad.stage === stage) : HOUSE_ADS;
-  const candidates = pool.length ? pool : HOUSE_ADS; // fail open if a stage has nothing tagged yet
+  // Ads about paying (money: true) sit out while paid plans are off.
+  const ads = PAYMENTS_ENABLED ? HOUSE_ADS : HOUSE_ADS.filter((ad) => !ad.money);
+  if (!ads.length) return null;
+  const pool = stage ? ads.filter((ad) => !ad.stage || ad.stage === stage) : ads;
+  const candidates = pool.length ? pool : ads; // fail open if a stage has nothing tagged yet
   let h = 0;
   const s = String(seed || "");
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;

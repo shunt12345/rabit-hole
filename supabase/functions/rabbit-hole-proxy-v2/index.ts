@@ -1485,7 +1485,9 @@ serve(async (req) => {
     }
 
     const searchLimit = searchLimitFor(userId, utmSource);
-    const exempt = funded || isAdmin || isPrecompute;
+    // A signed-in free account reads without a page limit (the free-first
+    // plan); the request and spend caps above still apply to everyone.
+    const exempt = funded || isAdmin || isPrecompute || !!userId;
     // A preview is held to the preview cap, not the page limit. A page's
     // threads (expand) are allowed while the count is AT the limit, so the
     // last free page still gets its threads to preview; reading another
