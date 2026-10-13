@@ -230,12 +230,13 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
                 b.blank ? (
                   <span
                     key={i}
-                    className={`flex items-center justify-center rounded-md border rh-mono text-base font-semibold uppercase ${done ? "rh-fade-in" : ""}`}
+                    className={`flex items-center justify-center rounded-md rh-mono text-base font-semibold uppercase ${done ? "rh-fade-in" : ""}`}
                     style={{
                       width: "28px",
                       height: "32px",
-                      borderColor: done ? C.accent : C.border,
-                      backgroundColor: C.bg,
+                      // Bright enough to read as empty squares on the dark card.
+                      border: `1.5px solid ${done ? C.accent : C.label}`,
+                      backgroundColor: done ? C.bg : "#2E2318",
                       color: progress.outcome === "solved" ? C.accent : C.text,
                       animationDelay: `${(w * 6 + i) * 60}ms`,
                     }}

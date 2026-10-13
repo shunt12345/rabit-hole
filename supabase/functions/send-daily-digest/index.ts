@@ -193,7 +193,7 @@ function riddleGameRowHtml(topic: string, clues: RiddleClue[], answers: string[]
       [...word]
         .map((ch) =>
           /[\p{L}\p{N}]/u.test(ch)
-            ? `<span style="display:inline-block; width:20px; height:24px; margin-right:4px; border:1px solid ${COLOR_CHIP_BORDER}; border-radius:5px; background-color:${COLOR_PAGE_BG};"></span>`
+            ? `<span style="display:inline-block; width:20px; height:24px; margin-right:4px; border:2px solid #C9B896; border-radius:5px; background-color:#2E2318;"></span>`
             : `<span style="display:inline-block; margin-right:4px; color:${COLOR_TEXT_MUTED};">${escapeHtml(ch)}</span>`
         )
         .join("")
