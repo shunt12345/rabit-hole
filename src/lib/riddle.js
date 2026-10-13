@@ -57,6 +57,33 @@ export function isCorrectGuess(guess, topic, answers = []) {
   });
 }
 
+// A clue as the player reads it in the game: its riddle line, or — for a
+// riddle written before clues had one — its after-the-fact description
+// with the answer blanked out.
+export function clueLine(clue, topic, answers = []) {
+  if (clue?.line?.trim()) return clue.line.trim();
+  let text = String(clue?.teaser || clue?.title || "");
+  const phrases = [topic, ...answers]
+    .map((a) => String(a || "").trim())
+    .filter((a) => a.length >= 3)
+    .sort((x, y) => y.length - x.length);
+  for (const phrase of phrases) {
+    const pattern = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+    // Word forms too ("salty", "salted"), so the blank doesn't leak.
+    text = text.replace(new RegExp(`\\b${pattern}(e?s|y|ed|ing)?\\b`, "gi"), "___");
+  }
+  return text;
+}
+
+// The answer as letter blocks: one per letter or digit, a gap between
+// words, and any other character (an apostrophe, a hyphen) shown as is.
+export function answerBlocks(topic) {
+  return String(topic || "")
+    .trim()
+    .split(/\s+/)
+    .map((word) => [...word].map((ch) => ({ ch, blank: /[\p{L}\p{N}]/u.test(ch) })));
+}
+
 // What /queue flags before a riddle can be approved without an override:
 // clues sharing a field, a clue or hint that gives the answer away, a clue
 // that repeats a hint, or missing pieces. Returns plain-language problems;
@@ -82,6 +109,7 @@ export function riddleBalanceIssues(topic, game) {
     if (!normalize(c.field)) issues.push(`clue ${i + 1} has no field`);
     else (byField[normalize(c.field)] ||= []).push(i + 1);
     if (givesAway(c.title)) issues.push(`clue ${i + 1} names the answer`);
+    if (c.line && givesAway(c.line)) issues.push(`clue ${i + 1}'s line names the answer`);
     const hintWord = hints.flatMap(words).find((w) => words(c.title).includes(w));
     if (hintWord) issues.push(`clue ${i + 1} repeats the hint "${hintWord}"`);
   });

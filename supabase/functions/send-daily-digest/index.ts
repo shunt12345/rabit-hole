@@ -164,31 +164,59 @@ function quoteRowHtml(row: { topic: string; teaser: string }): string {
 // as every other row. The trailing "...." mirrors the hero's exact display
 // treatment (strip any trailing period the model wrote, then append the
 // same four dots), not a difference between the two surfaces.
-// The guessing-game riddle (riddle_game, migration 0056): "What am I?" and
-// its four clues, linking to the riddle on the hero page (?play=riddle
-// scrolls to it) rather than to the answer, which would give it away.
-function riddleGameRowHtml(clues: { title: string }[]): string {
+// The guessing-game riddle (riddle_game, migration 0056), the way the game
+// opens on the hero page: "What am I?", the answer's letters as blank
+// blocks, and only the first (hardest) clue — the rest are revealed in the
+// game. Links to the riddle on the hero page (?play=riddle scrolls to it)
+// rather than to the answer, which would give it away.
+type RiddleClue = { title: string; line?: string; teaser?: string };
+
+// Same as src/lib/riddle.js clueLine: the clue's riddle line, or for an
+// older riddle its description with the answer blanked out.
+function clueLine(clue: RiddleClue, topic: string, answers: string[]): string {
+  if (clue.line?.trim()) return clue.line.trim();
+  let text = String(clue.teaser || clue.title || "");
+  const phrases = [topic, ...answers].map((a) => String(a || "").trim()).filter((a) => a.length >= 3).sort((x, y) => y.length - x.length);
+  for (const phrase of phrases) {
+    const pattern = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+    text = text.replace(new RegExp(`\\b${pattern}(e?s|y|ed|ing)?\\b`, "gi"), "___");
+  }
+  return text;
+}
+
+function riddleGameRowHtml(topic: string, clues: RiddleClue[], answers: string[]): string {
   const url = `${APP_ORIGIN}/?play=riddle`;
-  const items = clues
-    .map(
-      (c, i) => `
-        <span style="display:block; font-size:15px; line-height:1.5; color:${COLOR_TEXT_PRIMARY}; padding:3px 0;"><span style="font-family:'Courier New',monospace; font-size:11px; color:${COLOR_TEXT_MUTED}; padding-right:10px;">${i + 1}</span>${escapeHtml(c.title)}</span>`
+  const blocks = topic
+    .trim()
+    .split(/\s+/)
+    .map((word) =>
+      [...word]
+        .map((ch) =>
+          /[\p{L}\p{N}]/u.test(ch)
+            ? `<span style="display:inline-block; width:20px; height:24px; margin-right:4px; border:1px solid ${COLOR_CHIP_BORDER}; border-radius:5px; background-color:${COLOR_PAGE_BG};"></span>`
+            : `<span style="display:inline-block; margin-right:4px; color:${COLOR_TEXT_MUTED};">${escapeHtml(ch)}</span>`
+        )
+        .join("")
     )
-    .join("");
+    .join(`<span style="display:inline-block; width:12px;"></span>`);
+  const more = clues.length - 1;
   return `
   <tr>
     <td style="padding:0 40px 12px;">
       <a href="${url}" style="display:block; text-decoration:none; background-color:${COLOR_CHIP_BG}; border:1px solid ${COLOR_CHIP_BORDER}; border-radius:16px; padding:20px;">
-        <span style="display:block; font-family:Georgia,'Times New Roman',serif; font-style:italic; font-size:22px; color:${COLOR_TEXT_PRIMARY}; margin-bottom:10px;">What am I?</span>${items}
+        <span style="display:block; font-family:Georgia,'Times New Roman',serif; font-style:italic; font-size:22px; color:${COLOR_TEXT_PRIMARY}; margin-bottom:12px;">What am I?</span>
+        <span style="display:block; margin-bottom:12px; line-height:24px;">${blocks}</span>
+        <span style="display:block; font-size:15px; line-height:1.5; color:${COLOR_TEXT_PRIMARY};"><span style="font-family:'Courier New',monospace; font-size:11px; color:${COLOR_TEXT_MUTED}; padding-right:10px;">1</span>${escapeHtml(clueLine(clues[0], topic, answers))}</span>
+        ${more > 0 ? `<span style="display:block; font-size:13px; color:${COLOR_TEXT_MUTED}; margin-top:6px;">${more} more clue${more === 1 ? "" : "s"} to reveal in the game</span>` : ""}
         <span style="display:inline-block; margin-top:14px; background-color:${COLOR_ACCENT}; color:${COLOR_PAGE_BG}; font-size:13px; font-weight:700; border-radius:999px; padding:9px 18px;">Make your guess &rarr;</span>
       </a>
     </td>
   </tr>`;
 }
 
-function riddleRowHtml(row: { topic: string; teaser: string; riddle_game?: { clues?: { title: string }[] } | null }): string {
+function riddleRowHtml(row: { topic: string; teaser: string; riddle_game?: { clues?: RiddleClue[]; answers?: string[] } | null }): string {
   const clues = row.riddle_game?.clues;
-  if (Array.isArray(clues) && clues.length) return riddleGameRowHtml(clues);
+  if (Array.isArray(clues) && clues.length) return riddleGameRowHtml(row.topic, clues, row.riddle_game?.answers || []);
   const url = `${APP_ORIGIN}/?topic=${encodeURIComponent(row.topic)}`;
   const displayText = `${row.teaser.replace(/\.+\s*$/, "")}....`;
   return `
@@ -236,7 +264,7 @@ function digestHtml(
     quote: { topic: string; teaser: string } | null;
     today: { field: string; topic: string; teaser: string }[];
     perspective: { field: string; topic: string; teaser: string } | null;
-    riddle: { topic: string; teaser: string; riddle_game?: { clues?: { title: string }[] } | null } | null;
+    riddle: { topic: string; teaser: string; riddle_game?: { clues?: RiddleClue[]; answers?: string[] } | null } | null;
     trending: { field: string; topic: string; teaser: string }[];
   },
   asOfDate: Date | null,
@@ -356,7 +384,7 @@ serve(async (req) => {
   // way the hero page drops its card.
   const liveSince = (r: { publish_at: string | null; generated_at: string }) => new Date(r.publish_at || r.generated_at).getTime();
   const freshSince = Date.now() - MAX_STALE_HOURS * 60 * 60 * 1000;
-  const latestByField = new Map<string, { field: string; topic: string; teaser: string; publish_at: string | null; generated_at: string; riddle_game?: { clues?: { title: string }[] } | null }>();
+  const latestByField = new Map<string, { field: string; topic: string; teaser: string; publish_at: string | null; generated_at: string; riddle_game?: { clues?: RiddleClue[]; answers?: string[] } | null }>();
   for (const row of topicRows || []) {
     if (liveSince(row) < freshSince) continue;
     const best = latestByField.get(row.field);

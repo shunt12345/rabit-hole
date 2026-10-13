@@ -540,23 +540,25 @@ Produce:
 - "clues", "hints", "answers": the game pieces described above
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
-{"topic": "...", "teaser": "...", "options": ["...", "..."], "category": "...", "clues": [{"title": "...", "field": "...", "teaser": "..."}, {"title": "...", "field": "...", "teaser": "..."}, {"title": "...", "field": "...", "teaser": "..."}, {"title": "...", "field": "...", "teaser": "..."}], "hints": ["...", "...", "..."], "answers": ["...", "..."]}`;
+{"topic": "...", "teaser": "...", "options": ["...", "..."], "category": "...", "clues": [{"title": "...", "field": "...", "line": "...", "teaser": "..."}, {"title": "...", "field": "...", "line": "...", "teaser": "..."}, {"title": "...", "field": "...", "line": "...", "teaser": "..."}, {"title": "...", "field": "...", "line": "...", "teaser": "..."}], "hints": ["...", "...", "..."], "answers": ["...", "..."]}`;
 }
 
 // The Riddle is also played as a guessing game on the hero page ("What am
-// I?" — src/RiddleGame.jsx): four clue threads, hardest first, then up to
-// three hints, then a typed guess. Curated on /queue, where a balance
+// I?" — src/RiddleGame.jsx): the answer's letters as blank blocks, the
+// first (hardest) clue's line shown and the other three revealed one at a
+// time, up to three hints, then a typed guess. Curated on /queue, where a balance
 // check flags clues that share a field or give the answer away (the same
 // rules as below), so these instructions and that check have to agree.
 const RIDDLE_CLUE_RULES = `Each clue is a THREAD TITLE: a 2-5 word title-case label for a real, specific side-topic connected to the answer, the kind of link you'd follow from the answer's page into somewhere surprising (for "US Penny": "Sunk Cost Fallacy", "Hoarding Behavior", "Appendix Vestigial Organ", "1982 Composition Shift"). Rules for every clue:
 - It must never contain the answer, any word of the answer, or an obvious synonym of it.
 - Each clue comes from a DIFFERENT field of knowledge (economics, biology, history, psychology, physics, art, food, language, geography, technology, law, sport, music...) — no two clues may share a field.
 - "field" is that field, one lowercase word.
+- "line" is the clue as the player reads it in the game: a short, plain riddle line (max 10 words) that points at the answer through this thread without naming it, e.g. for "Salt": "Needed for nerve cell firing." or "Used as pay, it gave us the word salary." It must never contain the answer, any word of the answer, or an obvious synonym.
 - "teaser" is one short sentence (max 14 words) on how this thread connects to the answer, shown only AFTER the riddle is solved, so it may name the answer.`;
 
-const RIDDLE_GAME_INSTRUCTIONS = `Finally, the game pieces. This riddle is also played as "What am I?": the player sees four clues, one at a time in order, and guesses the answer.
+const RIDDLE_GAME_INSTRUCTIONS = `Finally, the game pieces. This riddle is also played as "What am I?": the player sees how many letters the answer has, reads the first clue's line, reveals the other three one at a time in order, and guesses the answer.
 
-"clues": exactly 4 clue objects {"title", "field", "teaser"}, ordered from HARDEST to EASIEST. The first should only make sense in hindsight; the last should be enough on its own for most people who know the subject.
+"clues": exactly 4 clue objects {"title", "field", "line", "teaser"}, ordered from HARDEST to EASIEST. The first should only make sense in hindsight; the last should be enough on its own for most people who know the subject.
 ${RIDDLE_CLUE_RULES}
 
 "hints": exactly 3 hints for a player who's stuck, from vaguest to most direct, each 1-3 words (for "US Penny": "same-round", "Lincoln", "copper"). No hint may contain the answer or any word of it.
@@ -691,6 +693,7 @@ function parseRiddleGame(parsed: any, topic: string) {
         .map((c: any) => ({
           title: String(c?.title || "").trim(),
           field: String(c?.field || "").trim().toLowerCase(),
+          line: String(c?.line || "").trim(),
           teaser: String(c?.teaser || "").trim(),
         }))
         .filter((c: { title: string }) => c.title)
@@ -711,7 +714,7 @@ async function generateRiddleClue(
   answer: string,
   clues: { title: string; field: string }[],
   index: number
-): Promise<{ title: string; field: string; teaser: string }> {
+): Promise<{ title: string; field: string; line: string; teaser: string }> {
   const others = clues.filter((_, i) => i !== index);
   const position = ["the HARDEST (only makes sense in hindsight)", "second-hardest", "second-easiest", "the EASIEST (enough on its own for most people)"][index] ?? "medium";
   const prompt = `The answer to today's "What am I?" riddle is "${answer}". It has four clue threads, ordered hardest to easiest. Write ONE replacement for clue ${index + 1} of 4, which should be ${position}.
@@ -722,7 +725,7 @@ ${clues[index] ? `It replaces "${clues[index].title}" (${clues[index].field}) �
 
 ${RIDDLE_CLUE_RULES}
 
-Respond with ONLY valid JSON, no markdown fences: {"title": "...", "field": "...", "teaser": "..."}`;
+Respond with ONLY valid JSON, no markdown fences: {"title": "...", "field": "...", "line": "...", "teaser": "..."}`;
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
@@ -736,6 +739,7 @@ Respond with ONLY valid JSON, no markdown fences: {"title": "...", "field": "...
   const clue = {
     title: String(parsed?.title || "").trim(),
     field: String(parsed?.field || "").trim().toLowerCase(),
+    line: String(parsed?.line || "").trim(),
     teaser: String(parsed?.teaser || "").trim(),
   };
   if (!clue.title) throw new Error(`No clue in response: ${text.slice(0, 300)}`);

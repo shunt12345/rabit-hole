@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, AlertCircle, RefreshCw, LogOut, Check, X, Sparkles, ArrowUp, ArrowDown, RotateCw } from "lucide-react";
 import { getCurrentUser, onAuthStateChange, sendMagicLink, signOut, getAccessToken } from "./lib/auth.js";
-import { riddleBalanceIssues } from "./lib/riddle.js";
+import { riddleBalanceIssues, clueLine } from "./lib/riddle.js";
 
 // Mirrors admin-review-queue's own SUGGESTIBLE_FIELDS allowlist — every
 // field slot "suggest a topic" (below) can seed. Kept as a literal copy
@@ -205,7 +205,8 @@ function RiddleReviewCard({ row, onDecide, busy, replaces, call }) {
 
       <div className="flex flex-col gap-2">
         {game.clues.map((c, i) => (
-          <div key={i} className="flex items-center gap-2">
+          <div key={i} className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
             <span className="rh-mono text-xs w-14 shrink-0" style={{ color: COLORS.dim }}>
               {i + 1}
               {i === 0 ? " hard" : i === 3 ? " easy" : ""}
@@ -234,6 +235,20 @@ function RiddleReviewCard({ row, onDecide, busy, replaces, call }) {
             <button onClick={() => regenerate(i)} disabled={disabled} className="disabled:opacity-30" style={{ color: COLORS.accent }} aria-label="New clue">
               {working === i ? <Loader2 size={14} className="animate-spin" /> : <RotateCw size={14} />}
             </button>
+          </div>
+          {/* The clue as players read it in the game ("What am I?"): the
+              first is shown, the rest revealed one at a time. Never names
+              the answer (the balance check flags it). Empty = the game
+              shows the description below with the answer blanked out. */}
+          <input
+            value={c.line || ""}
+            onChange={(e) => setClue(i, "line", e.target.value)}
+            disabled={disabled}
+            placeholder={clueLine({ ...c, line: "" }, row.topic, game.answers)}
+            className="ml-16 rounded-lg border px-2 py-1 text-xs italic"
+            style={inputStyle}
+            aria-label={`Clue ${i + 1} line players see`}
+          />
           </div>
         ))}
       </div>

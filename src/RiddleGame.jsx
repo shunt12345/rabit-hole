@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { HelpCircle, Lightbulb, Share2, ArrowRight, Check } from "lucide-react";
+import { HelpCircle, Lightbulb, Share2, ArrowRight, Check, Eye } from "lucide-react";
 import { supabase } from "./lib/supabaseClient.js";
-import { isCorrectGuess } from "./lib/riddle.js";
+import { isCorrectGuess, clueLine, answerBlocks } from "./lib/riddle.js";
 
-// The Riddle as a guessing game: "What am I?", four clue threads (hardest
-// first), up to three hints, three guesses. Anyone can read the clues and
+// The Riddle as a guessing game: "What am I?" — the answer's letters as
+// blank blocks, the first (hardest) clue shown and the other three revealed
+// one at a time, up to three hints, three guesses. Anyone can read the clues and
 // take hints; submitting a guess needs a free account — a signed-out
 // guess is held, sign-up opens, and it goes in once they're signed in
 // (even in the tab the magic link opens). Solving goes straight to the
@@ -37,14 +38,15 @@ const C = {
 function storageKey(id) {
   return `hyfax-riddle-${id}`;
 }
+// clues: how many clues are showing (the first is always shown).
 function emptyProgress() {
-  return { hints: 0, wrong: [], outcome: null, pending: null };
+  return { clues: 1, hints: 0, wrong: [], outcome: null, pending: null };
 }
 function loadProgress(id) {
   try {
-    return { hints: 0, wrong: [], outcome: null, pending: null, ...JSON.parse(localStorage.getItem(storageKey(id)) || "{}") };
+    return { ...emptyProgress(), ...JSON.parse(localStorage.getItem(storageKey(id)) || "{}") };
   } catch {
-    return { hints: 0, wrong: [], outcome: null, pending: null };
+    return emptyProgress();
   }
 }
 function saveProgress(id, p) {
@@ -188,6 +190,8 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
 
   const guessesLeft = MAX_GUESSES - progress.wrong.length;
   const done = !!progress.outcome;
+  const cluesShown = Math.min(game.clues.length, Math.max(1, progress.clues || 1));
+  const letterCount = answerBlocks(riddle.topic).flat().filter((b) => b.blank).length;
 
   return (
     <div className="mt-10" id="riddle" ref={cardRef}>
@@ -217,16 +221,60 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
           )}
         </div>
 
-        <ol className="flex flex-col gap-1.5 mb-4">
-          {game.clues.map((c, i) => (
-            <li key={i} className="flex items-baseline gap-2 rh-body text-base" style={{ color: C.text }}>
+        {/* The answer's letters as blocks — how many letters, and words —
+            filled in once the riddle is over. */}
+        <div className="flex flex-wrap gap-x-4 gap-y-2 mb-4" aria-label={done ? riddle.topic : `${letterCount} letters`}>
+          {answerBlocks(riddle.topic).map((word, w) => (
+            <div key={w} className="flex gap-1">
+              {word.map((b, i) =>
+                b.blank ? (
+                  <span
+                    key={i}
+                    className={`flex items-center justify-center rounded-md border rh-mono text-base font-semibold uppercase ${done ? "rh-fade-in" : ""}`}
+                    style={{
+                      width: "28px",
+                      height: "32px",
+                      borderColor: done ? C.accent : C.border,
+                      backgroundColor: C.bg,
+                      color: progress.outcome === "solved" ? C.accent : C.text,
+                      animationDelay: `${(w * 6 + i) * 60}ms`,
+                    }}
+                  >
+                    {done ? b.ch : ""}
+                  </span>
+                ) : (
+                  <span key={i} className="flex items-end rh-mono text-base" style={{ color: C.dim, height: "32px" }}>
+                    {b.ch}
+                  </span>
+                )
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* The first (hardest) clue is shown; the rest are revealed one at
+            a time. All of them show once the riddle is over. */}
+        <ol className="flex flex-col gap-2 mb-3">
+          {game.clues.slice(0, done ? game.clues.length : cluesShown).map((c, i) => (
+            <li key={i} className="flex items-baseline gap-2 rh-body text-base leading-snug rh-fade-in" style={{ color: C.text }}>
               <span className="rh-mono text-xs w-4 shrink-0" style={{ color: C.dim }}>
                 {i + 1}
               </span>
-              {c.title}
+              {clueLine(c, riddle.topic, game.answers)}
             </li>
           ))}
         </ol>
+        {!done && cluesShown < game.clues.length && (
+          <button
+            type="button"
+            onClick={() => update({ ...progress, clues: cluesShown + 1 })}
+            disabled={disabled}
+            className="flex items-center gap-1 rounded-full border px-3 py-1.5 rh-body text-xs mb-4 disabled:opacity-40"
+            style={{ borderColor: C.accent, color: C.accent }}
+          >
+            <Eye size={13} /> Reveal clue {cluesShown + 1}
+          </button>
+        )}
 
         {!done ? (
           <>
@@ -294,8 +342,8 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
             <div className="rh-body text-base font-semibold" style={{ color: progress.outcome === "solved" ? C.accent : C.bad }}>
               {progress.outcome === "solved" ? (
                 <span className="flex items-center gap-1.5">
-                  <Check size={16} /> {riddle.topic}, solved in {progress.guesses} guess{progress.guesses === 1 ? "" : "es"} with{" "}
-                  {progress.hints === 0 ? "no hints" : `${progress.hints} hint${progress.hints === 1 ? "" : "s"}`}
+                  <Check size={16} /> {riddle.topic}, solved in {progress.guesses} guess{progress.guesses === 1 ? "" : "es"} with {cluesShown} of{" "}
+                  {game.clues.length} clues and {progress.hints === 0 ? "no hints" : `${progress.hints} hint${progress.hints === 1 ? "" : "s"}`}
                 </span>
               ) : (
                 <>Stumped — it was {riddle.topic}.</>

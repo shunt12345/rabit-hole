@@ -123,11 +123,12 @@ async function approveIntoSlot(id: number, field: string, slot: string) {
 // The riddle game's curated pieces (migration 0056), as saved from /queue.
 // Shape-checked rather than trusted, since it's written straight to a row
 // the hero page reads.
-type RiddleClue = { title: string; field: string; teaser: string };
+// line: the clue as the player reads it in the game (never names the answer).
+type RiddleClue = { title: string; field: string; line: string; teaser: string };
 type RiddleGame = { clues: RiddleClue[]; hints: string[]; answers: string[] };
 const str = (v: unknown, max: number) => String(v ?? "").trim().slice(0, max);
 function cleanClue(c: any): RiddleClue {
-  return { title: str(c?.title, 80), field: str(c?.field, 30).toLowerCase(), teaser: str(c?.teaser, 200) };
+  return { title: str(c?.title, 80), field: str(c?.field, 30).toLowerCase(), line: str(c?.line, 120), teaser: str(c?.teaser, 200) };
 }
 function cleanRiddleGame(raw: any): RiddleGame | null {
   const clues = Array.isArray(raw?.clues) ? raw.clues.map(cleanClue) : [];
