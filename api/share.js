@@ -16,7 +16,10 @@
 // a serverless function at runtime. No new secrets needed.
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY;
-const APP_ORIGIN = process.env.APP_ORIGIN || "https://hyfax.app";
+const APP_ORIGIN = process.env.APP_ORIGIN || "https://www.hyfax.app";
+// The address search engines and link previews should treat as the real
+// one: hyfax.app redirects here, whatever APP_ORIGIN says.
+const CANONICAL_ORIGIN = "https://www.hyfax.app";
 
 const TYPE_LABEL = {
   root: "Origin",
@@ -56,11 +59,14 @@ function page({ title, description, url, bodyHtml }) {
 <meta property="og:title" content="${escapeHtml(title)}" />
 <meta property="og:description" content="${escapeHtml(description)}" />
 <meta property="og:url" content="${escapeHtml(url)}" />
-<meta property="og:image" content="${APP_ORIGIN}/icon-512.png" />
-<meta name="twitter:card" content="summary" />
+<link rel="canonical" href="${escapeHtml(url)}" />
+<meta property="og:image" content="${CANONICAL_ORIGIN}/og-image.jpg" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="${escapeHtml(title)}" />
 <meta name="twitter:description" content="${escapeHtml(description)}" />
-<meta name="twitter:image" content="${APP_ORIGIN}/icon-512.png" />
+<meta name="twitter:image" content="${CANONICAL_ORIGIN}/og-image.jpg" />
 <link rel="icon" type="image/png" href="/hyfax-favicon.png" />
 <style>
   * { box-sizing: border-box; }
@@ -96,7 +102,7 @@ function notFoundBody() {
 
 export default async function handler(req, res) {
   const id = typeof req.query?.id === "string" ? req.query.id : "";
-  const shareUrl = `${APP_ORIGIN}/s/${id}`;
+  const shareUrl = `${CANONICAL_ORIGIN}/s/${id}`;
   const fallback = { title: "Hyfax", description: "Problem solving isn't linear. Neither is your learning. Follow any question across science, food, history and more, one thread at a time.", url: shareUrl, bodyHtml: notFoundBody() };
 
   if (!id || !/^[A-Za-z0-9]+$/.test(id)) {

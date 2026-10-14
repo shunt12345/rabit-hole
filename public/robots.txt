@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /queue
+Disallow: /api/
+
+Sitemap: https://www.hyfax.app/sitemap.xml
