@@ -269,11 +269,10 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
             a time. All of them show once the riddle is over. */}
         <ol className="flex flex-col gap-2 mb-3">
           {game.clues.slice(0, done ? game.clues.length : cluesShown).map((c, i) => (
-            <li key={i} className="rh-body text-base leading-snug rh-fade-in" style={{ color: C.text }}>
-              {/* Inline, so wrapped lines line up with the card's other text. */}
-              <span className="rh-mono text-xs mr-2" style={{ color: C.dim }}>
-                {i + 1}
-              </span>
+            <li key={i} className="rh-body text-sm rh-fade-in" style={{ color: "#B8A886" }}>
+              {/* Same font and color as the hero cards' teasers; the number is
+                  inline so wrapped lines line up with the card's other text. */}
+              {i + 1}.{" "}
               {clueLine(c, riddle.topic, game.answers)}
             </li>
           ))}
