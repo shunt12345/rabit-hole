@@ -87,6 +87,15 @@ export function answerBlocks(topic) {
     .map((word) => [...word].map((ch) => ({ ch, blank: /[\p{L}\p{N}]/u.test(ch) })));
 }
 
+// Which letters the three hints fill in, as positions among the answer's
+// letters (blocks left to right, spaces and punctuation skipped): the
+// last letter, then the middle one, then the first.
+export function hintLetterPositions(topic) {
+  const n = answerBlocks(topic).flat().filter((b) => b.blank).length;
+  if (!n) return [];
+  return [...new Set([n - 1, Math.floor(n / 2), 0])];
+}
+
 // What /queue flags before a riddle can be approved without an override:
 // clues sharing a field, a clue line or hint that gives the answer away, a
 // clue line that repeats a hint, or missing pieces — including a clue with

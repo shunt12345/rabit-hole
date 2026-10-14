@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { HelpCircle, Lightbulb, Share2, ArrowRight, Check, Eye } from "lucide-react";
 import { supabase } from "./lib/supabaseClient.js";
-import { isCorrectGuess, clueLine, answerBlocks } from "./lib/riddle.js";
+import { isCorrectGuess, clueLine, answerBlocks, hintLetterPositions } from "./lib/riddle.js";
 
 // The Riddle as a guessing game: "What am I?" — the answer's letters as
 // blank blocks, the first (hardest) clue shown and the other three revealed
-// one at a time, up to three hints, three guesses. Anyone can read the clues and
+// one at a time, up to three hints (each fills in a letter: the last, the
+// middle, then the first), three guesses. Anyone can read the clues and
 // take hints; submitting a guess needs a free account — a signed-out
 // guess is held, sign-up opens, and it goes in once they're signed in
 // (even in the tab the magic link opens). Solving goes straight to the
@@ -192,6 +193,11 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
   const done = !!progress.outcome;
   const cluesShown = Math.min(game.clues.length, Math.max(1, progress.clues || 1));
   const letterCount = answerBlocks(riddle.topic).flat().filter((b) => b.blank).length;
+  // Each hint fills in one letter: the last, then the middle, then the first.
+  const hintSpots = hintLetterPositions(riddle.topic);
+  const maxHints = hintSpots.length;
+  const shownLetters = new Set(hintSpots.slice(0, progress.hints));
+  let letterIndex = -1;
 
   return (
     <div className="mt-10" id="riddle" ref={cardRef}>
@@ -222,33 +228,39 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
         </div>
 
         {/* The answer's letters as blocks — how many letters, and words —
-            filled in once the riddle is over. */}
+            with any letters the hints gave, all filled in once the riddle
+            is over. */}
         <div className="flex flex-wrap gap-x-4 gap-y-2 mb-4" aria-label={done ? riddle.topic : `${letterCount} letters`}>
           {answerBlocks(riddle.topic).map((word, w) => (
             <div key={w} className="flex gap-1">
-              {word.map((b, i) =>
-                b.blank ? (
+              {word.map((b, i) => {
+                if (!b.blank) {
+                  return (
+                    <span key={i} className="flex items-end rh-mono text-base" style={{ color: C.dim, height: "32px" }}>
+                      {b.ch}
+                    </span>
+                  );
+                }
+                letterIndex++;
+                const hinted = !done && shownLetters.has(letterIndex);
+                return (
                   <span
                     key={i}
-                    className={`flex items-center justify-center rounded-md rh-mono text-base font-semibold uppercase ${done ? "rh-fade-in" : ""}`}
+                    className={`flex items-center justify-center rounded-md rh-mono text-base font-semibold uppercase ${done || hinted ? "rh-fade-in" : ""}`}
                     style={{
                       width: "28px",
                       height: "32px",
                       // Bright enough to read as empty squares on the dark card.
-                      border: `1.5px solid ${done ? C.accent : C.label}`,
+                      border: `1.5px solid ${done || hinted ? C.accent : C.label}`,
                       backgroundColor: done ? C.bg : "#2E2318",
-                      color: progress.outcome === "solved" ? C.accent : C.text,
-                      animationDelay: `${(w * 6 + i) * 60}ms`,
+                      color: progress.outcome === "solved" || hinted ? C.accent : C.text,
+                      animationDelay: done ? `${(w * 6 + i) * 60}ms` : "0ms",
                     }}
                   >
-                    {done ? b.ch : ""}
+                    {done || hinted ? b.ch : ""}
                   </span>
-                ) : (
-                  <span key={i} className="flex items-end rh-mono text-base" style={{ color: C.dim, height: "32px" }}>
-                    {b.ch}
-                  </span>
-                )
-              )}
+                );
+              })}
             </div>
           ))}
         </div>
@@ -257,8 +269,9 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
             a time. All of them show once the riddle is over. */}
         <ol className="flex flex-col gap-2 mb-3">
           {game.clues.slice(0, done ? game.clues.length : cluesShown).map((c, i) => (
-            <li key={i} className="flex items-baseline gap-2 rh-body text-base leading-snug rh-fade-in" style={{ color: C.text }}>
-              <span className="rh-mono text-xs w-4 shrink-0" style={{ color: C.dim }}>
+            <li key={i} className="rh-body text-base leading-snug rh-fade-in" style={{ color: C.text }}>
+              {/* Inline, so wrapped lines line up with the card's other text. */}
+              <span className="rh-mono text-xs mr-2" style={{ color: C.dim }}>
                 {i + 1}
               </span>
               {clueLine(c, riddle.topic, game.answers)}
@@ -298,8 +311,8 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
               />
               <button
                 type="button"
-                onClick={() => update({ ...progress, hints: Math.min(3, progress.hints + 1) })}
-                disabled={disabled || progress.hints >= 3}
+                onClick={() => update({ ...progress, hints: Math.min(maxHints, progress.hints + 1) })}
+                disabled={disabled || progress.hints >= maxHints}
                 className="flex items-center gap-1 rounded-full border px-3 py-2 rh-body text-xs shrink-0 disabled:opacity-40"
                 style={{ borderColor: C.accent, color: C.accent }}
               >
@@ -314,15 +327,6 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
                 Submit
               </button>
             </form>
-            {progress.hints > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-3">
-                {game.hints.slice(0, progress.hints).map((h, i) => (
-                  <span key={i} className="rounded-full px-2.5 py-1 rh-body text-xs" style={{ backgroundColor: "#3A2A16", color: C.accent }}>
-                    {h}
-                  </span>
-                ))}
-              </div>
-            )}
             <div className="flex items-center justify-between mt-3 rh-body text-xs" style={{ color: C.dim }}>
               <span>
                 {guessesLeft} guess{guessesLeft === 1 ? "" : "es"} left
