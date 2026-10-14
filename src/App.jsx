@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, Fragment } from "react";
-import { Loader2, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, Share2, Check, Shuffle } from "lucide-react";
+import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, Share2, Check, Shuffle } from "lucide-react";
 import {
   callClaude,
   streamTextFromPrompt,
@@ -2269,9 +2269,11 @@ export default function Hyfax() {
                   </div>
                 )}
 
-                {/* Start something new right from the page — the same box and
-                    Dig in button as the home page. */}
+                {/* Reddit visitors get the same box and Dig in button as the
+                    home page, so they start their next topic right from the
+                    page; everyone else gets New thread. */}
                 <div className="mt-6 pt-4 border-t" style={{ borderColor: "#4A3C2C" }}>
+                  {isRedditVisit() ? (
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
@@ -2302,6 +2304,16 @@ export default function Hyfax() {
                       <Sparkles size={15} /> Dig in
                     </button>
                   </form>
+                  ) : (
+                    <button
+                      onClick={reset}
+                      className="flex items-center gap-1.5 rh-body text-xs border rounded-full px-3 py-1.5 transition-colors rh-btn-dark"
+                      style={{ color: "#F1E6D3", backgroundColor: "#1F1811", borderColor: "#3A2E20" }}
+                    >
+                      <RotateCcw size={12} />
+                      New thread
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
