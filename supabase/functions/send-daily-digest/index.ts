@@ -376,15 +376,46 @@ function digestText(sections: DigestSections, asOfDate: Date | null, unsubscribe
   return parts.join("\n\n");
 }
 
-// A subject that changes with the day's content, e.g. "Oct 14: Yeager
-// Breaks Sound Barrier, plus today's riddle" — the same subject every day
-// is what makes an email look like a newsletter blast.
-function digestSubject(sections: DigestSections, asOfDate: Date | null): string {
-  const { quote, today, perspective, riddle, trending } = sections;
-  const lead = today[0]?.topic || trending[0]?.topic || perspective?.topic || null;
-  const date = (asOfDate || new Date()).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  if (!lead) return quote ? `${date}: today's threads on Hyfax` : `${date}: today's riddle on Hyfax`;
-  return `${date}: ${lead}${riddle ? ", plus today's riddle" : ""}`;
+// The subject is a short affirmation about learning, one per day of the
+// year in turn, so it changes daily (the same subject every day is what
+// makes an email look like a newsletter blast) without a lineup to manage.
+const SUBJECT_AFFIRMATIONS = [
+  "Every question you ask makes you sharper",
+  "Curiosity is a skill, and you're building it",
+  "Small lessons add up to big understanding",
+  "You don't have to know everything, just the next thread",
+  "A stuck problem is just one you haven't circled yet",
+  "Today is a good day to learn something unexpected",
+  "The best answers start with better questions",
+  "Learning a little every day is how experts are made",
+  "Your mind grows every time you follow a thread",
+  "Not knowing yet is where learning begins",
+  "Every idea connects to another, keep pulling",
+  "You're smarter today than you were yesterday",
+  "Good problem solvers wander before they decide",
+  "Five curious minutes can change how you see things",
+  "Confusion is the feeling of your brain getting stronger",
+  "The more you learn, the more you can connect",
+  "Wonder is worth making time for",
+  "Every expert was once a beginner who kept going",
+  "A new perspective is the fastest way past a wall",
+  "Keep asking why, it's how understanding grows",
+  "Knowledge compounds, a little today goes a long way",
+  "The answer you need may be one thread away",
+  "Learning is the one habit you'll never regret",
+  "Your questions are worth chasing",
+  "Thinking sideways is still thinking forward",
+  "Every day holds something worth understanding",
+  "Better thinking starts with a single curious step",
+  "The world gets more interesting the more you know",
+  "You get better at learning by learning",
+  "Follow your curiosity, it knows the way",
+  "There's always another thread worth pulling",
+];
+function digestSubject(asOfDate: Date | null): string {
+  const d = asOfDate || new Date();
+  const dayOfYear = Math.floor((Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - Date.UTC(d.getUTCFullYear(), 0, 0)) / 86400000);
+  return SUBJECT_AFFIRMATIONS[dayOfYear % SUBJECT_AFFIRMATIONS.length];
 }
 
 serve(async (req) => {
@@ -481,7 +512,7 @@ serve(async (req) => {
   }
 
   const sections = { quote, today, perspective, riddle, trending };
-  const subject = digestSubject(sections, asOfDate);
+  const subject = digestSubject(asOfDate);
   let sent = 0;
   const errors: string[] = [];
   for (const recipient of recipients || []) {
