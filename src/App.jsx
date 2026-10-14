@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, Fragment } from "react";
-import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, Share2, Check, Shuffle } from "lucide-react";
+import { Loader2, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, Share2, Check, Shuffle } from "lucide-react";
 import {
   callClaude,
   streamTextFromPrompt,
@@ -2269,15 +2269,39 @@ export default function Hyfax() {
                   </div>
                 )}
 
+                {/* Start something new right from the page — the same box and
+                    Dig in button as the home page. */}
                 <div className="mt-6 pt-4 border-t" style={{ borderColor: "#4A3C2C" }}>
-                  <button
-                    onClick={reset}
-                    className="flex items-center gap-1.5 rh-body text-xs border rounded-full px-3 py-1.5 transition-colors rh-btn-dark"
-                    style={{ color: "#F1E6D3", backgroundColor: "#1F1811", borderColor: "#3A2E20" }}
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const t = inputVal.trim();
+                      if (!t) return;
+                      startTopic(t, undefined, "freeform");
+                      setInputVal("");
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    className="flex items-center gap-2"
                   >
-                    <RotateCcw size={12} />
-                    New thread
-                  </button>
+                    <input
+                      value={inputVal}
+                      onChange={(e) => {
+                        setInputVal(e.target.value);
+                        setIsSurprise(false);
+                      }}
+                      placeholder="What's on your mind?"
+                      className="rh-body flex-1 min-w-0 border outline-none rh-placeholder rh-input text-sm rounded-full px-5 py-3 transition-colors"
+                      style={{ backgroundColor: "#332617", borderColor: "#5A4630", color: "#F1E6D3" }}
+                      aria-label="Start a new topic"
+                    />
+                    <button
+                      type="submit"
+                      className="rh-body flex items-center gap-1.5 text-sm font-medium rounded-full px-5 py-3 border transition-colors shrink-0 rh-btn-outline"
+                      style={{ backgroundColor: "transparent", borderColor: "#5A4630", color: "#C9B896" }}
+                    >
+                      <Sparkles size={15} /> Dig in
+                    </button>
+                  </form>
                 </div>
               </div>
             </div>
