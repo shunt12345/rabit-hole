@@ -106,14 +106,28 @@ async function unsubscribeToken(secret: string, userId: string): Promise<string>
     .join("");
 }
 
-async function sendResendEmail(apiKey: string, to: string, subject: string, html: string) {
+async function sendResendEmail(apiKey: string, to: string, subject: string, html: string, text: string, unsubscribeUrl: string) {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ from: DIGEST_FROM, to, subject, html }),
+    body: JSON.stringify({
+      from: DIGEST_FROM,
+      to,
+      subject,
+      html,
+      text,
+      // Gmail expects these from anyone sending a daily list: they give the
+      // reader its own Unsubscribe button, and one-click POSTs to the same
+      // link as the footer's "Turn it off" (unsubscribe-email reads uid and
+      // token from the query string whatever the method).
+      headers: {
+        "List-Unsubscribe": `<${unsubscribeUrl}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      },
+    }),
   });
   if (!res.ok) {
     throw new Error(`Resend returned ${res.status}: ${(await res.text()).slice(0, 300)}`);
@@ -201,7 +215,6 @@ function riddleGameRowHtml(topic: string, clues: RiddleClue[], answers: string[]
         .join("")
     )
     .join(`<span style="display:inline-block; width:12px;"></span>`);
-  const more = clues.length - 1;
   return `
   <tr>
     <td style="padding:0 40px 12px;">
@@ -209,8 +222,7 @@ function riddleGameRowHtml(topic: string, clues: RiddleClue[], answers: string[]
         <span style="display:block; font-family:Georgia,'Times New Roman',serif; font-style:italic; font-size:22px; color:${COLOR_TEXT_PRIMARY}; margin-bottom:12px;">What am I?</span>
         <span style="display:block; margin-bottom:12px; line-height:24px;">${blocks}</span>
         <span style="display:block; font-size:15px; line-height:1.5; color:${COLOR_TEXT_PRIMARY};"><span style="font-family:'Courier New',monospace; font-size:11px; color:${COLOR_TEXT_MUTED}; padding-right:10px;">1</span>${escapeHtml(clueLine(clues[0], topic, answers))}</span>
-        ${more > 0 ? `<span style="display:block; font-size:13px; color:${COLOR_TEXT_MUTED}; margin-top:6px;">${more} more clue${more === 1 ? "" : "s"} to reveal in the game</span>` : ""}
-        <span style="display:inline-block; margin-top:14px; background-color:${COLOR_ACCENT}; color:${COLOR_PAGE_BG}; font-size:13px; font-weight:700; border-radius:999px; padding:9px 18px;">Make your guess &rarr;</span>
+        <span style="display:block; margin-top:12px; font-size:14px; font-weight:600; color:${COLOR_ACCENT};">Play today's riddle</span>
       </a>
     </td>
   </tr>`;
@@ -336,6 +348,45 @@ function digestHtml(
 </table>`;
 }
 
+type DigestSections = Parameters<typeof digestHtml>[0];
+
+// Plain-text twin of digestHtml, sent alongside it: an HTML-only email
+// reads as marketing to Gmail, and some readers prefer text anyway.
+function digestText(sections: DigestSections, asOfDate: Date | null, unsubscribeUrl: string): string {
+  const { quote, today, perspective, riddle, trending } = sections;
+  const topicUrl = (topic: string) => `${APP_ORIGIN}/?topic=${encodeURIComponent(topic)}`;
+  const card = (row: { field: string; topic: string; teaser: string }) =>
+    `${row.topic}\n${row.teaser}\n${topicUrl(row.topic)}`;
+  const parts: string[] = ["Hyfax: thinking with threads"];
+  if (asOfDate) parts.push(asOfDate.toLocaleDateString("en-US", { month: "long", day: "numeric" }));
+  if (quote) parts.push(`QUOTE OF THE DAY\n"${quote.topic}"\n${quote.teaser}\n${topicUrl(quote.topic)}`);
+  if (today.length) parts.push(`TODAY\n${today.map(card).join("\n\n")}`);
+  if (perspective) parts.push(`PERSPECTIVE\n${card(perspective)}`);
+  if (riddle) {
+    const clues = riddle.riddle_game?.clues;
+    parts.push(
+      Array.isArray(clues) && clues.length
+        ? `RIDDLE ME THIS\nWhat am I? ${clueLine(clues[0], riddle.topic, riddle.riddle_game?.answers || [])}\nPlay today's riddle: ${APP_ORIGIN}/?play=riddle`
+        : `RIDDLE ME THIS\n${riddle.teaser}\n${topicUrl(riddle.topic)}`
+    );
+  }
+  if (trending.length) parts.push(`TRENDING\n${trending.map(card).join("\n\n")}`);
+  parts.push(`Open Hyfax: ${APP_ORIGIN}`);
+  parts.push(`You're getting this because your Hyfax account has the daily digest turned on. Turn it off: ${unsubscribeUrl}`);
+  return parts.join("\n\n");
+}
+
+// A subject that changes with the day's content, e.g. "Oct 14: Yeager
+// Breaks Sound Barrier, plus today's riddle" — the same subject every day
+// is what makes an email look like a newsletter blast.
+function digestSubject(sections: DigestSections, asOfDate: Date | null): string {
+  const { quote, today, perspective, riddle, trending } = sections;
+  const lead = today[0]?.topic || trending[0]?.topic || perspective?.topic || null;
+  const date = (asOfDate || new Date()).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  if (!lead) return quote ? `${date}: today's threads on Hyfax` : `${date}: today's riddle on Hyfax`;
+  return `${date}: ${lead}${riddle ? ", plus today's riddle" : ""}`;
+}
+
 serve(async (req) => {
   const cronSecret = Deno.env.get("CRON_SECRET");
   if (!cronSecret || req.headers.get("x-cron-secret") !== cronSecret) {
@@ -429,6 +480,8 @@ serve(async (req) => {
     });
   }
 
+  const sections = { quote, today, perspective, riddle, trending };
+  const subject = digestSubject(sections, asOfDate);
   let sent = 0;
   const errors: string[] = [];
   for (const recipient of recipients || []) {
@@ -438,8 +491,10 @@ serve(async (req) => {
       await sendResendEmail(
         resendApiKey,
         recipient.email,
-        "Today's threads on Hyfax",
-        digestHtml({ quote, today, perspective, riddle, trending }, asOfDate, unsubscribeUrl)
+        subject,
+        digestHtml(sections, asOfDate, unsubscribeUrl),
+        digestText(sections, asOfDate, unsubscribeUrl),
+        unsubscribeUrl
       );
       sent++;
       // Resend's rate limit is generous but not infinite — a small pause
