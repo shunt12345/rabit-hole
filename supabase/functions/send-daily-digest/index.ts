@@ -42,6 +42,13 @@ const APP_ORIGIN = Deno.env.get("APP_ORIGIN") ?? "https://hyfax.app";
 // Sender identity — must be an address on a domain verified in Resend
 // (hyfax.app already is, from the magic-link SMTP setup). Override via
 // secret without a code change if you want a different from-name/address.
+// Every link back to the app is tagged as coming from this email, so
+// /admin can tell digest clicks apart from direct visits.
+const EMAIL_UTM = "utm_source=email&utm_medium=email&utm_campaign=daily-digest";
+function appUrl(params = ""): string {
+  return `${APP_ORIGIN}/?${params ? `${params}&` : ""}${EMAIL_UTM}`;
+}
+
 const DIGEST_FROM = Deno.env.get("DIGEST_FROM_EMAIL") ?? "Hyfax <hello@hyfax.app>";
 
 // Same fields the hero page itself reads, in the SAME section order it
@@ -140,7 +147,7 @@ async function sendResendEmail(apiKey: string, to: string, subject: string, html
 // light card.
 function topicRowHtml(row: { field: string; topic: string; teaser: string }): string {
   const label = FIELD_LABELS[row.field] || row.field;
-  const url = `${APP_ORIGIN}/?topic=${encodeURIComponent(row.topic)}`;
+  const url = appUrl(`topic=${encodeURIComponent(row.topic)}`);
   return `
   <tr>
     <td style="padding:0 40px 12px;">
@@ -160,7 +167,7 @@ function topicRowHtml(row: { field: string; topic: string; teaser: string }): st
 // `teaser` the author/attribution — see generate-trending-topics'
 // quoteOfTheDayPrompt.
 function quoteRowHtml(row: { topic: string; teaser: string }): string {
-  const url = `${APP_ORIGIN}/?topic=${encodeURIComponent(row.topic)}`;
+  const url = appUrl(`topic=${encodeURIComponent(row.topic)}`);
   return `
   <tr>
     <td style="padding:0 40px 12px;">
@@ -199,7 +206,7 @@ function clueLine(clue: RiddleClue, topic: string, answers: string[]): string {
 }
 
 function riddleGameRowHtml(topic: string, clues: RiddleClue[], answers: string[]): string {
-  const url = `${APP_ORIGIN}/?play=riddle`;
+  const url = appUrl("play=riddle");
   // A leading "The"/"A"/"An" isn't part of the blocks, as in the game.
   const blocks = topic
     .trim()
@@ -231,7 +238,7 @@ function riddleGameRowHtml(topic: string, clues: RiddleClue[], answers: string[]
 function riddleRowHtml(row: { topic: string; teaser: string; riddle_game?: { clues?: RiddleClue[]; answers?: string[] } | null }): string {
   const clues = row.riddle_game?.clues;
   if (Array.isArray(clues) && clues.length) return riddleGameRowHtml(row.topic, clues, row.riddle_game?.answers || []);
-  const url = `${APP_ORIGIN}/?topic=${encodeURIComponent(row.topic)}`;
+  const url = appUrl(`topic=${encodeURIComponent(row.topic)}`);
   const displayText = `${row.teaser.replace(/\.+\s*$/, "")}....`;
   return `
   <tr>
@@ -326,7 +333,7 @@ function digestHtml(
             <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
               <tr>
                 <td bgcolor="${COLOR_ACCENT}" style="background-color:${COLOR_ACCENT}; border-radius:999px;">
-                  <a href="${APP_ORIGIN}" style="display:inline-block; padding:12px 28px; font-size:14px; font-weight:600; color:${COLOR_PAGE_BG}; text-decoration:none;">
+                  <a href="${appUrl()}" style="display:inline-block; padding:12px 28px; font-size:14px; font-weight:600; color:${COLOR_PAGE_BG}; text-decoration:none;">
                     Open Hyfax
                   </a>
                 </td>
@@ -354,7 +361,7 @@ type DigestSections = Parameters<typeof digestHtml>[0];
 // reads as marketing to Gmail, and some readers prefer text anyway.
 function digestText(sections: DigestSections, asOfDate: Date | null, unsubscribeUrl: string): string {
   const { quote, today, perspective, riddle, trending } = sections;
-  const topicUrl = (topic: string) => `${APP_ORIGIN}/?topic=${encodeURIComponent(topic)}`;
+  const topicUrl = (topic: string) => appUrl(`topic=${encodeURIComponent(topic)}`);
   const card = (row: { field: string; topic: string; teaser: string }) =>
     `${row.topic}\n${row.teaser}\n${topicUrl(row.topic)}`;
   const parts: string[] = ["Hyfax: thinking with threads"];
@@ -366,12 +373,12 @@ function digestText(sections: DigestSections, asOfDate: Date | null, unsubscribe
     const clues = riddle.riddle_game?.clues;
     parts.push(
       Array.isArray(clues) && clues.length
-        ? `RIDDLE ME THIS\nWhat am I? ${clueLine(clues[0], riddle.topic, riddle.riddle_game?.answers || [])}\nPlay today's riddle: ${APP_ORIGIN}/?play=riddle`
+        ? `RIDDLE ME THIS\nWhat am I? ${clueLine(clues[0], riddle.topic, riddle.riddle_game?.answers || [])}\nPlay today's riddle: ${appUrl("play=riddle")}`
         : `RIDDLE ME THIS\n${riddle.teaser}\n${topicUrl(riddle.topic)}`
     );
   }
   if (trending.length) parts.push(`TRENDING\n${trending.map(card).join("\n\n")}`);
-  parts.push(`Open Hyfax: ${APP_ORIGIN}`);
+  parts.push(`Open Hyfax: ${appUrl()}`);
   parts.push(`You're getting this because your Hyfax account has the daily digest turned on. Turn it off: ${unsubscribeUrl}`);
   return parts.join("\n\n");
 }

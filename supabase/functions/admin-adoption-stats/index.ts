@@ -122,8 +122,10 @@ function median(nums: number[]): number {
 // anything else (another ad platform, a shared link's own utm_source,
 // etc.) falls into "other" rather than fragmenting into a long one-off
 // tail at this app's current traffic.
-function channelOf(firstSource: string | null): "reddit" | "direct" | "other" {
+function channelOf(firstSource: string | null): "reddit" | "email" | "direct" | "other" {
   if (firstSource === "reddit") return "reddit";
+  // The daily digest's own links (send-daily-digest tags them).
+  if (firstSource === "email") return "email";
   if (!firstSource) return "direct";
   return "other";
 }
@@ -161,7 +163,7 @@ serve(async (req) => {
     }
 
     const url = new URL(req.url);
-    const sourceFilter = url.searchParams.get("source"); // "reddit" | "direct" | "other" | null
+    const sourceFilter = url.searchParams.get("source"); // "reddit" | "email" | "direct" | "other" | null
     const campaignFilter = url.searchParams.get("campaign");
     const includeTest = url.searchParams.get("includeTest") === "1";
     const now = new Date();

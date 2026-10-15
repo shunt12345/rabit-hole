@@ -645,6 +645,7 @@ export default function AdminDashboard() {
             >
               <option value="">All</option>
               <option value="reddit">Reddit</option>
+              <option value="email">Email</option>
               <option value="direct">Direct</option>
               <option value="other">Other</option>
             </select>

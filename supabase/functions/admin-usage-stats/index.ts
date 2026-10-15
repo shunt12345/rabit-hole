@@ -131,7 +131,9 @@ serve(async (req) => {
     // links, etc.) rather than a long tail of one-off UTM values that
     // would fragment the numbers without real signal at current traffic
     // levels.
-    const channelOf = (r: { utm_source?: string | null }) => (r.utm_source === "reddit" ? "reddit" : "direct/other");
+    // "email" is the daily digest's own links (send-daily-digest tags them).
+    const channelOf = (r: { utm_source?: string | null }) =>
+      r.utm_source === "reddit" ? "reddit" : r.utm_source === "email" ? "email" : "direct/other";
 
     // Daily requests/sessions/spend, full 30-day window — channel-agnostic,
     // unchanged shape (the stat cards read daily[0] directly, and
