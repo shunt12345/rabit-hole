@@ -289,7 +289,8 @@ function digestHtml(
     trending: { field: string; topic: string; teaser: string }[];
   },
   asOfDate: Date | null,
-  unsubscribeUrl: string
+  unsubscribeUrl: string,
+  reason: string
 ): string {
   const { quote, today, perspective, riddle, trending } = sections;
   // Same section order as the hero page (App.jsx): Quote, Today,
@@ -344,7 +345,7 @@ function digestHtml(
         <tr>
           <td style="padding:24px 40px; border-top:1px solid ${COLOR_BORDER_FAINT};">
             <p style="margin:0; font-size:12px; line-height:1.6; color:${COLOR_TEXT_FAINT};">
-              You're getting this because your Hyfax account has the daily digest turned on.
+              ${escapeHtml(reason)}
               <a href="${unsubscribeUrl}" style="color:${COLOR_ACCENT};">Turn it off</a>.
             </p>
           </td>
@@ -359,7 +360,7 @@ type DigestSections = Parameters<typeof digestHtml>[0];
 
 // Plain-text twin of digestHtml, sent alongside it: an HTML-only email
 // reads as marketing to Gmail, and some readers prefer text anyway.
-function digestText(sections: DigestSections, asOfDate: Date | null, unsubscribeUrl: string): string {
+function digestText(sections: DigestSections, asOfDate: Date | null, unsubscribeUrl: string, reason: string): string {
   const { quote, today, perspective, riddle, trending } = sections;
   const topicUrl = (topic: string) => appUrl(`topic=${encodeURIComponent(topic)}`);
   const card = (row: { field: string; topic: string; teaser: string }) =>
@@ -379,7 +380,7 @@ function digestText(sections: DigestSections, asOfDate: Date | null, unsubscribe
   }
   if (trending.length) parts.push(`TRENDING\n${trending.map(card).join("\n\n")}`);
   parts.push(`Open Hyfax: ${appUrl()}`);
-  parts.push(`You're getting this because your Hyfax account has the daily digest turned on. Turn it off: ${unsubscribeUrl}`);
+  parts.push(`${reason} Turn it off: ${unsubscribeUrl}`);
   return parts.join("\n\n");
 }
 
@@ -506,7 +507,7 @@ serve(async (req) => {
   const asOfDate =
     latestByField.size ? new Date(Math.max(...[...latestByField.values()].map(liveSince))) : null;
 
-  const { data: recipients, error: recipientsError } = await supabase
+  const { data: accountRows, error: recipientsError } = await supabase
     .from("profiles")
     .select("id, email")
     .eq("feature_email", true)
@@ -517,21 +518,54 @@ serve(async (req) => {
       headers: { "Content-Type": "application/json" },
     });
   }
+  // Plus the email-only sign-ups who confirmed (digest-subscribe), minus
+  // any address an account already gets it at.
+  const { data: subscriberRows, error: subscribersError } = await supabase
+    .from("digest_subscribers")
+    .select("id, email")
+    .eq("status", "confirmed");
+  if (subscribersError) console.error("send-daily-digest: failed to read subscribers", subscribersError);
+
+  const functionsUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1`;
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+  type Recipient = { id: string; email: string; unsubscribeUrl: string; reason: string };
+  const recipients: Recipient[] = [];
+  const seen = new Set<string>();
+  for (const r of accountRows || []) {
+    seen.add(String(r.email).toLowerCase());
+    const token = await unsubscribeToken(unsubSecret, r.id);
+    recipients.push({
+      id: r.id,
+      email: r.email,
+      unsubscribeUrl: `${functionsUrl}/unsubscribe-email?uid=${r.id}&token=${token}&apikey=${anonKey}`,
+      reason: "You're getting this because your Hyfax account has the daily digest turned on.",
+    });
+  }
+  for (const r of subscriberRows || []) {
+    if (seen.has(String(r.email).toLowerCase())) continue;
+    seen.add(String(r.email).toLowerCase());
+    const token = await unsubscribeToken(unsubSecret, `subscriber:${r.id}`);
+    recipients.push({
+      id: `subscriber:${r.id}`,
+      email: r.email,
+      unsubscribeUrl: `${functionsUrl}/digest-subscribe?unsub=${r.id}&token=${token}&apikey=${anonKey}`,
+      reason: "You're getting this because you signed up for Hyfax's daily threads.",
+    });
+  }
 
   const sections = { quote, today, perspective, riddle, trending };
   const subject = digestSubject(asOfDate);
   let sent = 0;
   const errors: string[] = [];
-  for (const recipient of recipients || []) {
+  for (const recipient of recipients) {
     try {
-      const token = await unsubscribeToken(unsubSecret, recipient.id);
-      const unsubscribeUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/unsubscribe-email?uid=${recipient.id}&token=${token}&apikey=${Deno.env.get("SUPABASE_ANON_KEY")}`;
+      const { unsubscribeUrl, reason } = recipient;
       await sendResendEmail(
         resendApiKey,
         recipient.email,
         subject,
-        digestHtml(sections, asOfDate, unsubscribeUrl),
-        digestText(sections, asOfDate, unsubscribeUrl),
+        digestHtml(sections, asOfDate, unsubscribeUrl, reason),
+        digestText(sections, asOfDate, unsubscribeUrl, reason),
         unsubscribeUrl
       );
       sent++;
