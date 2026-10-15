@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, Fragment } from "react";
-import { Loader2, RotateCcw, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, Share2, Check, Shuffle } from "lucide-react";
+import { Loader2, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, Share2, Check, Shuffle } from "lucide-react";
 import {
   callClaude,
   streamTextFromPrompt,
@@ -2320,18 +2320,30 @@ export default function Hyfax() {
                   </div>
                 )}
 
-                {/* Reddit visitors get the same box and Dig in button as the
-                    home page, so they start their next topic right from the
-                    page; everyone else gets New thread. */}
-                <div className="mt-6 pt-4 border-t" style={{ borderColor: "#4A3C2C" }}>
-                  {isRedditVisit() ? (
+                {/* Every page ends with the home page's Spin a thread button,
+                    box and Dig in, so the next topic starts right here. */}
+                <div className="mt-6 pt-6 border-t" style={{ borderColor: "#4A3C2C" }}>
+                  <div className="flex justify-center mb-4">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInputVal(nextSurpriseTopic());
+                        setIsSurprise(true);
+                      }}
+                      className="rh-body flex items-center gap-1.5 text-sm font-medium rounded-full px-5 py-3 transition-colors rh-btn-accent"
+                      style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
+                    >
+                      <Shuffle size={15} /> {isSurprise ? "Spin again" : "Spin a thread"}
+                    </button>
+                  </div>
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
                       const t = inputVal.trim();
                       if (!t) return;
-                      startTopic(t, undefined, "freeform");
+                      startTopic(t, undefined, isSurprise ? "spin_a_thread" : "freeform");
                       setInputVal("");
+                      setIsSurprise(false);
                       window.scrollTo({ top: 0, behavior: "smooth" });
                     }}
                     className="flex items-center gap-2"
@@ -2355,16 +2367,6 @@ export default function Hyfax() {
                       <Sparkles size={15} /> Dig in
                     </button>
                   </form>
-                  ) : (
-                    <button
-                      onClick={reset}
-                      className="flex items-center gap-1.5 rh-body text-xs border rounded-full px-3 py-1.5 transition-colors rh-btn-dark"
-                      style={{ color: "#F1E6D3", backgroundColor: "#1F1811", borderColor: "#3A2E20" }}
-                    >
-                      <RotateCcw size={12} />
-                      New thread
-                    </button>
-                  )}
                 </div>
               </div>
             </div>
