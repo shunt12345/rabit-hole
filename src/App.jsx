@@ -17,6 +17,8 @@ import { createPacedReveal } from "./lib/pacedReveal.js";
 import { getCurrentUser, onAuthStateChange, isNewAccount, getAccessToken } from "./lib/auth.js";
 import { maybeReportSignUp, maybeReportLead } from "./lib/redditPixel.js";
 import { isRedditVisit } from "./lib/attribution.js";
+import DigestSignup from "./DigestSignup.jsx";
+import { markDigestSignedUp } from "./lib/digest.js";
 import { touchSession } from "./lib/visitor.js";
 import { trackEvent } from "./lib/track.js";
 import { recordChipTap, hasDismissedSignUpPrompt, dismissSignUpPrompt } from "./lib/chipTaps.js";
@@ -317,6 +319,31 @@ export default function Hyfax() {
   // Accounts (production punch list, Section A) — first pass: just knowing
   // who's signed in. null = signed out, an object = signed in.
   const [user, setUser] = useState(null);
+  // Result of a daily-email confirm/unsubscribe link (digest-subscribe
+  // redirects back with ?digest=…), shown once as a short notice.
+  const [digestNotice, setDigestNotice] = useState(() => {
+    try {
+      const v = new URLSearchParams(window.location.search).get("digest");
+      if (!v) return null;
+      const params = new URLSearchParams(window.location.search);
+      params.delete("digest");
+      const qs = params.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`);
+      if (v === "confirmed") {
+        markDigestSignedUp();
+        return "You're in. The daily threads arrive tomorrow morning.";
+      }
+      if (v === "unsubscribed") return "You're unsubscribed from the daily threads.";
+      return "That link didn't work. Try signing up again.";
+    } catch (_) {
+      return null;
+    }
+  });
+  useEffect(() => {
+    if (!digestNotice) return;
+    const t = setTimeout(() => setDigestNotice(null), 6000);
+    return () => clearTimeout(t);
+  }, [digestNotice]);
   useEffect(() => {
     getCurrentUser().then(setUser);
     return onAuthStateChange((u) => {
@@ -1554,6 +1581,18 @@ export default function Hyfax() {
 
   return (
     <div className="w-full flex flex-col rh-body" style={{ backgroundColor: "#14100C", height: viewportH }}>
+      {digestNotice && (
+        <div className="fixed top-4 inset-x-4 z-50 flex justify-center pointer-events-none">
+          <button
+            type="button"
+            onClick={() => setDigestNotice(null)}
+            className="pointer-events-auto max-w-md rounded-full border px-5 py-2.5 rh-body text-sm shadow-lg"
+            style={{ backgroundColor: "#241B12", borderColor: "#E3A73C", color: "#F1E6D3" }}
+          >
+            {digestNotice}
+          </button>
+        </div>
+      )}
       <style>{`
         /* Fraunces requested WITHOUT the opsz (optical size) axis range —
            with it, some Android renderers interpolate the italic instance
@@ -1813,6 +1852,12 @@ export default function Hyfax() {
                 )
               }
             />
+
+            {!user && (
+              <div className="mt-10">
+                <DigestSignup source="home" />
+              </div>
+            )}
 
             {/* Free trial used up (production punch list, Section B) — the
                 "hero placement promoting the paid balance" the
@@ -2266,6 +2311,12 @@ export default function Hyfax() {
                         );
                       })}
                     </div>
+                  </div>
+                )}
+
+                {!user && (
+                  <div className="mt-8">
+                    <DigestSignup source="article" />
                   </div>
                 )}
 
