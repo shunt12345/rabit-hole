@@ -44,6 +44,40 @@ function unauthorized(corsHeaders: Record<string, string>) {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+// The API hands back at most 1,000 rows per request (a .limit() above that
+// is silently capped), so every read here pages through in 1,000-row steps.
+const PAGE_ROWS = 1000;
+// Visitor ids go in the request URL, which fails (500) once it holds a few
+// hundred of them, so id lists are sent in batches this size.
+const ID_BATCH = 150;
+
+// deno-lint-ignore no-explicit-any
+async function readAllRows<T>(page: (from: number, to: number) => PromiseLike<{ data: any; error: any }>): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += PAGE_ROWS) {
+    const { data, error } = await page(from, from + PAGE_ROWS - 1);
+    if (error) throw error;
+    rows.push(...((data ?? []) as T[]));
+    if (!data || data.length < PAGE_ROWS) return rows;
+  }
+}
+
+// Every row of `table` whose visitor_id is in `ids`, batched and paged
+// (ordered by the table's key, so pages don't overlap or skip rows).
+async function readForVisitors<T>(table: string, columns: string, key: string, ids: string[]): Promise<T[]> {
+  const rows: T[] = [];
+  for (let i = 0; i < ids.length; i += ID_BATCH) {
+    const batch = ids.slice(i, i + ID_BATCH);
+    rows.push(
+      ...(await readAllRows<T>((from, to) =>
+        supabase.from(table).select(columns).in("visitor_id", batch).order(key).range(from, to)
+      ))
+    );
+  }
+  return rows;
+}
+
 const COHORT_TZ = "America/New_York";
 
 // All of this app's "which calendar day does this timestamp fall on"
@@ -143,16 +177,18 @@ serve(async (req) => {
     // not which visitors are known about. Fine as one broad fetch
     // (aggregated in-process below) at this app's current scale — same
     // posture admin-usage-stats already takes for its own 30-day pull.
-    let visitorsQuery = supabase
-      .from("visitors")
-      .select("visitor_id, first_seen_at, first_source, first_campaign, user_id, is_test")
-      .limit(50000);
-    if (!includeTest) visitorsQuery = visitorsQuery.eq("is_test", false);
-    if (campaignFilter) visitorsQuery = visitorsQuery.eq("first_campaign", campaignFilter);
-    const { data: visitorRows, error: vErr } = await visitorsQuery;
-    if (vErr) throw vErr;
+    const visitorRows = await readAllRows<VisitorRow>((from, to) => {
+      let q = supabase
+        .from("visitors")
+        .select("visitor_id, first_seen_at, first_source, first_campaign, user_id, is_test")
+        .order("visitor_id")
+        .range(from, to);
+      if (!includeTest) q = q.eq("is_test", false);
+      if (campaignFilter) q = q.eq("first_campaign", campaignFilter);
+      return q;
+    });
 
-    const scopedVisitors = ((visitorRows ?? []) as VisitorRow[]).filter(
+    const scopedVisitors = visitorRows.filter(
       (v) => !sourceFilter || channelOf(v.first_source) === sourceFilter
     );
     const scopedIds = scopedVisitors.map((v) => v.visitor_id);
@@ -171,20 +207,13 @@ serve(async (req) => {
       );
     }
 
-    // Supabase JS's .in() sends every id as a querystring value — fine at
-    // this app's current visitor volume, same "fine for now" call
-    // admin-usage-stats already makes for its own unfiltered 30-day pull;
-    // worth chunking or moving to a dedicated RPC if this table grows into
-    // the tens of thousands of visitors.
-    const [{ data: sessionRows, error: sErr }, { data: eventRows, error: eErr }] = await Promise.all([
-      supabase.from("sessions").select("session_id, visitor_id, started_at").in("visitor_id", scopedIds).limit(200000),
-      supabase.from("events").select("visitor_id, session_id, type, created_at").in("visitor_id", scopedIds).limit(500000),
+    const [sessionRows, eventRows] = await Promise.all([
+      readForVisitors<SessionRow>("sessions", "session_id, visitor_id, started_at", "session_id", scopedIds),
+      readForVisitors<EventRow>("events", "visitor_id, session_id, type, created_at", "id", scopedIds),
     ]);
-    if (sErr) throw sErr;
-    if (eErr) throw eErr;
 
     const sessionsByVisitor = new Map<string, SessionRow[]>();
-    for (const s of (sessionRows ?? []) as SessionRow[]) {
+    for (const s of sessionRows) {
       const arr = sessionsByVisitor.get(s.visitor_id) ?? [];
       arr.push(s);
       sessionsByVisitor.set(s.visitor_id, arr);
@@ -193,7 +222,7 @@ serve(async (req) => {
 
     const eventsBySession = new Map<string, EventRow[]>();
     const eventsByVisitor = new Map<string, EventRow[]>();
-    for (const e of (eventRows ?? []) as EventRow[]) {
+    for (const e of eventRows) {
       const bySession = eventsBySession.get(e.session_id) ?? [];
       bySession.push(e);
       eventsBySession.set(e.session_id, bySession);
@@ -270,7 +299,7 @@ serve(async (req) => {
     const untilKey = nyDateKey(until);
     const firstSeenKeyByVisitor = new Map(scopedVisitors.map((v) => [v.visitor_id, nyDateKey(v.first_seen_at)]));
     const activeDayMap = new Map<string, { new: Set<string>; returning: Set<string> }>();
-    for (const e of (eventRows ?? []) as EventRow[]) {
+    for (const e of eventRows) {
       const dayKey = nyDateKey(e.created_at);
       if (dayKey < sinceKey || dayKey > untilKey) continue;
       const firstSeenKey = firstSeenKeyByVisitor.get(e.visitor_id);
@@ -330,7 +359,7 @@ serve(async (req) => {
     function weeklyActiveCount(weekStartKey: string): number {
       const weekEndKey = addDaysToDateKey(weekStartKey, 7); // exclusive
       const pageViewsByVisitor = new Map<string, number>();
-      for (const e of (eventRows ?? []) as EventRow[]) {
+      for (const e of eventRows) {
         if (e.type !== "article_view") continue;
         const dayKey = nyDateKey(e.created_at);
         if (dayKey < weekStartKey || dayKey >= weekEndKey) continue;
