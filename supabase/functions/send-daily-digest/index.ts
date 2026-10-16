@@ -45,8 +45,14 @@ const APP_ORIGIN = Deno.env.get("APP_ORIGIN") ?? "https://hyfax.app";
 // Every link back to the app is tagged as coming from this email, so
 // /admin can tell digest clicks apart from direct visits.
 const EMAIL_UTM = "utm_source=email&utm_medium=email&utm_campaign=daily-digest";
-function appUrl(params = ""): string {
-  return `${APP_ORIGIN}/?${params ? `${params}&` : ""}${EMAIL_UTM}`;
+// utm_content names the section the link sits in (quote, riddle, trending,
+// …), so /admin can show which parts of the email people click.
+function appUrl(params = "", section = "open-hyfax"): string {
+  return `${APP_ORIGIN}/?${params ? `${params}&` : ""}${EMAIL_UTM}&utm_content=${section}`;
+}
+// "Trending 1" → "trending", "This Day In History" → "this-day-in-history".
+function sectionOf(field: string): string {
+  return field.replace(/\s*\d+$/, "").toLowerCase().replace(/[^a-z]+/g, "-");
 }
 
 const DIGEST_FROM = Deno.env.get("DIGEST_FROM_EMAIL") ?? "Hyfax <hello@hyfax.app>";
@@ -147,7 +153,7 @@ async function sendResendEmail(apiKey: string, to: string, subject: string, html
 // light card.
 function topicRowHtml(row: { field: string; topic: string; teaser: string }): string {
   const label = FIELD_LABELS[row.field] || row.field;
-  const url = appUrl(`topic=${encodeURIComponent(row.topic)}`);
+  const url = appUrl(`topic=${encodeURIComponent(row.topic)}`, sectionOf(row.field));
   return `
   <tr>
     <td style="padding:0 40px 12px;">
@@ -167,7 +173,7 @@ function topicRowHtml(row: { field: string; topic: string; teaser: string }): st
 // `teaser` the author/attribution — see generate-trending-topics'
 // quoteOfTheDayPrompt.
 function quoteRowHtml(row: { topic: string; teaser: string }): string {
-  const url = appUrl(`topic=${encodeURIComponent(row.topic)}`);
+  const url = appUrl(`topic=${encodeURIComponent(row.topic)}`, "quote");
   return `
   <tr>
     <td style="padding:0 40px 12px;">
@@ -206,7 +212,7 @@ function clueLine(clue: RiddleClue, topic: string, answers: string[]): string {
 }
 
 function riddleGameRowHtml(topic: string, clues: RiddleClue[], answers: string[]): string {
-  const url = appUrl("play=riddle");
+  const url = appUrl("play=riddle", "riddle");
   // A leading "The"/"A"/"An" isn't part of the blocks, as in the game.
   const blocks = topic
     .trim()
@@ -238,7 +244,7 @@ function riddleGameRowHtml(topic: string, clues: RiddleClue[], answers: string[]
 function riddleRowHtml(row: { topic: string; teaser: string; riddle_game?: { clues?: RiddleClue[]; answers?: string[] } | null }): string {
   const clues = row.riddle_game?.clues;
   if (Array.isArray(clues) && clues.length) return riddleGameRowHtml(row.topic, clues, row.riddle_game?.answers || []);
-  const url = appUrl(`topic=${encodeURIComponent(row.topic)}`);
+  const url = appUrl(`topic=${encodeURIComponent(row.topic)}`, "riddle");
   const displayText = `${row.teaser.replace(/\.+\s*$/, "")}....`;
   return `
   <tr>
@@ -293,20 +299,21 @@ function digestHtml(
   reason: string
 ): string {
   const { quote, today, perspective, riddle, trending } = sections;
-  // Same section order as the hero page (App.jsx): Quote, Today,
-  // Perspective, Riddle, Trending — Perspective sits right after Today,
-  // same spot it has there. Generic topicRowHtml card, same as Today's own
+  // Its own order (below), not the hero page's: the email is a daily
+  // ritual for people who already know Hyfax, so the riddle leads. Generic topicRowHtml card, same as Today's own
   // rows, rather than a bespoke treatment like quoteRowHtml/riddleRowHtml
   // get — those two need custom layout because their "topic" IS the full
   // quote/withheld riddle text; Perspective's shape (short label + teaser)
   // is the same as every other plain topic card.
   const sectionsHtml = [
+    // The riddle leads (the daily reason to open it), then Trending's
+    // "why it matters", Today and Perspective, and the quote signs off.
     asOfDate ? asOfHtml(asOfDate) : "",
-    quote ? sectionHeadingHtml("Quote of the Day") + quoteRowHtml(quote) : "",
-    today.length ? sectionHeadingHtml("Today") + today.map(topicRowHtml).join("\n") : "",
-    perspective ? sectionHeadingHtml("Perspective") + topicRowHtml(perspective) : "",
     riddle ? sectionHeadingHtml("Riddle me this....") + riddleRowHtml(riddle) : "",
     trending.length ? sectionHeadingHtml("Trending") + trending.map(topicRowHtml).join("\n") : "",
+    today.length ? sectionHeadingHtml("Today") + today.map(topicRowHtml).join("\n") : "",
+    perspective ? sectionHeadingHtml("Perspective") + topicRowHtml(perspective) : "",
+    quote ? sectionHeadingHtml("Quote of the Day") + quoteRowHtml(quote) : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -362,23 +369,23 @@ type DigestSections = Parameters<typeof digestHtml>[0];
 // reads as marketing to Gmail, and some readers prefer text anyway.
 function digestText(sections: DigestSections, asOfDate: Date | null, unsubscribeUrl: string, reason: string): string {
   const { quote, today, perspective, riddle, trending } = sections;
-  const topicUrl = (topic: string) => appUrl(`topic=${encodeURIComponent(topic)}`);
+  const topicUrl = (topic: string, section: string) => appUrl(`topic=${encodeURIComponent(topic)}`, section);
   const card = (row: { field: string; topic: string; teaser: string }) =>
-    `${row.topic}\n${row.teaser}\n${topicUrl(row.topic)}`;
+    `${row.topic}\n${row.teaser}\n${topicUrl(row.topic, sectionOf(row.field))}`;
   const parts: string[] = ["Hyfax: thinking with threads"];
   if (asOfDate) parts.push(asOfDate.toLocaleDateString("en-US", { month: "long", day: "numeric" }));
-  if (quote) parts.push(`QUOTE OF THE DAY\n"${quote.topic}"\n${quote.teaser}\n${topicUrl(quote.topic)}`);
-  if (today.length) parts.push(`TODAY\n${today.map(card).join("\n\n")}`);
-  if (perspective) parts.push(`PERSPECTIVE\n${card(perspective)}`);
   if (riddle) {
     const clues = riddle.riddle_game?.clues;
     parts.push(
       Array.isArray(clues) && clues.length
-        ? `RIDDLE ME THIS\nWhat am I? ${clueLine(clues[0], riddle.topic, riddle.riddle_game?.answers || [])}\nPlay today's riddle: ${appUrl("play=riddle")}`
-        : `RIDDLE ME THIS\n${riddle.teaser}\n${topicUrl(riddle.topic)}`
+        ? `RIDDLE ME THIS\nWhat am I? ${clueLine(clues[0], riddle.topic, riddle.riddle_game?.answers || [])}\nPlay today's riddle: ${appUrl("play=riddle", "riddle")}`
+        : `RIDDLE ME THIS\n${riddle.teaser}\n${topicUrl(riddle.topic, "riddle")}`
     );
   }
   if (trending.length) parts.push(`TRENDING\n${trending.map(card).join("\n\n")}`);
+  if (today.length) parts.push(`TODAY\n${today.map(card).join("\n\n")}`);
+  if (perspective) parts.push(`PERSPECTIVE\n${card(perspective)}`);
+  if (quote) parts.push(`QUOTE OF THE DAY\n"${quote.topic}"\n${quote.teaser}\n${topicUrl(quote.topic, "quote")}`);
   parts.push(`Open Hyfax: ${appUrl()}`);
   parts.push(`${reason} Turn it off: ${unsubscribeUrl}`);
   return parts.join("\n\n");

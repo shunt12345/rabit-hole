@@ -21,35 +21,102 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
 
   return (
     <>
-      {/* Quote Of The Day — same source table/cron cadence as "Today"
-          (see promptForField in generate-trending-topics), but placed
-          above "Trending" as its own section rather than grouped into
-          the "Today" list, since a full quote needs more visual room
-          than a short topic label + teaser. Reuses the "Today"
-          feature toggle for gating (visible.today) rather than adding
-          a whole new toggle for one field. Clickable the same way as
-          every other card — the quote text itself becomes the topic
-          dug into, with the author/context teaser passed through as
-          newsContext so the resulting article covers the quote's
-          real history, significance, and author (see ARTICLE_TASK's
-          dedicated Quote Of The Day guidance in hyfaxSystemPrompt.js). */}
-      {quoteTopic && visible.today && (
-        <div className="mt-10">
-          {/* Date badge — moved here from the top of "Trending" so
-              the whole hero batch's freshness reads once, up front,
-              rather than being tucked under one specific section.
-              Uses the most recent publish across the whole fetched
-              batch (trendingTopics), not just newsTopics, since every
-              field now refreshes together on the same once-daily cron. */}
-          <div className="rh-mono text-lg font-semibold mb-2" style={{ color: "#E3A73C" }}>
-            {mostRecentDate(trendingTopics).toLocaleDateString(undefined, {
-              month: "long",
-              day: "numeric",
-            })}
-          </div>
+      {/* Date badge — the whole batch's freshness, once, up front. Uses
+          the most recent publish across every field, since they all
+          refresh together on the same once-daily cron. */}
+      {trendingTopics.length > 0 && (
+        <div className="mt-10 rh-mono text-lg font-semibold" style={{ color: "#E3A73C" }}>
+          {mostRecentDate(trendingTopics).toLocaleDateString(undefined, {
+            month: "long",
+            day: "numeric",
+          })}
+        </div>
+      )}
+
+      {/* Order: Trending first (what visitors half-saw in their feed, and
+          why it matters), then the riddle (the daily game), then Today,
+          Perspective, and the quote as a closing note. */}
+
+      {/* Trending: real, live-searched stories (see
+          supabase/functions/generate-trending-topics). */}
+      {newsTopics.length > 0 && visible.news && (
+        <div className="mt-3">
           <div className="flex items-center justify-center gap-1.5 mb-6">
             <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
-              Quote of the Day
+              Trending
+            </span>
+          </div>
+          <div className="flex flex-col gap-3 max-w-md mx-auto">
+            {newsTopics.map((t, i) => {
+              const isSelected = selectedKey === `news-${i}`;
+              return (
+                <button
+                  data-precompute="hero"
+                  key={`${t.field}-${i}`}
+                  type="button"
+                  onClick={() => {
+                    setSelectedKey(`news-${i}`);
+                    onStartTopic(t.topic, t.teaser, t.field);
+                  }}
+                  disabled={rootLoading}
+                  className={`rh-chip text-left p-4 rounded-2xl border transition-colors ${
+                    rootLoading && !isSelected ? "opacity-40" : ""
+                  } ${rootLoading && isSelected ? "cursor-default" : ""}`}
+                  style={{
+                    borderColor: isSelected ? "#E3A73C" : "#4A3826",
+                    backgroundColor: isSelected ? "#2A2015" : "#241B12",
+                  }}
+                >
+                  <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
+                    {NEWS_FIELD_LABELS[t.field] || t.field}
+                  </span>
+                  <div className="rh-body text-lg font-semibold mt-1" style={{ color: "#F1E6D3" }}>
+                    {t.topic}
+                  </div>
+                  <p className="rh-body text-sm mt-1" style={{ color: "#B8A886" }}>
+                    {t.teaser}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* The riddle: the guessing game ("What am I?", see RiddleGame.jsx)
+          for a riddle curated with game pieces, which opens the answer with
+          its clues as threads; an older riddle without them keeps the
+          one-tap card. Its own toggle (featureRiddle), so a funded user
+          can turn it off independently. */}
+      {riddleTopic && visible.riddle && riddleTopic.riddle_game && (
+        <RiddleGame
+          riddle={riddleTopic}
+          user={user}
+          onSignUp={onSignUp}
+          disabled={rootLoading}
+          onOpenAnswer={() => {
+            setSelectedKey("riddle");
+            // The answer page's threads are the clues just solved.
+            onStartTopic(
+              riddleTopic.topic,
+              riddleTopic.teaser,
+              RIDDLE_FIELD,
+              riddleTopic.riddle_game.clues.map((c, i) => ({
+                label: c.title,
+                teaser: c.teaser,
+                type: i < 2 ? "indirect" : "tangent",
+                pinned: true,
+              }))
+            );
+          }}
+        />
+      )}
+      {riddleTopic && visible.riddle && !riddleTopic.riddle_game && (
+        <div className="mt-10">
+          <div className="flex items-center justify-center gap-1.5 mb-6">
+            <HelpCircle size={14} style={{ color: "#C9B896" }} />
+            <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
+              Riddle me this....
             </span>
           </div>
           <div className="max-w-md mx-auto">
@@ -57,28 +124,27 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
               data-precompute="hero"
               type="button"
               onClick={() => {
-                setSelectedKey("quote");
-                onStartTopic(quoteTopic.topic, quoteTopic.teaser, QUOTE_FIELD);
+                setSelectedKey("riddle");
+                onStartTopic(riddleTopic.topic, riddleTopic.teaser, RIDDLE_FIELD);
               }}
               disabled={rootLoading}
               className={`rh-chip text-left p-5 rounded-2xl border transition-colors w-full ${
-                rootLoading && !selectedKey === "quote" ? "opacity-40" : ""
-              } ${rootLoading && selectedKey === "quote" ? "cursor-default" : ""}`}
+                rootLoading && !selectedKey === "riddle" ? "opacity-40" : ""
+              } ${rootLoading && selectedKey === "riddle" ? "cursor-default" : ""}`}
               style={{
-                borderColor: selectedKey === "quote" ? "#E3A73C" : "#4A3826",
-                backgroundColor: selectedKey === "quote" ? "#2A2015" : "#241B12",
+                borderColor: selectedKey === "riddle" ? "#E3A73C" : "#4A3826",
+                backgroundColor: selectedKey === "riddle" ? "#2A2015" : "#241B12",
               }}
             >
-              <div className="rh-display italic text-xl leading-snug" style={{ color: "#F1E6D3" }}>
-                {quoteTopic.topic}
-              </div>
-              <p className="rh-body text-sm mt-3" style={{ color: "#B8A886" }}>
-                {quoteTopic.teaser}
+              <p className="rh-display italic text-lg leading-relaxed" style={{ color: "#F1E6D3" }}>
+                {riddleTopic.teaser}
               </p>
             </button>
           </div>
         </div>
       )}
+
+      {adSlot}
 
       {/* "Today" — This Day In History + Word Of The Day, same
           source table and card treatment as "Trending"
@@ -183,40 +249,23 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
         </div>
       )}
 
-      {/* The riddle: the guessing game ("What am I?", see RiddleGame.jsx)
-          for a riddle curated with game pieces, which opens the answer with
-          its clues as threads; an older riddle without them keeps the
-          one-tap card. Its own toggle (featureRiddle), so a funded user
-          can turn it off independently. */}
-      {riddleTopic && visible.riddle && riddleTopic.riddle_game && (
-        <RiddleGame
-          riddle={riddleTopic}
-          user={user}
-          onSignUp={onSignUp}
-          disabled={rootLoading}
-          onOpenAnswer={() => {
-            setSelectedKey("riddle");
-            // The answer page's threads are the clues just solved.
-            onStartTopic(
-              riddleTopic.topic,
-              riddleTopic.teaser,
-              RIDDLE_FIELD,
-              riddleTopic.riddle_game.clues.map((c, i) => ({
-                label: c.title,
-                teaser: c.teaser,
-                type: i < 2 ? "indirect" : "tangent",
-                pinned: true,
-              }))
-            );
-          }}
-        />
-      )}
-      {riddleTopic && visible.riddle && !riddleTopic.riddle_game && (
+      {/* Quote Of The Day — same source table/cron cadence as "Today"
+          (see promptForField in generate-trending-topics), but its own
+          section (last on the page) rather than grouped into the
+          "Today" list, since a full quote needs more visual room
+          than a short topic label + teaser. Reuses the "Today"
+          feature toggle for gating (visible.today) rather than adding
+          a whole new toggle for one field. Clickable the same way as
+          every other card — the quote text itself becomes the topic
+          dug into, with the author/context teaser passed through as
+          newsContext so the resulting article covers the quote's
+          real history, significance, and author (see ARTICLE_TASK's
+          dedicated Quote Of The Day guidance in hyfaxSystemPrompt.js). */}
+      {quoteTopic && visible.today && (
         <div className="mt-10">
           <div className="flex items-center justify-center gap-1.5 mb-6">
-            <HelpCircle size={14} style={{ color: "#C9B896" }} />
             <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
-              Riddle me this....
+              Quote of the Day
             </span>
           </div>
           <div className="max-w-md mx-auto">
@@ -224,73 +273,29 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
               data-precompute="hero"
               type="button"
               onClick={() => {
-                setSelectedKey("riddle");
-                onStartTopic(riddleTopic.topic, riddleTopic.teaser, RIDDLE_FIELD);
+                setSelectedKey("quote");
+                onStartTopic(quoteTopic.topic, quoteTopic.teaser, QUOTE_FIELD);
               }}
               disabled={rootLoading}
               className={`rh-chip text-left p-5 rounded-2xl border transition-colors w-full ${
-                rootLoading && !selectedKey === "riddle" ? "opacity-40" : ""
-              } ${rootLoading && selectedKey === "riddle" ? "cursor-default" : ""}`}
+                rootLoading && selectedKey !== "quote" ? "opacity-40" : ""
+              } ${rootLoading && selectedKey === "quote" ? "cursor-default" : ""}`}
               style={{
-                borderColor: selectedKey === "riddle" ? "#E3A73C" : "#4A3826",
-                backgroundColor: selectedKey === "riddle" ? "#2A2015" : "#241B12",
+                borderColor: selectedKey === "quote" ? "#E3A73C" : "#4A3826",
+                backgroundColor: selectedKey === "quote" ? "#2A2015" : "#241B12",
               }}
             >
-              <p className="rh-display italic text-lg leading-relaxed" style={{ color: "#F1E6D3" }}>
-                {riddleTopic.teaser}
+              <div className="rh-display italic text-xl leading-snug" style={{ color: "#F1E6D3" }}>
+                {quoteTopic.topic}
+              </div>
+              <p className="rh-body text-sm mt-3" style={{ color: "#B8A886" }}>
+                {quoteTopic.teaser}
               </p>
             </button>
           </div>
         </div>
       )}
 
-      {adSlot}
-
-      {/* Trending: real, live-searched stories (see
-          supabase/functions/generate-trending-topics). */}
-      {newsTopics.length > 0 && visible.news && (
-        <div className="mt-10">
-          <div className="flex items-center justify-center gap-1.5 mb-6">
-            <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
-              Trending
-            </span>
-          </div>
-          <div className="flex flex-col gap-3 max-w-md mx-auto">
-            {newsTopics.map((t, i) => {
-              const isSelected = selectedKey === `news-${i}`;
-              return (
-                <button
-                  data-precompute="hero"
-                  key={`${t.field}-${i}`}
-                  type="button"
-                  onClick={() => {
-                    setSelectedKey(`news-${i}`);
-                    onStartTopic(t.topic, t.teaser, t.field);
-                  }}
-                  disabled={rootLoading}
-                  className={`rh-chip text-left p-4 rounded-2xl border transition-colors ${
-                    rootLoading && !isSelected ? "opacity-40" : ""
-                  } ${rootLoading && isSelected ? "cursor-default" : ""}`}
-                  style={{
-                    borderColor: isSelected ? "#E3A73C" : "#4A3826",
-                    backgroundColor: isSelected ? "#2A2015" : "#241B12",
-                  }}
-                >
-                  <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
-                    {NEWS_FIELD_LABELS[t.field] || t.field}
-                  </span>
-                  <div className="rh-body text-lg font-semibold mt-1" style={{ color: "#F1E6D3" }}>
-                    {t.topic}
-                  </div>
-                  <p className="rh-body text-sm mt-1" style={{ color: "#B8A886" }}>
-                    {t.teaser}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </>
   );
 }
