@@ -1,6 +1,17 @@
 {
   "rewrites": [
-    { "source": "/s/:id", "destination": "/api/share?id=:id" },
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
+    {
+      "source": "/s/:id",
+      "destination": "/api/share?id=:id"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "functions": {
+    "api/og.js": {
+      "includeFiles": "api/{_fonts,_assets}/**"
+    }
+  }
 }

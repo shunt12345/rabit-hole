@@ -46,7 +46,7 @@ function truncate(s, n) {
   return s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s;
 }
 
-function page({ title, description, url, bodyHtml }) {
+function page({ title, description, url, bodyHtml, image = `${CANONICAL_ORIGIN}/og-image.jpg` }) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -60,13 +60,13 @@ function page({ title, description, url, bodyHtml }) {
 <meta property="og:description" content="${escapeHtml(description)}" />
 <meta property="og:url" content="${escapeHtml(url)}" />
 <link rel="canonical" href="${escapeHtml(url)}" />
-<meta property="og:image" content="${CANONICAL_ORIGIN}/og-image.jpg" />
+<meta property="og:image" content="${escapeHtml(image)}" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="${escapeHtml(title)}" />
 <meta name="twitter:description" content="${escapeHtml(description)}" />
-<meta name="twitter:image" content="${CANONICAL_ORIGIN}/og-image.jpg" />
+<meta name="twitter:image" content="${escapeHtml(image)}" />
 <link rel="icon" type="image/png" href="/hyfax-favicon.png" />
 <style>
   * { box-sizing: border-box; }
@@ -153,5 +153,6 @@ ${paragraphs}
   res.status(200);
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "public, max-age=300, s-maxage=3600");
-  res.end(page({ title: `${row.topic_label} · Hyfax`, description, url: shareUrl, bodyHtml }));
+  // This article's own card (api/og.js), so the link shows its title in a feed.
+  res.end(page({ title: `${row.topic_label} · Hyfax`, description, url: shareUrl, bodyHtml, image: `${CANONICAL_ORIGIN}/api/og?id=${id}` }));
 }
