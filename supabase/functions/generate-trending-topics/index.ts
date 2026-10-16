@@ -211,8 +211,10 @@ ${freshnessBlock}
 Current, specific, and fresh — no historical background or context. The topic and teaser must be about a specific thing that happened or was announced recently, not general facts about the subject. A reader should immediately understand what's NEW, not get a primer on the subject.
 
 Once you've found a real, currently-trending story, produce:
-- "topic": a short, punchy 2-5 word label suitable as a one-tap starting point for someone exploring the topic (title case, no trailing punctuation) — name the current event/development, not just the subject's name
-- "teaser": one enticing sentence (max 20 words) describing the specific development, written to make someone curious to click it
+- "topic": a short, punchy 2-5 word label suitable as a one-tap starting point for someone exploring the topic (title case, no trailing punctuation) — name the current event/development, not just the subject's name, so someone who scrolled past the headline recognizes it
+- "teaser": one sentence (max 20 words) written for someone who has already half-seen the headline while scrolling. Don't restate the headline — they know what happened. Give them the part the headline leaves out: why it happened, why it matters, or the bigger pattern it belongs to, in a way that makes them want to dig in. Keep it factual and confirmed by your search; no speculation presented as fact.
+  (An invented example of the shape only, not a real story.) Restating (wrong): "A factory fire in Dhaka has killed 40 workers and injured dozens more."
+  The why (right): "Dhaka's factory fires keep happening for the same reason: inspections stopped once the export orders came back."
 - "source_url": the URL of the real source you found via search, supporting the story — must be a specific page that actually discusses THIS exact story, not a homepage, an unrelated video, or a generic live-updates/liveblog page that merely happens to be from a relevant outlet
 
 ${SOURCE_URL_CHECK}
