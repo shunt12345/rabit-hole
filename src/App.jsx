@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, Fragment } from "react";
-import { Loader2, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, Share2, Check, Shuffle, Home, ArrowRight } from "lucide-react";
+import { Loader2, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, Share2, Check, Shuffle, Home, ArrowRight } from "lucide-react";
 import {
   callClaude,
   streamTextFromPrompt,
@@ -19,6 +19,7 @@ import { maybeReportSignUp, maybeReportLead } from "./lib/redditPixel.js";
 import { isRedditVisit } from "./lib/attribution.js";
 import DigestSignup from "./DigestSignup.jsx";
 import SourceCredit from "./SourceCredit.jsx";
+import MushroomIcon from "./MushroomIcon.jsx";
 import { markDigestSignedUp } from "./lib/digest.js";
 import { touchSession } from "./lib/visitor.js";
 import { trackEvent } from "./lib/track.js";
@@ -1808,7 +1809,7 @@ export default function Hyfax() {
                   </>
                 ) : (
                   <>
-                    <Sparkles size={15} /> Dig in
+                    <MushroomIcon size={15} /> Dig in
                   </>
                 )}
               </button>
@@ -2413,7 +2414,7 @@ export default function Hyfax() {
                       className="rh-body flex items-center gap-1.5 text-sm font-medium rounded-full px-5 py-3 border transition-colors shrink-0 rh-btn-outline"
                       style={{ backgroundColor: "transparent", borderColor: "#5A4630", color: "#C9B896" }}
                     >
-                      <Sparkles size={15} /> Dig in
+                      <MushroomIcon size={15} /> Dig in
                     </button>
                   </form>
                     </>
@@ -2449,7 +2450,7 @@ export default function Hyfax() {
             whiteSpace: "nowrap",
           }}
         >
-          <Sparkles size={15} /> Dig in
+          <MushroomIcon size={15} /> Dig in
         </button>
       )}
     </div>
