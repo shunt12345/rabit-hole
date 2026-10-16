@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, Fragment } from "react";
-import { Loader2, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, Share2, Check, Shuffle } from "lucide-react";
+import { Loader2, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, Share2, Check, Shuffle, Home } from "lucide-react";
 import {
   callClaude,
   streamTextFromPrompt,
@@ -1202,6 +1202,12 @@ export default function Hyfax() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, trialExhausted]);
 
+  // Back to the home page, at the top.
+  const goHome = () => {
+    reset();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const reset = () => {
     setPreviewByPage({});
     prefetchedRef.current.clear();
@@ -1661,7 +1667,21 @@ export default function Hyfax() {
           centered logo/tagline on narrow phones — moved to their own
           full-width row below instead, where there's actually room. */}
       <div className="grid grid-cols-3 items-start p-5 md:p-7 shrink-0 max-w-4xl mx-auto w-full">
-        <div />
+        {/* A plain way back to the home page from any article. Most visitors
+            (the Reddit ad) land straight on an article and would otherwise
+            never see the riddle and the day's picks. */}
+        <div>
+          {nodes.length > 0 && (
+            <button
+              type="button"
+              onClick={goHome}
+              className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 rh-body text-xs transition-colors rh-btn-dark"
+              style={{ color: "#C9B896", backgroundColor: "#1F1811", borderColor: "#3A2E20" }}
+            >
+              <Home size={13} /> Home
+            </button>
+          )}
+        </div>
         <div className="flex flex-col items-center text-center">
           <h1 className="flex items-center">
             <button
@@ -2367,6 +2387,14 @@ export default function Hyfax() {
                       <Sparkles size={15} /> Dig in
                     </button>
                   </form>
+                  <button
+                    type="button"
+                    onClick={goHome}
+                    className="mt-4 mx-auto flex items-center gap-1.5 rh-body text-sm rh-link-accent"
+                    style={{ background: "none", border: "none", color: "#E3A73C", cursor: "pointer" }}
+                  >
+                    <Home size={14} /> Today's riddle and picks
+                  </button>
                 </div>
               </div>
             </div>
