@@ -1,10 +1,13 @@
-// The hero page's daily picks, in page order: Quote of the Day (with the
-// date), Today, Perspective, the riddle, then Trending. Each card opens its
+// The hero page's daily picks, in page order: the date, Trending, the
+// riddle, Today, Perspective, then Quote of the Day. Each card credits its
+// source outlet ("via npr.org") — never the riddle's, which would give the
+// answer away. Each card opens its
 // topic through onStartTopic; the tapped card stays highlighted while it
 // loads. The picks themselves come from lib/heroPicks.js.
 import { useState } from "react";
 import { HelpCircle } from "lucide-react";
 import RiddleGame from "./RiddleGame.jsx";
+import SourceCredit from "./SourceCredit.jsx";
 import {
   heroPicks,
   mostRecentDate,
@@ -76,6 +79,9 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
                   <p className="rh-body text-sm mt-1" style={{ color: "#B8A886" }}>
                     {t.teaser}
                   </p>
+                  <div className="mt-2 text-right">
+                    <SourceCredit url={t.source_url} />
+                  </div>
                 </button>
               );
             })}
@@ -188,6 +194,9 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
                   <p className="rh-body text-sm mt-1" style={{ color: "#B8A886" }}>
                     {t.teaser}
                   </p>
+                  <div className="mt-2 text-right">
+                    <SourceCredit url={t.source_url} />
+                  </div>
                 </button>
               );
             })}
@@ -244,6 +253,9 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
               <p className="rh-body text-sm mt-1" style={{ color: "#B8A886" }}>
                 {perspectiveTopic.teaser}
               </p>
+              <div className="mt-2 text-right">
+                <SourceCredit url={perspectiveTopic.source_url} />
+              </div>
             </button>
           </div>
         </div>
@@ -291,6 +303,9 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
               <p className="rh-body text-sm mt-3" style={{ color: "#B8A886" }}>
                 {quoteTopic.teaser}
               </p>
+              <div className="mt-2 text-right">
+                <SourceCredit url={quoteTopic.source_url} />
+              </div>
             </button>
           </div>
         </div>

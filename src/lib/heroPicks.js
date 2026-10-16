@@ -106,3 +106,22 @@ export function heroPicks(rows, previewRiddle) {
     perspectiveTopic: latestByField(rows, [PERSPECTIVE_FIELD])[0] || null,
   };
 }
+
+// The outlet behind a daily pick's source_url, as a plain domain
+// ("npr.org"), for the small credit on its card and page. Null when there's
+// no usable link — then nothing is shown rather than a made-up source.
+export function sourceDomain(url) {
+  try {
+    const u = new URL(url);
+    if (!/^https?:$/.test(u.protocol)) return null;
+    return u.hostname.replace(/^www\./, "");
+  } catch (_) {
+    return null;
+  }
+}
+
+// The daily pick a topic page was started from, if any (matched by its
+// topic, so links from the email find it too).
+export function pickForTopic(rows, topic) {
+  return (rows || []).find((r) => r.topic === topic && r.source_url) || null;
+}

@@ -18,6 +18,7 @@ import { getCurrentUser, onAuthStateChange, isNewAccount, getAccessToken } from 
 import { maybeReportSignUp, maybeReportLead } from "./lib/redditPixel.js";
 import { isRedditVisit } from "./lib/attribution.js";
 import DigestSignup from "./DigestSignup.jsx";
+import SourceCredit from "./SourceCredit.jsx";
 import { markDigestSignedUp } from "./lib/digest.js";
 import { touchSession } from "./lib/visitor.js";
 import { trackEvent } from "./lib/track.js";
@@ -33,7 +34,7 @@ import AdCard from "./AdCard.jsx";
 import HeroSections from "./HeroSections.jsx";
 import LimitCard from "./LimitCard.jsx";
 import { PAYMENTS_ENABLED } from "./lib/billing.js";
-import { TRENDING_TOPICS_URL, RIDDLE_FIELD } from "./lib/heroPicks.js";
+import { TRENDING_TOPICS_URL, RIDDLE_FIELD, pickForTopic } from "./lib/heroPicks.js";
 import { pickHouseAd, getHouseAdById, engagementStage } from "./lib/houseAds.js";
 import { getSessionId } from "./lib/session.js";
 import {
@@ -2333,6 +2334,19 @@ export default function Hyfax() {
                     </div>
                   </div>
                 )}
+
+                {/* Where a daily pick's story came from, on the page it
+                    opened (not its threads, which are written from general
+                    knowledge, and never the riddle's). */}
+                {selected?.type === "root" &&
+                  (() => {
+                    const pick = pickForTopic(trendingTopics, selected.label);
+                    return pick && pick.field !== RIDDLE_FIELD ? (
+                      <div className="mt-6">
+                        <SourceCredit url={pick.source_url} prefix="First reported by" />
+                      </div>
+                    ) : null;
+                  })()}
 
                 {!user && (
                   <div className="mt-8">
