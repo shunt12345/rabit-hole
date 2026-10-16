@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, Fragment } from "react";
-import { Loader2, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, Share2, Check, Shuffle, Home } from "lucide-react";
+import { Loader2, Sparkles, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, Share2, Check, Shuffle, Home, ArrowRight } from "lucide-react";
 import {
   callClaude,
   streamTextFromPrompt,
@@ -1667,11 +1667,11 @@ export default function Hyfax() {
           centered logo/tagline on narrow phones — moved to their own
           full-width row below instead, where there's actually room. */}
       <div className="grid grid-cols-3 items-start p-5 md:p-7 shrink-0 max-w-4xl mx-auto w-full">
-        {/* A plain way back to the home page from any article. Most visitors
-            (the Reddit ad) land straight on an article and would otherwise
-            never see the riddle and the day's picks. */}
+        {/* Reddit ad visitors land straight on an article and would never
+            see the home page otherwise, so they get a plain way back to it.
+            Everyone else already knows the logo does this. */}
         <div>
-          {nodes.length > 0 && (
+          {nodes.length > 0 && isRedditVisit() && (
             <button
               type="button"
               onClick={goHome}
@@ -2340,9 +2340,24 @@ export default function Hyfax() {
                   </div>
                 )}
 
-                {/* Every page ends with the home page's Spin a thread button,
-                    box and Dig in, so the next topic starts right here. */}
+                {/* The end of every page. Reddit ad visitors get one bright
+                    button to the home page (they've never seen it); everyone
+                    else gets Spin a thread and the Dig in box, so the next
+                    topic starts right here. */}
                 <div className="mt-6 pt-6 border-t" style={{ borderColor: "#4A3C2C" }}>
+                  {isRedditVisit() ? (
+                    <div className="flex justify-center">
+                      <button
+                        type="button"
+                        onClick={goHome}
+                        className="rh-body flex items-center gap-2 text-base font-semibold rounded-full px-6 py-3.5 transition-colors rh-btn-accent shadow-lg"
+                        style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
+                      >
+                        Today's picks, insights &amp; knowledge <ArrowRight size={17} />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
                   <div className="flex justify-center mb-4">
                     <button
                       type="button"
@@ -2387,14 +2402,8 @@ export default function Hyfax() {
                       <Sparkles size={15} /> Dig in
                     </button>
                   </form>
-                  <button
-                    type="button"
-                    onClick={goHome}
-                    className="mt-4 mx-auto flex items-center gap-1.5 rh-body text-sm rh-link-accent"
-                    style={{ background: "none", border: "none", color: "#E3A73C", cursor: "pointer" }}
-                  >
-                    <Home size={14} /> Today's riddle and picks
-                  </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
