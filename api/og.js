@@ -19,6 +19,7 @@ const FONTS = [
   { name: "Fraunces", data: asset("_fonts/fraunces-600.ttf"), weight: 600, style: "normal" },
   { name: "Fraunces", data: asset("_fonts/fraunces-italic-600.ttf"), weight: 600, style: "italic" },
   { name: "Inter", data: asset("_fonts/inter-500.ttf"), weight: 500, style: "normal" },
+  { name: "Inter", data: asset("_fonts/inter-600.ttf"), weight: 600, style: "normal" },
   { name: "JetBrains Mono", data: asset("_fonts/jetbrains-mono-500.ttf"), weight: 500, style: "normal" },
 ];
 const LOGO = `data:image/png;base64,${asset("_assets/logo.png").toString("base64")}`;
@@ -43,10 +44,10 @@ function openingLine(text, max = 170) {
 // in the picture would just say it twice. Without a line, the title is the
 // big text instead.
 function hookSize(text) {
-  if (text.length <= 70) return 64;
-  if (text.length <= 110) return 56;
-  if (text.length <= 150) return 48;
-  return 42;
+  if (text.length <= 70) return 66;
+  if (text.length <= 110) return 58;
+  if (text.length <= 150) return 52;
+  return 46;
 }
 
 export function renderCard({ title, line }) {
@@ -69,7 +70,7 @@ export function renderCard({ title, line }) {
       { type: "img", props: { src: LOGO, width: 150, height: 78, style: { opacity: 0.95 } } },
       h(
         "div",
-        { display: "flex", fontFamily: "Fraunces", fontStyle: "italic", fontSize: hookSize(hook), lineHeight: 1.18, color: "#F1E6D3", maxWidth: 1050 },
+        { display: "flex", fontFamily: "Inter", fontWeight: 600, fontSize: hookSize(hook), lineHeight: 1.22, letterSpacing: -0.5, color: "#F1E6D3", maxWidth: 1060 },
         hook
       ),
       h(
