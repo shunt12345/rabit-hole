@@ -21,24 +21,16 @@ const APP_ORIGIN = process.env.APP_ORIGIN || "https://www.hyfax.app";
 // one: hyfax.app redirects here, whatever APP_ORIGIN says.
 const CANONICAL_ORIGIN = "https://www.hyfax.app";
 
-const TYPE_LABEL = {
-  root: "Origin",
-  direct: "Direct",
-  indirect: "Indirect",
-  tangent: "Tangent",
-  custom: "Yours",
-};
-
-const TYPE_COLOR = {
-  root: "#C1552E",
-  direct: "#E3A73C",
-  indirect: "#7E9471",
-  tangent: "#9C6B8C",
-  custom: "#6C93A8",
-};
-
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// Links from a shared page back into the app, tagged so /admin can tell
+// shared-link visits apart. With a topic, the app opens that page (with its
+// threads) instead of the home page.
+const SHARE_UTM = "utm_source=share&utm_medium=link&utm_campaign=shared-article";
+function appLink(topic) {
+  return `${CANONICAL_ORIGIN}/?${topic ? `topic=${encodeURIComponent(topic)}&` : ""}${SHARE_UTM}`;
 }
 
 function truncate(s, n) {
@@ -68,25 +60,30 @@ function page({ title, description, url, bodyHtml, image = `${CANONICAL_ORIGIN}/
 <meta name="twitter:description" content="${escapeHtml(description)}" />
 <meta name="twitter:image" content="${escapeHtml(image)}" />
 <link rel="icon" type="image/png" href="/hyfax-favicon.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@1,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; background: #14100C; font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif; color: #F5EDDC; }
-  .wrap { max-width: 680px; margin: 0 auto; padding: 40px 24px 80px; }
-  .logo-link { display: block; text-align: center; margin-bottom: 6px; }
-  .logo-link img { height: 36px; }
-  .tag { text-align: center; font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: 0.25em; text-transform: uppercase; color: #A89478; margin-bottom: 40px; }
-  .badge { display: inline-block; font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; margin-bottom: 14px; }
-  h1 { font-style: italic; font-size: 2rem; line-height: 1.15; margin: 0 0 16px; color: #F1E6D3; }
-  p { font-size: 16px; line-height: 1.7; margin: 16px 0 0; }
+  body { margin: 0; background: #14100C; font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif; color: #F1E6D3; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 36px 24px 72px; }
+  .logo-link { display: block; text-align: center; margin-bottom: 8px; }
+  .logo-link img { height: 52px; }
+  .tag { text-align: center; font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: 0.25em; text-transform: uppercase; color: #A89478; margin-bottom: 44px; }
+  .kicker { font-family: "JetBrains Mono", monospace; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: #E3A73C; margin-bottom: 12px; }
+  h1 { font-family: "Fraunces", Georgia, serif; font-style: italic; font-weight: 600; font-size: 2.1rem; line-height: 1.15; margin: 0 0 18px; color: #F1E6D3; }
+  .lede { font-size: 17px; line-height: 1.6; color: #C9B896; margin: 0 0 8px; }
+  p { font-size: 16px; line-height: 1.75; margin: 16px 0 0; color: #E9DDC8; }
   .cta-row { margin-top: 48px; padding-top: 32px; border-top: 1px solid #3A2E20; text-align: center; }
-  .cta-row p { color: #A89478; font-size: 14px; margin: 0 0 16px; }
-  .cta { display: inline-flex; align-items: center; gap: 6px; background: #E3A73C; color: #14100C; font-weight: 500; font-size: 14px; padding: 12px 20px; border-radius: 999px; text-decoration: none; }
+  .cta-row p { color: #A89478; font-size: 14px; margin: 0 0 18px; }
+  .cta { display: inline-flex; align-items: center; gap: 8px; background: #E3A73C; color: #14100C; font-weight: 600; font-size: 15px; padding: 13px 24px; border-radius: 999px; text-decoration: none; }
+  .secondary { display: block; margin-top: 16px; color: #C9B896; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
   .notfound { text-align: center; margin-top: 64px; color: #D98A6E; font-size: 16px; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <a class="logo-link" href="${APP_ORIGIN}/"><img src="${APP_ORIGIN}/hyfax-logo.png" alt="Hyfax" /></a>
+  <a class="logo-link" href="${appLink()}"><img src="${CANONICAL_ORIGIN}/hyfax-logo.png" alt="Hyfax" /></a>
   <div class="tag">thinking with threads</div>
   ${bodyHtml}
 </div>
@@ -97,7 +94,7 @@ function page({ title, description, url, bodyHtml, image = `${CANONICAL_ORIGIN}/
 function notFoundBody() {
   return `<div class="notfound">This link doesn't lead anywhere.</div>
 <p style="text-align:center; color:#A89478; font-size:14px;">It may have been mistyped, or no longer exists.</p>
-<div class="cta-row"><a class="cta" href="${APP_ORIGIN}/">Dig in yourself</a></div>`;
+<div class="cta-row"><a class="cta" href="${appLink()}">Explore Hyfax</a></div>`;
 }
 
 export default async function handler(req, res) {
@@ -138,16 +135,15 @@ export default async function handler(req, res) {
     .filter(Boolean)
     .map((p) => `<p>${escapeHtml(p)}</p>`)
     .join("\n");
-  const badgeColor = TYPE_COLOR[row.node_type] || "#E3A73C";
-
   const bodyHtml = `
-<span class="badge" style="color:${badgeColor}; border:1px solid ${badgeColor}55;">${escapeHtml(TYPE_LABEL[row.node_type] || "Thread")}</span>
+<div class="kicker">A Hyfax thread</div>
 <h1>${escapeHtml(row.topic_label)}</h1>
-${row.overview ? `<p>${escapeHtml(row.overview)}</p>` : ""}
+${row.overview ? `<p class="lede">${escapeHtml(row.overview)}</p>` : ""}
 ${paragraphs}
 <div class="cta-row">
-  <p>Someone shared this with you. Follow your own thought as far as it goes.</p>
-  <a class="cta" href="${APP_ORIGIN}/">Dig in yourself</a>
+  <p>Someone shared this with you. Every page on Hyfax opens into more threads.</p>
+  <a class="cta" href="${appLink(row.topic_label)}">Keep pulling this thread &rarr;</a>
+  <a class="secondary" href="${appLink()}">or see today's picks on Hyfax</a>
 </div>`;
 
   res.status(200);
