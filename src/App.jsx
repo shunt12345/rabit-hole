@@ -1625,10 +1625,15 @@ export default function Hyfax() {
         .rh-link-accent:hover { color: #EDB94F !important; }
         .rh-logo-btn { transition: opacity 0.15s; }
         .rh-logo-btn:hover { opacity: 0.8; }
-        .rh-chip:hover { filter: brightness(1.15); }
-        .rh-thread-card { transition: border-color 0.15s, background-color 0.15s, transform 0.1s; }
-        .rh-thread-card:hover { border-color: #E3A73C !important; background-color: #2A2015 !important; }
-        .rh-thread-card:active { transform: scale(0.99); }
+        /* Topic and thread cards light up gold while a finger is on them
+           (the press), and on hover only where there's a real mouse, so a
+           tap on a phone doesn't leave a card stuck "hovered". */
+        .rh-chip, .rh-thread-card { -webkit-tap-highlight-color: transparent; transition: border-color 0.12s, background-color 0.12s, transform 0.1s, filter 0.12s; }
+        @media (hover: hover) {
+          .rh-chip:hover { filter: brightness(1.15); }
+          .rh-thread-card:hover { border-color: #E3A73C !important; background-color: #2A2015 !important; }
+        }
+        .rh-chip:active, .rh-thread-card:active, .rh-chip.rh-pressed, .rh-thread-card.rh-pressed { border-color: #E3A73C !important; background-color: #2E2318 !important; transform: scale(0.985); }
         /* A slow sideways nudge on the first unread thread's arrow — a
            "this way" cue that stops once that thread has been opened. */
         @keyframes rh-nudge { 0%, 70%, 100% { transform: translateX(0); } 80% { transform: translateX(3px); } 90% { transform: translateX(0); } 95% { transform: translateX(2px); } }

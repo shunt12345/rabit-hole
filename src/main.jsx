@@ -8,6 +8,34 @@ import { captureAttribution } from "./lib/attribution.js";
 import { applyTestModeFromUrl } from "./lib/visitor.js";
 import "./index.css";
 
+// Topic and thread cards light up while a finger is on them. Browsers'
+// own :active press state is unreliable on phones (it often never shows on
+// a quick tap), so the card gets an "rh-pressed" class on touch-down that
+// stays a moment after release, and goes at once if the touch becomes a
+// scroll.
+const PRESSABLE = ".rh-chip, .rh-thread-card";
+let pressed = null;
+const release = (delay) => {
+  const el = pressed;
+  pressed = null;
+  if (el) setTimeout(() => el.classList.remove("rh-pressed"), delay);
+};
+document.addEventListener(
+  "pointerdown",
+  (e) => {
+    if (e.pointerType === "mouse") return;
+    const card = e.target.closest?.(PRESSABLE);
+    if (!card || card.disabled) return;
+    release(0);
+    pressed = card;
+    card.classList.add("rh-pressed");
+  },
+  { passive: true }
+);
+document.addEventListener("pointerup", () => release(180), { passive: true });
+document.addEventListener("pointercancel", () => release(0), { passive: true });
+document.addEventListener("scroll", () => release(0), { passive: true, capture: true });
+
 // /s/:id (a shared-article link, see lib/share.js) is served entirely by
 // api/share.js on Vercel (see vercel.json's rewrite) as plain server
 // rendered HTML — that's what makes link previews in iMessage/Twitter/
