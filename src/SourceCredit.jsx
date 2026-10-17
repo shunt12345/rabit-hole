@@ -18,8 +18,8 @@ export default function SourceCredit({ url, prefix = "via", className = "" }) {
       tabIndex={0}
       onClick={open}
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && open(e)}
-      className={`rh-mono rh-text-10 tracking-wide cursor-pointer hover:underline ${className}`}
-      style={{ color: "#7A6A54" }}
+      className={`rh-mono text-[11px] tracking-wide cursor-pointer hover:underline ${className}`}
+      style={{ color: "#9A8868" }}
       title={`Source: ${domain}`}
     >
       {prefix} {domain} ↗
