@@ -131,8 +131,39 @@ function annotate(level, message) {
 let pages = 0;
 let failures = 0;
 let threadsFound = 0;
+const retries = [];
+
+// Opens hero i, then its thread `label` (and the thread's own Explore page).
+// "ok", "missing" (not on the page any more) or "retry" (timed out/errored).
+async function openThread(i, label) {
+  const t = Date.now();
+  try {
+    await openHero(i);
+    // Matched on the exact label (a card's first line, or a link's text),
+    // so "Ice" never clicks "Glacier Ice".
+    const index = (await threadLabels()).indexOf(label);
+    if (index === -1) {
+      console.log(`   - ${label}: not found on reopen, skipped`);
+      return "missing";
+    }
+    await page.locator('[data-precompute="thread"]').nth(index).click();
+    let done = await waitUntilDone();
+    const explore = page.locator('[data-precompute="explore"]').first();
+    if (await explore.count()) {
+      await explore.click();
+      done = (await waitUntilDone()) && done;
+    }
+    pages++;
+    console.log(`   - ${label}: ${done ? "ok" : "timed out"} (${((Date.now() - t) / 1000).toFixed(1)}s)`);
+    return done ? "ok" : "retry";
+  } catch (e) {
+    // One thread failing shouldn't end the run for every hero after it.
+    console.log(`   - ${label}: failed (${e.message.split("\n")[0]})`);
+    return "retry";
+  }
+}
 for (let i = 0; i < heroCount; i++) {
-  let t = Date.now();
+  const t = Date.now();
   const ok = await openHero(i);
   const topic = (await page.locator("h2").first().textContent())?.trim();
   pages++;
@@ -152,33 +183,18 @@ for (let i = 0; i < heroCount; i++) {
   console.log(`\n[${i + 1}/${heroCount}] ${topic} — ${ok ? "ok" : "timed out"} (${((Date.now() - t) / 1000).toFixed(1)}s), ${labels.length} threads`);
 
   for (const label of labels) {
-    t = Date.now();
-    try {
-      await openHero(i);
-      // Matched on the exact label (a card's first line, or a link's text),
-      // so "Ice" never clicks "Glacier Ice".
-      const index = (await threadLabels()).indexOf(label);
-      if (index === -1) {
-        console.log(`   - ${label}: not found on reopen, skipped`);
-        failures++;
-        continue;
-      }
-      await page.locator('[data-precompute="thread"]').nth(index).click();
-      let done = await waitUntilDone();
-      const explore = page.locator('[data-precompute="explore"]').first();
-      if (await explore.count()) {
-        await explore.click();
-        done = (await waitUntilDone()) && done;
-      }
-      pages++;
-      if (!done) failures++;
-      console.log(`   - ${label}: ${done ? "ok" : "timed out"} (${((Date.now() - t) / 1000).toFixed(1)}s)`);
-    } catch (e) {
-      // One thread failing shouldn't end the run for every hero after it.
-      failures++;
-      console.log(`   - ${label}: failed (${e.message.split("\n")[0]})`);
-    }
+    const result = await openThread(i, label);
+    if (result === "retry") retries.push({ i, label });
+    else if (result !== "ok") failures++;
   }
+}
+
+// A page that timed out or errored gets one more try at the end (a slow
+// generation usually finishes on the second pass); only a second miss
+// counts as a failure.
+if (retries.length) console.log(`\nRetrying ${retries.length} page(s)`);
+for (const { i, label } of retries) {
+  if ((await openThread(i, label)) !== "ok") failures++;
 }
 
 const summary = `${heroCount} topics, ${threadsFound} threads, ${pages} pages opened, ${failures} timed out`;
