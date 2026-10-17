@@ -1626,9 +1626,11 @@ export default function Hyfax() {
         .rh-logo-btn { transition: opacity 0.15s; }
         .rh-logo-btn:hover { opacity: 0.8; }
         /* Topic and thread cards light up gold while a finger is on them
-           (the press), and on hover only where there's a real mouse, so a
-           tap on a phone doesn't leave a card stuck "hovered". */
-        .rh-chip, .rh-thread-card { -webkit-tap-highlight-color: transparent; transition: border-color 0.12s, background-color 0.12s, transform 0.1s, filter 0.12s; }
+           (the press, see main.jsx), and on hover only where there's a
+           real mouse, so a tap on a phone doesn't leave a card stuck
+           "hovered". No text selection or callout on them, so holding a
+           finger down keeps the highlight instead of selecting words. */
+        .rh-chip, .rh-thread-card { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; transition: border-color 0.12s, background-color 0.12s, transform 0.1s, filter 0.12s; }
         @media (hover: hover) {
           .rh-chip:hover { filter: brightness(1.15); }
           .rh-thread-card:hover { border-color: #E3A73C !important; background-color: #2A2015 !important; }
