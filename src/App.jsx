@@ -1347,7 +1347,9 @@ export default function Hyfax() {
         article: stripLinkMarkers(node.article || ""),
       });
       if (navigator.share) {
-        await navigator.share({ title: node.label, text: "Follow this thread on Hyfax", url });
+        // Just the link: the preview card says the rest, and extra text
+        // makes messaging apps print the raw URL above the card.
+        await navigator.share({ title: node.label, url });
         setShareStatus("idle");
       } else {
         await navigator.clipboard.writeText(url);

@@ -23,8 +23,6 @@ const FONTS = [
 ];
 const LOGO = `data:image/png;base64,${asset("_assets/logo.png").toString("base64")}`;
 
-const TYPE_LABEL = { root: "Thread", direct: "Direct", indirect: "Indirect", tangent: "Tangent", custom: "Yours" };
-
 // Satori takes React-element-shaped objects; this keeps the file free of JSX.
 const h = (type, style, ...children) => ({ type, props: { style, children: children.length === 1 ? children[0] : children } });
 
@@ -40,15 +38,19 @@ function openingLine(text, max = 170) {
   return end > 60 ? cut.slice(0, end + 1) : `${cut.slice(0, cut.lastIndexOf(" "))}…`;
 }
 
-// Long titles step down in size so they stay on two or three lines.
-function titleSize(title) {
-  if (title.length <= 28) return 76;
-  if (title.length <= 48) return 64;
-  if (title.length <= 72) return 54;
-  return 46;
+// The card carries the hook (the article's opening line); the title itself
+// shows as text right under the image in messages and feeds, so repeating it
+// in the picture would just say it twice. Without a line, the title is the
+// big text instead.
+function hookSize(text) {
+  if (text.length <= 70) return 64;
+  if (text.length <= 110) return 56;
+  if (text.length <= 150) return 48;
+  return 42;
 }
 
-export function renderCard({ kicker, title, line }) {
+export function renderCard({ title, line }) {
+  const hook = line || title;
   return new ImageResponse(
     h(
       "div",
@@ -58,57 +60,22 @@ export function renderCard({ kicker, title, line }) {
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
-        padding: "56px 72px",
+        padding: "56px 72px 52px",
         backgroundColor: "#14100C",
-        backgroundImage: "radial-gradient(circle at 78% 18%, #2E2216 0%, #1A140E 45%, #100C09 100%)",
+        backgroundImage: "radial-gradient(circle at 80% 15%, #2E2216 0%, #1A140E 45%, #100C09 100%)",
         fontFamily: "Inter",
         color: "#F1E6D3",
       },
-      // Top row: logo, and the thread's kind.
+      { type: "img", props: { src: LOGO, width: 150, height: 78, style: { opacity: 0.95 } } },
       h(
         "div",
-        { display: "flex", alignItems: "center", justifyContent: "space-between" },
-        { type: "img", props: { src: LOGO, width: 170, height: 88, style: { opacity: 0.95 } } },
-        h(
-          "div",
-          {
-            display: "flex",
-            fontFamily: "JetBrains Mono",
-            fontSize: 22,
-            letterSpacing: 4,
-            textTransform: "uppercase",
-            color: "#E3A73C",
-            border: "2px solid rgba(227,167,60,0.55)",
-            borderRadius: 999,
-            padding: "8px 22px",
-          },
-          kicker
-        )
+        { display: "flex", fontFamily: "Fraunces", fontStyle: "italic", fontSize: hookSize(hook), lineHeight: 1.18, color: "#F1E6D3", maxWidth: 1050 },
+        hook
       ),
-      // Middle: title and opening line.
       h(
         "div",
-        { display: "flex", flexDirection: "column" },
-        h(
-          "div",
-          { display: "flex", fontFamily: "Fraunces", fontStyle: "italic", fontSize: titleSize(title), lineHeight: 1.08, color: "#F1E6D3" },
-          title
-        ),
-        line
-          ? h("div", { display: "flex", marginTop: 26, fontSize: 30, lineHeight: 1.4, color: "#C9B896", maxWidth: 1000 }, line)
-          : null
-      ),
-      // Bottom: tagline and address, on a thin gold thread.
-      h(
-        "div",
-        {
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          borderTop: "2px solid rgba(227,167,60,0.45)",
-          paddingTop: 24,
-        },
-        h("div", { display: "flex", fontFamily: "JetBrains Mono", fontSize: 22, letterSpacing: 6, color: "#A89478" }, "THINKING WITH THREADS"),
+        { display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: "2px solid rgba(227,167,60,0.45)", paddingTop: 22 },
+        h("div", { display: "flex", fontFamily: "JetBrains Mono", fontSize: 20, letterSpacing: 6, color: "#A89478" }, "THINKING WITH THREADS"),
         h("div", { display: "flex", fontFamily: "Fraunces", fontStyle: "italic", fontSize: 34, color: "#E3A73C" }, "hyfax.app")
       )
     ),
@@ -133,12 +100,8 @@ export default async function handler(req, res) {
 
   // An unknown id still gets a branded card rather than a broken image.
   const card = row
-    ? renderCard({
-        kicker: TYPE_LABEL[row.node_type] || "Thread",
-        title: row.topic_label,
-        line: openingLine(row.overview || row.article),
-      })
-    : renderCard({ kicker: "Hyfax", title: "Thinking with threads", line: "Problem solving isn't linear. Neither is your learning." });
+    ? renderCard({ title: row.topic_label, line: openingLine(row.overview || row.article) })
+    : renderCard({ title: "Problem solving isn't linear. Neither is your learning." });
 
   const png = Buffer.from(await card.arrayBuffer());
   res.status(200);
