@@ -208,7 +208,7 @@ ${focusLine} Use a specific, well-targeted query rather than a generic phrase li
 
 ${freshnessBlock}
 
-Current, specific, and fresh — no historical background or context. The topic and teaser must be about a specific thing that happened or was announced recently, not general facts about the subject. A reader should immediately understand what's NEW, not get a primer on the subject.
+Current and specific: the story must be a specific thing that happened or was announced recently, not general facts about the subject, and no primer on the subject itself. But the teaser's job is the WHY behind this new development (see below) — the cause, the stakes, or the pattern it fits — not a summary of what happened.
 
 Once you've found a real, currently-trending story, produce:
 - "topic": a short, punchy 2-5 word label suitable as a one-tap starting point for someone exploring the topic (title case, no trailing punctuation) — name the current event/development, not just the subject's name, so someone who scrolled past the headline recognizes it
@@ -1241,10 +1241,16 @@ serve(async (req) => {
       continue;
     }
     try {
+      // The other Trending field's latest picks too: when a field runs on
+      // its own (a /queue replacement, or a batch that only includes one of
+      // them), justPicked is empty and nothing else stops both landing on
+      // the same story (seen live: both picks were the France protests).
+      const sibling = TRENDING_MAINSTREAM_FIELDS.find((f) => f !== field)!;
+      const siblingRecent = (recentByField[sibling] || []).slice(0, 3);
       const value = await generateForField(
         apiKey,
         field,
-        [...recentByField[field]!, ...justPicked],
+        [...recentByField[field]!, ...siblingRecent, ...justPicked],
         undefined,
         undefined,
         undefined,
