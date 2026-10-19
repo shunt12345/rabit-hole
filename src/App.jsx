@@ -164,7 +164,7 @@ function splitTitleLine(raw) {
 // with the accumulated text so far after every delta, so the screen can
 // render it growing in real time rather than sitting on a spinner.
 async function fetchArticleTextStreaming(topicLabel, path, onChunk, newsContext, nodeType, articleCacheKey, nodeCacheKey, onUsage, heroSource, preview) {
-  const userContent = articleUserPrompt({ topicLabel, path, newsContext, nodeType });
+  const userContent = articleUserPrompt({ topicLabel, path, newsContext, nodeType, heroSource });
   return streamTextFromPrompt({
     system: HYFAX_SYSTEM,
     prompt: userContent,

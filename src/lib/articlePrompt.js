@@ -8,11 +8,27 @@ import { nextOpenerShape } from "./openerVariety.js";
 // complete sentence.
 export const ARTICLE_MAX_TOKENS = 400;
 
-export function articleUserPrompt({ topicLabel, path, newsContext, nodeType }) {
+export function articleUserPrompt({ topicLabel, path, newsContext, nodeType, heroSource }) {
   const today = new Date().toISOString().slice(0, 10);
   const titleNote = nodeType === "root" ? "\n\nBegin with a title line." : "";
+  // How to treat the date depends on which daily pick this is: a history
+  // pick happened on this date years ago (say so, with the year — never
+  // "recently"); a Trending pick is current news (write it as recent, and
+  // spend the article on why it matters); a quote's context is its
+  // attribution. Seen live: one shared rule produced "Recently, on
+  // October 19, 1960".
+  const isHistory = heroSource === "This Day In History";
+  const isTrending = /^Trending\b/.test(heroSource || "");
+  const isQuote = heroSource === "Quote Of The Day";
+  const dateNote = isHistory
+    ? ` This is today's "This Day in History" pick: it happened on this calendar date in a past year. Say the date and year plainly (e.g. "On October 19, 1960") and write it as history. Never call it recent, new or "this week".`
+    : isTrending
+      ? ` This is current news. Don't spell out the exact calendar date it happened (e.g. "On August 8, 2025"); write it as recent instead ("recently," "this week") — a hardcoded date reads as stale the moment it's read after the fact. Assume the reader has already seen the headline: give what happened a sentence at most, and spend the article on why it happened, why it matters and what it connects to.`
+      : isQuote
+        ? ` The context above is the quote's attribution; use it accurately as given.`
+        : ` Don't spell out an exact calendar date unless the date itself is the point of the story.`;
   const newsNote = newsContext
-    ? `\n\nThis topic comes with specific context worth reflecting accurately, picked from one of the hero page's live feeds: "${newsContext}". Don't spell out the exact calendar date this happened (e.g., "On August 8, 2025") unless the date itself is the actual point of the story — a "this day in history"/anniversary framing, or the date is what makes it notable. For an ordinary current news pick, just write it as recent/current instead ("recently," "this week," etc.) — a hardcoded date reads as stale the moment it's read after the fact, which defeats the point of it being "trending." (This date guidance doesn't apply if the context above is a quote's attribution rather than a news event — just use it accurately as given.) For a current news story, assume the reader has already seen the headline: give what happened a sentence at most, and spend the article on why it happened, why it matters and what it connects to.`
+    ? `\n\nThis topic comes with specific context worth reflecting accurately, picked from one of the hero page's live feeds: "${newsContext}".${dateNote}`
     : "";
   // Today's date is real grounding, not decoration — without it, "current"
   // in the model's own training data can be a year or more stale by the
