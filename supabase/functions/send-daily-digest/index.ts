@@ -211,7 +211,18 @@ function clueLine(clue: RiddleClue, topic: string, answers: string[]): string {
   return text;
 }
 
-function riddleGameRowHtml(topic: string, clues: RiddleClue[], answers: string[]): string {
+// Encouragement for a reader on a riddle streak (account holders only:
+// an email-only subscriber's results stay in their browser). Nothing for
+// no streak, so nobody is told they've lost one.
+function streakLine(streak: number): string {
+  if (streak <= 0) return "";
+  if (streak === 1) return "🔥 You solved yesterday's riddle. Make it two in a row.";
+  const next = streak + 1;
+  const goal = next === 7 ? "a full week" : next === 30 ? "a full month" : String(next);
+  return `🔥 ${streak}-day streak. Solve today's to make it ${goal}.`;
+}
+
+function riddleGameRowHtml(topic: string, clues: RiddleClue[], answers: string[], streak = 0): string {
   const url = appUrl("play=riddle", "riddle");
   // A leading "The"/"A"/"An" isn't part of the blocks, as in the game.
   const blocks = topic
@@ -232,6 +243,7 @@ function riddleGameRowHtml(topic: string, clues: RiddleClue[], answers: string[]
   <tr>
     <td style="padding:0 40px 12px;">
       <a href="${url}" style="display:block; text-decoration:none; background-color:${COLOR_CHIP_BG}; border:1px solid ${COLOR_CHIP_BORDER}; border-radius:16px; padding:20px;">
+        ${streak > 0 ? `<span style="display:block; font-size:14px; font-weight:600; color:${COLOR_ACCENT}; margin-bottom:10px;">${escapeHtml(streakLine(streak))}</span>` : ""}
         <span style="display:block; font-family:Georgia,'Times New Roman',serif; font-style:italic; font-size:22px; color:${COLOR_TEXT_PRIMARY}; margin-bottom:12px;">What am I?</span>
         <span style="display:block; margin-bottom:12px; line-height:24px;">${blocks}</span>
         <span style="display:block; font-size:15px; line-height:1.5; color:${COLOR_TEXT_PRIMARY};"><span style="font-family:'Courier New',monospace; font-size:11px; color:${COLOR_TEXT_MUTED}; padding-right:10px;">1</span>${escapeHtml(clueLine(clues[0], topic, answers))}</span>
@@ -241,9 +253,9 @@ function riddleGameRowHtml(topic: string, clues: RiddleClue[], answers: string[]
   </tr>`;
 }
 
-function riddleRowHtml(row: { topic: string; teaser: string; riddle_game?: { clues?: RiddleClue[]; answers?: string[] } | null }): string {
+function riddleRowHtml(row: { topic: string; teaser: string; riddle_game?: { clues?: RiddleClue[]; answers?: string[] } | null }, streak = 0): string {
   const clues = row.riddle_game?.clues;
-  if (Array.isArray(clues) && clues.length) return riddleGameRowHtml(row.topic, clues, row.riddle_game?.answers || []);
+  if (Array.isArray(clues) && clues.length) return riddleGameRowHtml(row.topic, clues, row.riddle_game?.answers || [], streak);
   const url = appUrl(`topic=${encodeURIComponent(row.topic)}`, "riddle");
   const displayText = `${row.teaser.replace(/\.+\s*$/, "")}....`;
   return `
@@ -296,7 +308,8 @@ function digestHtml(
   },
   asOfDate: Date | null,
   unsubscribeUrl: string,
-  reason: string
+  reason: string,
+  streak = 0
 ): string {
   const { quote, today, perspective, riddle, trending } = sections;
   // Its own order (below), not the hero page's: the email is a daily
@@ -309,7 +322,7 @@ function digestHtml(
     // The riddle leads (the daily reason to open it), then Trending's
     // "why it matters", Today and Perspective, and the quote signs off.
     asOfDate ? asOfHtml(asOfDate) : "",
-    riddle ? sectionHeadingHtml("Riddle me this....") + riddleRowHtml(riddle) : "",
+    riddle ? sectionHeadingHtml("Riddle me this....") + riddleRowHtml(riddle, streak) : "",
     trending.length ? sectionHeadingHtml("Trending") + trending.map(topicRowHtml).join("\n") : "",
     today.length ? sectionHeadingHtml("Today") + today.map(topicRowHtml).join("\n") : "",
     perspective ? sectionHeadingHtml("Perspective") + topicRowHtml(perspective) : "",
@@ -367,7 +380,7 @@ type DigestSections = Parameters<typeof digestHtml>[0];
 
 // Plain-text twin of digestHtml, sent alongside it: an HTML-only email
 // reads as marketing to Gmail, and some readers prefer text anyway.
-function digestText(sections: DigestSections, asOfDate: Date | null, unsubscribeUrl: string, reason: string): string {
+function digestText(sections: DigestSections, asOfDate: Date | null, unsubscribeUrl: string, reason: string, streak = 0): string {
   const { quote, today, perspective, riddle, trending } = sections;
   const topicUrl = (topic: string, section: string) => appUrl(`topic=${encodeURIComponent(topic)}`, section);
   const card = (row: { field: string; topic: string; teaser: string }) =>
@@ -378,7 +391,7 @@ function digestText(sections: DigestSections, asOfDate: Date | null, unsubscribe
     const clues = riddle.riddle_game?.clues;
     parts.push(
       Array.isArray(clues) && clues.length
-        ? `RIDDLE ME THIS\nWhat am I? ${clueLine(clues[0], riddle.topic, riddle.riddle_game?.answers || [])}\nPlay today's riddle: ${appUrl("play=riddle", "riddle")}`
+        ? `RIDDLE ME THIS\n${streak > 0 ? `${streakLine(streak)}\n` : ""}What am I? ${clueLine(clues[0], riddle.topic, riddle.riddle_game?.answers || [])}\nPlay today's riddle: ${appUrl("play=riddle", "riddle")}`
         : `RIDDLE ME THIS\n${riddle.teaser}\n${topicUrl(riddle.topic, "riddle")}`
     );
   }
@@ -427,6 +440,49 @@ const SUBJECT_AFFIRMATIONS = [
   "Follow your curiosity, it knows the way",
   "There's always another thread worth pulling",
 ];
+// Each account's riddle streak going into today's riddle: consecutive days
+// solved, counting back from today's riddle day if it's already solved,
+// otherwise from the day before. Same rule as the game's own streak
+// (src/RiddleGame.jsx streakFrom), on the same riddle_results rows.
+async function riddleStreaks(
+  userIds: string[],
+  riddle: { publish_at: string | null; generated_at: string }
+): Promise<Map<string, number>> {
+  const streaks = new Map<string, number>();
+  if (!userIds.length) return streaks;
+  const today = new Date(riddle.publish_at || riddle.generated_at).toISOString().slice(0, 10);
+  const since = new Date(Date.parse(`${today}T00:00:00Z`) - 120 * 86_400_000).toISOString().slice(0, 10);
+  const solvedByUser = new Map<string, Set<string>>();
+  for (let i = 0; i < userIds.length; i += 150) {
+    const { data, error } = await supabase
+      .from("riddle_results")
+      .select("user_id, play_date")
+      .in("user_id", userIds.slice(i, i + 150))
+      .eq("solved", true)
+      .gte("play_date", since);
+    if (error) {
+      console.error("send-daily-digest: failed to read riddle streaks", error);
+      return streaks;
+    }
+    for (const row of data || []) {
+      const days = solvedByUser.get(row.user_id) ?? new Set<string>();
+      days.add(String(row.play_date).slice(0, 10));
+      solvedByUser.set(row.user_id, days);
+    }
+  }
+  for (const [userId, days] of solvedByUser) {
+    const day = new Date(`${today}T00:00:00Z`);
+    if (!days.has(today)) day.setUTCDate(day.getUTCDate() - 1);
+    let streak = 0;
+    while (days.has(day.toISOString().slice(0, 10))) {
+      streak++;
+      day.setUTCDate(day.getUTCDate() - 1);
+    }
+    if (streak > 0) streaks.set(userId, streak);
+  }
+  return streaks;
+}
+
 function digestSubject(asOfDate: Date | null): string {
   const d = asOfDate || new Date();
   const dayOfYear = Math.floor((Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - Date.UTC(d.getUTCFullYear(), 0, 0)) / 86400000);
@@ -562,6 +618,7 @@ serve(async (req) => {
 
   const sections = { quote, today, perspective, riddle, trending };
   const subject = digestSubject(asOfDate);
+  const streaks = riddle ? await riddleStreaks(recipients.filter((r) => !r.id.startsWith("subscriber:")).map((r) => r.id), riddle) : new Map();
   let sent = 0;
   const errors: string[] = [];
   for (const recipient of recipients) {
@@ -571,8 +628,8 @@ serve(async (req) => {
         resendApiKey,
         recipient.email,
         subject,
-        digestHtml(sections, asOfDate, unsubscribeUrl, reason),
-        digestText(sections, asOfDate, unsubscribeUrl, reason),
+        digestHtml(sections, asOfDate, unsubscribeUrl, reason, streaks.get(recipient.id) ?? 0),
+        digestText(sections, asOfDate, unsubscribeUrl, reason, streaks.get(recipient.id) ?? 0),
         unsubscribeUrl
       );
       sent++;
