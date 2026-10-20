@@ -6,13 +6,14 @@ import { isCorrectGuess, clueLine, answerBlocks, hintLetterPositions } from "./l
 // The Riddle as a guessing game: "What am I?" — the answer's letters as
 // blank blocks, the first (hardest) clue shown and the other three revealed
 // one at a time, up to three hints (each fills in a letter: the last, the
-// middle, then the first), three guesses. Anyone can read the clues and
-// take hints; submitting a guess needs a free account — a signed-out
-// guess is held, sign-up opens, and it goes in once they're signed in
-// (even in the tab the magic link opens). Solving goes straight to the
-// answer's page, which opens with these same clues as its threads.
-// Signed-in results are saved to
-// riddle_results (migration 0056), which the streak counts.
+// middle, then the first), three guesses. Anyone can play, no account
+// needed. Solving goes straight to the answer's page, which opens with
+// these same clues as its threads.
+//
+// Results are kept in this browser (HISTORY_KEY), which is the streak for
+// someone signed out; the result screen offers a free account to keep it
+// on any device. Signed in, results are saved to riddle_results (migration
+// 0056), and any played signed out in this browser are copied there too.
 //
 // Progress for the day's riddle lives in localStorage, so a refresh or a
 // trip to the answer page doesn't reset it.
@@ -36,12 +37,33 @@ const C = {
   bg: "#14100C",
 };
 
+// Every riddle result in this browser, newest first: the streak without an
+// account, and what's copied to riddle_results on signing in.
+const HISTORY_KEY = "hyfax-riddle-history";
+const HISTORY_MAX = 120;
+function loadHistory() {
+  try {
+    const rows = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+function addToHistory(row) {
+  try {
+    const rows = [row, ...loadHistory().filter((r) => r.riddle_id !== row.riddle_id)].slice(0, HISTORY_MAX);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(rows));
+  } catch {
+    // Storage unavailable: no streak without an account.
+  }
+}
+
 function storageKey(id) {
   return `hyfax-riddle-${id}`;
 }
 // clues: how many clues are showing (the first is always shown).
 function emptyProgress() {
-  return { clues: 1, hints: 0, wrong: [], outcome: null, pending: null };
+  return { clues: 1, hints: 0, wrong: [], outcome: null };
 }
 function loadProgress(id) {
   try {
@@ -112,17 +134,29 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
     saveProgress(key, next);
   };
 
-  // Signed in: this riddle's saved result (another device, say) and the
-  // streak.
+  // The streak, and this riddle's result if it was played elsewhere (signed
+  // in, another device). Signing in copies this browser's results into the
+  // account first, so a streak built signed out carries over.
   const loadResults = async () => {
-    if (!user || riddle.preview) return;
+    if (riddle.preview) return;
+    const local = loadHistory();
+    if (!user) {
+      setStreak(streakFrom(local, today));
+      return;
+    }
     const { data } = await supabase
       .from("riddle_results")
       .select("riddle_id, play_date, solved, guesses, hints")
       .eq("user_id", user.id)
       .order("play_date", { ascending: false })
-      .limit(120);
-    const rows = data || [];
+      .limit(HISTORY_MAX);
+    let rows = data || [];
+    const saved = new Set(rows.map((r) => r.riddle_id));
+    const unsaved = local.filter((r) => !saved.has(r.riddle_id));
+    if (unsaved.length) {
+      const { error } = await supabase.from("riddle_results").insert(unsaved.map((r) => ({ ...r, user_id: user.id })));
+      if (!error) rows = [...rows, ...unsaved];
+    }
     setStreak(streakFrom(rows, today));
     const mine = rows.find((r) => r.riddle_id === riddle.id);
     if (mine && !progress.outcome) {
@@ -135,23 +169,21 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
   }, [user?.id, riddle.id]);
 
   const record = async (solved, guesses, hints) => {
-    if (!user || riddle.preview) return;
-    await supabase
-      .from("riddle_results")
-      .insert({ user_id: user.id, riddle_id: riddle.id, play_date: today, solved, guesses, hints });
+    if (riddle.preview) return;
+    addToHistory({ riddle_id: riddle.id, play_date: today, solved, guesses, hints });
+    if (user) {
+      await supabase
+        .from("riddle_results")
+        .insert({ user_id: user.id, riddle_id: riddle.id, play_date: today, solved, guesses, hints });
+    }
     loadResults();
   };
 
   const submit = (raw) => {
     const text = (raw ?? guess).trim();
     if (!text || progress.outcome) return;
-    if (!user) {
-      update({ ...progress, pending: text });
-      onSignUp();
-      return;
-    }
     if (isCorrectGuess(text, riddle.topic, game.answers)) {
-      const next = { ...progress, pending: null, outcome: "solved", guesses: progress.wrong.length + 1 };
+      const next = { ...progress, outcome: "solved", guesses: progress.wrong.length + 1 };
       update(next);
       record(true, next.guesses, progress.hints);
       openTimer.current = setTimeout(onOpenAnswer, 1600);
@@ -159,18 +191,12 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
     }
     const wrong = [...progress.wrong, text];
     const out = wrong.length >= MAX_GUESSES;
-    update({ ...progress, pending: null, wrong, ...(out ? { outcome: "stumped", guesses: wrong.length } : {}) });
+    update({ ...progress, wrong, ...(out ? { outcome: "stumped", guesses: wrong.length } : {}) });
     if (out) record(false, wrong.length, progress.hints);
     setGuess("");
     setShake(true);
     setTimeout(() => setShake(false), 450);
   };
-
-  // A guess typed before signing up goes in once they're signed in.
-  useEffect(() => {
-    if (user && progress.pending && !progress.outcome) submit(progress.pending);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
 
   const share = async () => {
     const date = new Date(`${today}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
@@ -333,13 +359,7 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
                   <span style={{ color: C.bad }}> · not {progress.wrong.map((w) => `“${w}”`).join(", ")}</span>
                 )}
               </span>
-              {!user && <span>Free account to submit</span>}
             </div>
-            {!user && progress.pending && (
-              <p className="mt-2 rh-body text-xs" style={{ color: C.accent }}>
-                Sign up free and your guess “{progress.pending}” goes straight in.
-              </p>
-            )}
           </>
         ) : (
           <div className="rh-fade-in">
@@ -375,6 +395,21 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
                 </button>
               )}
             </div>
+            {/* Played signed out: the streak lives in this browser until
+                they sign up. */}
+            {!user && !riddle.preview && (
+              <button
+                type="button"
+                onClick={onSignUp}
+                className="mt-4 w-full text-left rounded-xl border px-3 py-2.5 rh-body text-xs leading-snug"
+                style={{ borderColor: C.border, color: C.label }}
+              >
+                {streak > 0 ? `Keep your 🔥 ${streak}-day streak on any device.` : "Start a streak that follows you to any device."}{" "}
+                <span className="font-semibold" style={{ color: C.accent }}>
+                  Sign up free →
+                </span>
+              </button>
+            )}
           </div>
         )}
       </div>
