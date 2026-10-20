@@ -1273,11 +1273,16 @@ export default function Hyfax() {
   // it opens a page that's already written.
   const [previewByPage, setPreviewByPage] = useState({});
   // A page's Why cards (see the article render): which are open, by
-  // "<page id>:<index>". All start closed; opening one is a tap.
+  // "<page id>:<index>" (see whyIsOpen for how they start); opening one is
+  // a tap.
   const [openWhys, setOpenWhys] = useState({});
+  // The Reddit ad's landing page opens with its first Why already open, so
+  // the explanation is right there; every other card starts closed.
+  const whyIsOpen = (page, index) =>
+    openWhys[`${page.id}:${index}`] ?? (index === 0 && page.heroSource === "reddit_ad_prefill");
   const toggleWhy = (page, index, why) => {
     const key = `${page.id}:${index}`;
-    const opening = !openWhys[key];
+    const opening = !whyIsOpen(page, index);
     setOpenWhys((prev) => ({ ...prev, [key]: opening }));
     if (!opening || page[`whyTapped${index}`]) return;
     page[`whyTapped${index}`] = true;
@@ -2217,7 +2222,7 @@ export default function Hyfax() {
                             <div className="flex flex-col gap-2.5">
                               {page.whys.map((why, i) => {
                                 const key = `${selected.id}:${i}`;
-                                const open = !!openWhys[key];
+                                const open = whyIsOpen(selected, i);
                                 return (
                                   <div
                                     key={key}

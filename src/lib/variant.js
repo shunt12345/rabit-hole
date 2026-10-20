@@ -11,9 +11,9 @@
 import { isTestMode } from "./visitor.js";
 
 const VARIANTS = ["cards", "scroll"];
-// Switch for the whole test: off, everyone sees "cards" and nothing is
-// assigned (a forced group still works).
-const TEST_LIVE = true;
+// Switch for the whole test. Off for now: everyone sees "cards" and nothing
+// is assigned; ?hyfax_variant=scroll still shows the scroll group to try it.
+const TEST_LIVE = false;
 const KEY = "hyfax_variant";
 const FORCE_KEY = "hyfax_variant_force";
 
