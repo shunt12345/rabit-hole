@@ -711,6 +711,7 @@ export default function Hyfax() {
     if (preset.length) root.generated = true;
     setTopic(t);
     setPreviewByPage({});
+    setOpenWhys({});
     prefetchedRef.current.clear();
     nodesRef.current = [root, ...preset];
     setNodes([root, ...preset]);
@@ -761,6 +762,7 @@ export default function Hyfax() {
 
     setTopic(root.label);
     setPreviewByPage({});
+    setOpenWhys({});
     prefetchedRef.current.clear();
     nodesRef.current = newNodes;
     setNodes(newNodes);
@@ -1242,6 +1244,7 @@ export default function Hyfax() {
 
   const reset = () => {
     setPreviewByPage({});
+    setOpenWhys({});
     prefetchedRef.current.clear();
     nodesRef.current = [];
     setNodes([]);
@@ -1273,7 +1276,8 @@ export default function Hyfax() {
   // it opens a page that's already written.
   const [previewByPage, setPreviewByPage] = useState({});
   // A page's Why cards (see the article render): which are open, by
-  // "<page id>:<index>". All start closed; opening one is a tap.
+  // "<page id>:<index>". All start closed; opening one is a tap. Page ids
+  // start again from 1 with each new topic, so this is cleared with them.
   const [openWhys, setOpenWhys] = useState({});
   const whyIsOpen = (page, index) => !!openWhys[`${page.id}:${index}`];
   const toggleWhy = (page, index, why) => {
