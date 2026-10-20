@@ -212,6 +212,10 @@ ${existingArticle}
   return streamTextFromPrompt({ system: HYFAX_SYSTEM, prompt: userContent, maxTokens: 500, timeoutMs: 30000, endpoint: "continuation", onChunk, nodeType });
 }
 
+// Set once this page load has checked for a "land" event, so a remounted
+// app (React's dev double-run, a hot reload) can never send a second one.
+let landChecked = false;
+
 // The kicker on each Where card, saying how far the thread leaps.
 const WHERE_TAGS = {
   direct: { label: "Direct", color: "#E3A73C" },
@@ -384,6 +388,8 @@ export default function Hyfax() {
   // this is actually a new session or a continuation of one already in
   // progress from an earlier page in the last 30 minutes.
   useEffect(() => {
+    if (landChecked) return;
+    landChecked = true;
     const { sessionId, isNewSession } = touchSession();
     if (isNewSession) trackEvent("land", { sessionId });
     // eslint-disable-next-line react-hooks/exhaustive-deps

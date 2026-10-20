@@ -58,23 +58,52 @@ export function getVisitorId() {
 // timestamp. `isNewSession` tells the caller whether to fire a "land"
 // event (see App.jsx) — only true the moment a session actually starts,
 // never on every touch.
+// This tab's copy of the session (sessionStorage outlives a reload but not
+// the tab). If localStorage loses the session (some in-app browsers drop it
+// between loads) a reload of the same tab picks this one back up instead of
+// starting a new session and counting a second "land".
+const TAB_SESSION_KEY = "hyfax_tab_session";
+
+function readTabSession(now) {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(TAB_SESSION_KEY) || "null");
+    return saved?.id && now - saved.at <= SESSION_GAP_MS ? saved.id : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function writeTabSession(id, now) {
+  try {
+    sessionStorage.setItem(TAB_SESSION_KEY, JSON.stringify({ id, at: now }));
+  } catch (_) {
+    // no sessionStorage either; localStorage alone decides
+  }
+}
+
 export function touchSession() {
   const now = Date.now();
   try {
     const lastActive = Number(localStorage.getItem(SESSION_LAST_ACTIVE_KEY) || 0);
     let sessionId = localStorage.getItem(SESSION_ID_KEY);
-    const isNewSession = !sessionId || !lastActive || now - lastActive > SESSION_GAP_MS;
+    let isNewSession = !sessionId || !lastActive || now - lastActive > SESSION_GAP_MS;
     if (isNewSession) {
-      sessionId = newId();
+      const tabSession = readTabSession(now);
+      sessionId = tabSession || newId();
+      isNewSession = !tabSession;
       localStorage.setItem(SESSION_ID_KEY, sessionId);
     }
     localStorage.setItem(SESSION_LAST_ACTIVE_KEY, String(now));
+    writeTabSession(sessionId, now);
     return { sessionId, isNewSession };
   } catch (_) {
-    // No storage — every touch looks like a new session, which is the
-    // closest honest approximation (nothing persists to compare against
-    // anyway), rather than pretending continuity that storage can't back up.
-    return { sessionId: newId(), isNewSession: true };
+    // No localStorage. A reload of this tab within the gap is still the
+    // same session if sessionStorage remembers it; otherwise every load
+    // looks like a new session, the closest honest approximation.
+    const tabSession = readTabSession(now);
+    const sessionId = tabSession || newId();
+    writeTabSession(sessionId, now);
+    return { sessionId, isNewSession: !tabSession };
   }
 }
 
