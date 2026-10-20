@@ -211,6 +211,13 @@ ${existingArticle}
   return streamTextFromPrompt({ system: HYFAX_SYSTEM, prompt: userContent, maxTokens: 500, timeoutMs: 30000, endpoint: "continuation", onChunk, nodeType });
 }
 
+// The kicker on each Where card, saying how far the thread leaps.
+const WHERE_TAGS = {
+  direct: { label: "Direct", color: "#E3A73C" },
+  indirect: { label: "Indirect", color: "#9DB38E" },
+  tangent: { label: "Tangent", color: "#C48BB3" },
+};
+
 // "Where to next": one direct, one indirect, one tangent (WHERE_MIX).
 function branchMix() {
   return WHERE_MIX;
@@ -2324,6 +2331,11 @@ export default function Hyfax() {
                               className="w-full text-left px-4 py-3 flex items-center gap-3"
                             >
                               <div className="min-w-0 flex-1">
+                                {WHERE_TAGS[child.type] && (
+                                  <div className="rh-mono rh-text-10 uppercase tracking-wider font-semibold" style={{ color: visited && !open ? "#8A7A62" : WHERE_TAGS[child.type].color }}>
+                                    {WHERE_TAGS[child.type].label}
+                                  </div>
+                                )}
                                 <div className="rh-body text-base font-semibold flex items-center gap-2 flex-wrap" style={{ color: visited && !open ? "#B8A886" : "#F1E6D3" }}>
                                   {child.label}
                                   {open && (
