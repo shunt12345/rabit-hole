@@ -3,10 +3,10 @@
 // comparison runs on exactly the prompt real readers get.
 import { nextOpenerShape } from "./openerVariety.js";
 
-// Room for a What / Why / Why page (~200-280 words plus its labels): the
+// Room for a What / Why / Why page (~340-480 words plus its labels): the
 // model overshoots a word count it's only asked to keep. App.jsx trims a capped article back to its last
 // complete sentence.
-export const ARTICLE_MAX_TOKENS = 700;
+export const ARTICLE_MAX_TOKENS = 1100;
 
 export function articleUserPrompt({ topicLabel, path, newsContext, nodeType, heroSource }) {
   const today = new Date().toISOString().slice(0, 10);

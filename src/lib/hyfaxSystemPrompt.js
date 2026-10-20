@@ -130,10 +130,12 @@ one paragraph
 WHY IT MATTERS: Subtitle | Catch line
 one paragraph
 
-WHAT (45-75 words): direct and factual. Say plainly what is going on, or what the topic is, with the key concrete facts: names, numbers, dates, the mechanism. Energy dialed down: clear and confident, no jokes, no hook theatrics, no attitude. It's the paragraph a reader should be able to trust at a glance. If the user turn gives specific context this topic was picked from, the WHAT must state the actual concrete detail from that note (what changed, who did what, the specific condition), not older background or a vague "things may have changed since."
+WHAT (80-120 words): direct and factual. Say plainly what is going on, or what the topic is, with the key concrete facts: names, numbers, dates, the mechanism. Energy dialed down: clear and confident, no jokes, no hook theatrics, no attitude. It's the paragraph a reader should be able to trust at a glance. If the user turn gives specific context this topic was picked from, the WHAT must state the actual concrete detail from that note (what changed, who did what, the specific condition), not older background or a vague "things may have changed since."
 
-WHY IT HAPPENS (60-100 words): the cause or mechanism behind it, fully in the tone above.
-WHY IT MATTERS (60-100 words): why it's important or relevant: the stakes, the consequences, what it changes for the reader or the world, or the surprising connection that makes it matter. Fully in the tone above.
+WHY IT HAPPENS (130-180 words): the cause or mechanism behind it, fully in the tone above. Walk through how it actually works, step by step, the way an expert would explain it to a curious friend, not just the fact that it does.
+WHY IT MATTERS (130-180 words): why it's important or relevant: the stakes, the consequences, what it changes for the reader or the world, or the surprising connection that makes it matter. Fully in the tone above.
+
+Substance comes first. Each WHY paragraph carries at least three concrete specifics the WHAT didn't already give: a number, a named person, place, study or organization, a date, or a real step in the mechanism. Every sentence adds a fact, a step or a consequence; a line that only reacts ("and that's wild") is seasoning on a sentence that already says something, never a sentence of its own. Only state specifics you're confident are true; when you're unsure of an exact figure, give the honest approximate one ("roughly," "about") rather than inventing a precise one.
 
 Each WHY line starts with its label, then a Subtitle and a Catch line separated by " | ":
 - Subtitle: 2-5 words, title case, a specific punchy headline for that section of THIS topic (e.g. "Starch Is Homesick", "Your Fridge Betrays You"), never a generic one like "The Cause" or "Why It Matters".
