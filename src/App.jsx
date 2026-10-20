@@ -12,7 +12,7 @@ import {
   claimPage,
   TrialExhaustedError,
 } from "./lib/api.js";
-import { HYFAX_SYSTEM, OBSCURITY_LEVELS, FIXED_OBSCURITY } from "./lib/hyfaxSystemPrompt.js";
+import { HYFAX_SYSTEM, WHERE_MIX } from "./lib/hyfaxSystemPrompt.js";
 import { createPacedReveal } from "./lib/pacedReveal.js";
 import { getCurrentUser, onAuthStateChange, isNewAccount, getAccessToken } from "./lib/auth.js";
 import { maybeReportSignUp, maybeReportLead } from "./lib/redditPixel.js";
@@ -28,6 +28,7 @@ import { getProfile, getLifetimeFundedUsd } from "./lib/profile.js";
 import AccountMenu from "./AccountMenu.jsx";
 import LegalModal from "./LegalModal.jsx";
 import { articleUserPrompt, ARTICLE_MAX_TOKENS } from "./lib/articlePrompt.js";
+import { parseThreadPage, threadPagePlainText } from "./lib/threadPage.js";
 import { nextSurpriseTopic } from "./lib/surpriseTopics.js";
 import UsageGauge from "./UsageGauge.jsx";
 import MiniGauge from "./MiniGauge.jsx";
@@ -98,6 +99,11 @@ function linkifyText(text, children) {
 // has to wait for a separate call to supply link names first. The phrase
 // stays in the sentence as written; its Title Case form becomes the child
 // page's label.
+// Hidden for now, not removed: the thread trail at the top of a page and
+// the "N thoughts uncovered" count; and the old tap-to-preview Where cards.
+const SHOW_TRAIL = false;
+const PREVIEWS_ENABLED = false;
+
 const LINK_MARKER_RE = /\[\[([^[\]]+?)\]\]/g;
 
 function toLinkLabel(phrase) {
@@ -205,12 +211,9 @@ ${existingArticle}
   return streamTextFromPrompt({ system: HYFAX_SYSTEM, prompt: userContent, maxTokens: 500, timeoutMs: 30000, endpoint: "continuation", onChunk, nodeType });
 }
 
-// Chips are only the indirect/tangent leaps now — direct subtopics are
-// inline [[links]] in the article. Still tolerates ONE direct chip, since
-// topics cached before that change were stored with one.
+// "Where to next": one direct, one indirect, one tangent (WHERE_MIX).
 function branchMix() {
-  const { indirect, tangent } = OBSCURITY_LEVELS[FIXED_OBSCURITY].mix;
-  return { direct: 1, indirect, tangent };
+  return WHERE_MIX;
 }
 
 // The prompt ASKS for an exact branch mix, but nothing enforced that on the
@@ -692,7 +695,7 @@ export default function Hyfax() {
   // returning to. The stored overview is the article's first sentence, used
   // as the preview line (topic pages no longer have a separate overview).
   const recordRoot = (root) => {
-    const firstSentence = (stripLinkMarkers(root.article || "").match(/^[\s\S]*?[.!?](\s|$)/) || [""])[0].trim();
+    const firstSentence = (threadPagePlainText(root.article || "").match(/^[\s\S]*?[.!?](\s|$)/) || [""])[0].trim();
     const children = nodesRef.current.filter((n) => n.parentId === root.id);
     recordExploredRoot({ label: root.label, fullTopic: root.fullTopic, overview: firstSentence || root.overview, children }).catch((e) =>
       console.error("Hyfax: failed to record explored topic", e)
@@ -929,7 +932,7 @@ export default function Hyfax() {
     try {
       const data = await callClaude({
         system: HYFAX_SYSTEM,
-        prompt: childPrompt(node.label, path, existingLabels, node.depth + 1, stripLinkMarkers(articleText ?? node.article ?? "")),
+        prompt: childPrompt(node.label, path, existingLabels, node.depth + 1, threadPagePlainText(articleText ?? node.article ?? "")),
         endpoint: "expand",
         nodeCacheKey,
         newsCacheKey: rootCacheKey,
@@ -1242,6 +1245,31 @@ export default function Hyfax() {
   // article is the thread's real one (cached the same way), so exploring
   // it opens a page that's already written.
   const [previewByPage, setPreviewByPage] = useState({});
+  // A page's Why cards (see the article render): which are open, by
+  // "<page id>:<index>". All start closed; opening one is a tap.
+  const [openWhys, setOpenWhys] = useState({});
+  const toggleWhy = (page, index, why) => {
+    const key = `${page.id}:${index}`;
+    const opening = !openWhys[key];
+    setOpenWhys((prev) => ({ ...prev, [key]: opening }));
+    if (!opening || page[`whyTapped${index}`]) return;
+    page[`whyTapped${index}`] = true;
+    const { sessionId } = touchSession();
+    trackEvent("tap", { page: `${page.label} · ${why.subtitle}`, sessionId });
+  };
+  // A Where card opens its thread as a page straight away (no preview).
+  // The tap is tracked here; the page itself counts when it loads.
+  const openThread = (nodeId) => {
+    const node = nodesRef.current.find((n) => n.id === nodeId);
+    if (!node) return;
+    if (!node.tapped) {
+      node.tapped = true;
+      const { sessionId } = touchSession();
+      trackEvent("tap", { page: node.label, sessionId });
+      if (!user && !hasDismissedSignUpPrompt() && recordChipTap() === 3) setShowSignUpPrompt(true);
+    }
+    explorePreview(nodeId);
+  };
   const previewId = selectedId ? previewByPage[selectedId] ?? null : null;
   const togglePreview = (nodeId) => {
     const opening = previewId !== nodeId;
@@ -1265,6 +1293,9 @@ export default function Hyfax() {
   // text already there, with no call to the proxy at all.
   const prefetchedRef = useRef(new Set());
   useEffect(() => {
+    // Off: Where cards open their page directly now, so there's no preview
+    // paragraph to fetch ahead (kept in case previews come back).
+    if (!PREVIEWS_ENABLED) return;
     const page = nodesRef.current.find((n) => n.id === selectedId);
     if (!page || page.type !== "root" || !page.newsContext) return;
     const wanted = nodesRef.current.filter(
@@ -1344,7 +1375,7 @@ export default function Hyfax() {
         topicLabel: node.label,
         nodeType: node.type,
         overview: node.type === "root" ? node.overview || node.teaser : node.teaser,
-        article: stripLinkMarkers(node.article || ""),
+        article: threadPagePlainText(node.article || ""),
       });
       if (navigator.share) {
         // Just the link: the preview card says the rest, and extra text
@@ -1724,7 +1755,7 @@ export default function Hyfax() {
 
       {(hasStarted || !funded) && (
         <div className="flex items-center justify-center gap-5 px-5 pb-4 -mt-2 shrink-0 flex-wrap max-w-4xl mx-auto w-full">
-          {hasStarted && (
+          {SHOW_TRAIL && hasStarted && (
             <div className="rh-mono rh-text-10 whitespace-nowrap" style={{ color: "#A89478" }}>
               {nodes.length} thought{nodes.length === 1 ? "" : "s"} uncovered
             </div>
@@ -1975,7 +2006,7 @@ export default function Hyfax() {
                 className="sticky top-0 z-10 flex items-center justify-between gap-3 mb-3 py-2 -mx-5 px-5 md:-mx-7 md:px-7"
                 style={{ backgroundColor: "#14100C" }}
               >
-                {breadcrumb.length > 1 ? (
+                {SHOW_TRAIL && breadcrumb.length > 1 ? (
                   <nav aria-label="Your thread" className={`rh-trail rh-body text-sm ${trailFull ? "rh-trail-full" : ""}`} style={{ color: "#A89478" }}>
                     {!trailFull && breadcrumb.length > 2 && (
                       <>
@@ -2016,7 +2047,7 @@ export default function Hyfax() {
                     disabled={shareStatus === "sharing"}
                     aria-label="Share"
                     className={`shrink-0 flex items-center gap-1.5 rh-mono rh-text-10 uppercase tracking-wider transition-colors disabled:opacity-50 rounded-full border font-semibold ${
-                      breadcrumb.length > 1 ? "p-2" : "px-3 py-1.5"
+                      SHOW_TRAIL && breadcrumb.length > 1 ? "p-2" : "px-3 py-1.5"
                     }`}
                     style={{
                       borderColor: shareStatus === "error" ? "#D98A6E" : "#E3A73C",
@@ -2035,7 +2066,7 @@ export default function Hyfax() {
                     ) : (
                       // Just the icon beside the trail, so the trail keeps the room.
                       <>
-                        <Share2 size={13} /> {breadcrumb.length > 1 ? null : "Share"}
+                        <Share2 size={13} /> {SHOW_TRAIL && breadcrumb.length > 1 ? null : "Share"}
                       </>
                     )}
                   </button>
@@ -2096,122 +2127,102 @@ export default function Hyfax() {
                 ) : null}
 
                 {selected.article && !selected.claimRefused ? (
-                  <div className="mt-4 pt-4 border-t space-y-4 rh-fade-in" style={{ borderColor: "#4A3C2C", color: "#F1E6D3" }}>
-                    {selected.article
-                      .split(/\n\s*\n/)
-                      .map((s) => s.trim())
-                      .filter(Boolean)
-                      .map((para, i, arr) => (
-                        <Fragment key={i}>
-                          <p
-                            className={selected.arrivedWhole ? "rh-para-in" : undefined}
-                            style={selected.arrivedWhole ? { animationDelay: `${i * 150}ms` } : undefined}
-                          >
-                            {renderLinked(para, linkableChildren, (selected.article || "").includes("[["))}
-                            {selected.articleStreaming && i === arr.length - 1 ? (
-                              <span className="rh-cursor-blink" style={{ color: "#E3A73C" }}>
-                                {"▌"}
-                              </span>
-                            ) : null}
-                            {/* light-touch, not a primary action — capped
-                                to one extra round (selected.deepened), and
-                                sitting at the end of the last sentence
-                                rather than as a button of its own */}
-                            {i === arr.length - 1 &&
-                              !selected.articleStreaming &&
-                              !selected.articleLoading &&
-                              !selected.deepened &&
-                              !trialExhausted &&
-                              digDeeperVisible && (
-                                <>
-                                  {" "}
-                                  <button
-                                    type="button"
-                                    onClick={() => deepenArticle(selected.id)}
-                                    className="rh-link-accent font-semibold whitespace-nowrap ml-0.5"
-                                    style={{ color: "#E3A73C" }}
-                                  >
-                                    Read more on this →
-                                  </button>
-                                </>
-                              )}
-                          </p>
-                          {/* An inline link's preview opens right under its
-                              paragraph. */}
-                          {inlineLinkChildren
-                              .filter((c) => c.linkPara === i)
-                              .map((c) => (
-                                // Takes no room while closed (no top margin
-                                // of its own from the article's spacing).
-                                <div
-                                  key={c.id}
-                                  className="rounded-2xl"
-                                  style={
-                                    previewId === c.id
-                                      ? { border: "1px solid #E3A73C", backgroundColor: "#2A2015", marginTop: "0.5rem" }
-                                      : { marginTop: 0 }
-                                  }
-                                >
-                                  {previewId === c.id && (
-                                    <div className="rh-mono rh-text-10 uppercase tracking-wider px-4 pt-3 pb-1.5" style={{ color: "#E3A73C" }}>
-                                      Previewing · {c.label}
-                                    </div>
-                                  )}
-                                  {renderPreview(c)}
-                                </div>
-                              ))}
-                          {/* House ad (Section H) — one per article, funded
-                              accounts don't see these at all. Seeded off the
-                              node so the same node always shows the same ad
-                              (no flicker on re-render) while different nodes
-                              tend to show different ones. Sandwiched after
-                              the first paragraph rather than sitting above
-                              the article entirely. A second one shows after
-                              "dig deeper" instead of repeating this same
-                              slot twice.
-
-                              The Reddit ad campaign's landing topic (see
-                              migration 0039, currently "why does bread go
-                              stale") pins this specific ad instead of
-                              leaving it to rotation — a first-time visitor
-                              from that campaign should see copy picked for
-                              them, not whatever the seeded pick happens to
-                              land on. Every other topic keeps the normal
-                              rotation untouched. */}
-                          {!funded && !selected.articleStreaming && i === 0 && arr.length > 1 && (
-                            <div
-                              className={selected.arrivedWhole ? "rh-para-in" : undefined}
-                              style={selected.arrivedWhole ? { animationDelay: "75ms" } : undefined}
-                            >
-                              <AdCard
-                                ad={
-                                  selected.type === "root" && selected.fullTopic === "why does bread go stale"
-                                    ? getHouseAdById("connect-the-dots")
-                                    : pickHouseAd(selected.id, adStage)
-                                }
-                                onClick={openAccountModal}
-                              />
+                  // What / Why (see lib/threadPage.js): one direct paragraph,
+                  // then two cards that open in place. "Where" is the
+                  // thread cards further down. A page saved in the old
+                  // format shows its paragraphs as they are.
+                  (() => {
+                    const page = parseThreadPage(selected.article);
+                    const cursor = (
+                      <span className="rh-cursor-blink" style={{ color: "#E3A73C" }}>
+                        {"▌"}
+                      </span>
+                    );
+                    if (!page.structured) {
+                      return (
+                        <div className="mt-4 pt-4 border-t space-y-4 rh-fade-in" style={{ borderColor: "#4A3C2C", color: "#F1E6D3" }}>
+                          {page.paragraphs.map((para, i, arr) => (
+                            <p key={i}>
+                              {para}
+                              {selected.articleStreaming && i === arr.length - 1 ? cursor : null}
+                            </p>
+                          ))}
+                        </div>
+                      );
+                    }
+                    const writingWhy = selected.articleStreaming ? page.whys.length - 1 : -1;
+                    return (
+                      <div className="mt-4 pt-4 border-t rh-fade-in" style={{ borderColor: "#4A3C2C", color: "#F1E6D3" }}>
+                        <p className={selected.arrivedWhole ? "rh-para-in" : undefined}>
+                          {page.what}
+                          {selected.articleStreaming && !page.whys.length ? cursor : null}
+                        </p>
+                        {page.whys.length > 0 && (
+                          <div className="mt-7">
+                            <div className="rh-display text-xl italic mb-3" style={{ color: "#F1E6D3" }}>
+                              Why?
                             </div>
-                          )}
-                        </Fragment>
-                      ))}
-
-                    {selected.deepenError && (
-                      <div className="flex items-center gap-1.5 text-sm" style={{ color: "#D98A6E" }}>
-                        <AlertCircle size={13} /> {selected.deepenError}
+                            <div className="flex flex-col gap-2.5">
+                              {page.whys.map((why, i) => {
+                                const key = `${selected.id}:${i}`;
+                                const open = !!openWhys[key];
+                                return (
+                                  <div
+                                    key={key}
+                                    className={`rounded-2xl border transition-colors ${open ? "" : "rh-thread-card"} ${selected.arrivedWhole ? "rh-para-in" : ""}`}
+                                    style={{
+                                      borderColor: open ? "#E3A73C" : "#E3A73C88",
+                                      backgroundColor: open ? "#2A2015" : "#241B12",
+                                      animationDelay: selected.arrivedWhole ? `${150 + i * 120}ms` : undefined,
+                                    }}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleWhy(selected, i, why)}
+                                      aria-expanded={open}
+                                      className="w-full text-left px-4 py-3 flex items-center gap-3"
+                                    >
+                                      <div className="min-w-0 flex-1">
+                                        <div className="rh-mono rh-text-10 uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
+                                          {why.kind}
+                                        </div>
+                                        <div className="rh-body text-base font-semibold mt-0.5" style={{ color: "#F1E6D3" }}>
+                                          {why.subtitle}
+                                        </div>
+                                        {why.hook && (
+                                          <div className="rh-body text-sm mt-0.5 leading-snug" style={{ color: "#B8A886" }}>
+                                            {why.hook}
+                                          </div>
+                                        )}
+                                      </div>
+                                      <span
+                                        className="shrink-0 flex items-center justify-center rounded-full w-8 h-8"
+                                        style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
+                                        aria-hidden="true"
+                                      >
+                                        <ChevronRight size={18} className="rh-chev" style={{ transform: open ? "rotate(90deg)" : "none" }} />
+                                      </span>
+                                    </button>
+                                    {open && (
+                                      <div className="px-4 pb-4 -mt-0.5 space-y-3 rh-fade-in text-base leading-relaxed" style={{ color: "#F1E6D3" }}>
+                                        {(why.body || "").split(/\n\s*\n/).map((para, j, arr) => (
+                                          <p key={j}>
+                                            {para}
+                                            {writingWhy === i && j === arr.length - 1 ? cursor : null}
+                                          </p>
+                                        ))}
+                                        {!why.body && selected.articleStreaming && cursor}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    )}
-                    {/* Second house ad — funded accounts don't see these at
-                        all (same as the first ad above). Only once "dig
-                        deeper" content has actually landed, so a reader
-                        gets one ad impression per article by default and a
-                        second only if they asked for more. Different seed
-                        than the first ad on this same node so the two
-                        don't just repeat. */}
-                    {!funded && selected.deepened && !selected.articleStreaming && (
-                      <AdCard ad={pickHouseAd(`${selected.id}:deep`, adStage)} onClick={openAccountModal} />
-                    )}
-                  </div>
+                    );
+                  })()
                 ) : selected.articleLoading ? (
                   <div className="mt-4 flex items-center gap-1.5 text-base" style={{ color: "#B8A886" }}>
                     <Loader2 size={16} className="animate-spin" /> Digging in…
@@ -2279,9 +2290,11 @@ export default function Hyfax() {
                       <div className="rh-display text-xl italic" style={{ color: "#F1E6D3" }}>
                         Where to next?
                       </div>
-                      <div className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: "#A89478" }}>
-                        Tap to preview
-                      </div>
+                      {PREVIEWS_ENABLED && (
+                        <div className="rh-mono rh-text-10 uppercase tracking-wider" style={{ color: "#A89478" }}>
+                          Tap to preview
+                        </div>
+                      )}
                     </div>
                     <div className="flex flex-col gap-2.5">
                       {shownChips.map((child, i) => {
@@ -2305,8 +2318,8 @@ export default function Hyfax() {
                           >
                             <button
                               type="button"
-                              onClick={() => togglePreview(child.id)}
-                              aria-expanded={open}
+                              onClick={() => (PREVIEWS_ENABLED ? togglePreview(child.id) : openThread(child.id))}
+                              aria-expanded={PREVIEWS_ENABLED ? open : undefined}
                               data-precompute="thread"
                               className="w-full text-left px-4 py-3 flex items-center gap-3"
                             >
@@ -2337,11 +2350,27 @@ export default function Hyfax() {
                                 )}
                               </span>
                             </button>
-                            {renderPreview(child)}
+                            {PREVIEWS_ENABLED && renderPreview(child)}
                           </div>
                         );
                       })}
                     </div>
+                  </div>
+                )}
+
+                {/* House ad — one per page, funded accounts don't see it. After
+                    the Where cards, so it never pushes them below the first
+                    screen. The Reddit campaign's landing page pins its own. */}
+                {!funded && selected.article && !selected.articleStreaming && !selected.claimRefused && (
+                  <div className="mt-6">
+                    <AdCard
+                      ad={
+                        selected.type === "root" && selected.fullTopic === "why does bread go stale"
+                          ? getHouseAdById("connect-the-dots")
+                          : pickHouseAd(selected.id, adStage)
+                      }
+                      onClick={openAccountModal}
+                    />
                   </div>
                 )}
 

@@ -3,10 +3,10 @@
 // comparison runs on exactly the prompt real readers get.
 import { nextOpenerShape } from "./openerVariety.js";
 
-// Holds article length (~150-190 words): the model overshoots a word count
-// it's only asked to keep. App.jsx trims a capped article back to its last
+// Room for a What / Why / Why page (~200-280 words plus its labels): the
+// model overshoots a word count it's only asked to keep. App.jsx trims a capped article back to its last
 // complete sentence.
-export const ARTICLE_MAX_TOKENS = 400;
+export const ARTICLE_MAX_TOKENS = 700;
 
 export function articleUserPrompt({ topicLabel, path, newsContext, nodeType, heroSource }) {
   const today = new Date().toISOString().slice(0, 10);
@@ -23,7 +23,7 @@ export function articleUserPrompt({ topicLabel, path, newsContext, nodeType, her
   const dateNote = isHistory
     ? ` This is today's "This Day in History" pick: it happened on this calendar date in a past year. Say the date and year plainly (e.g. "On October 19, 1960") and write it as history. Never call it recent, new or "this week".`
     : isTrending
-      ? ` This is current news. Don't spell out the exact calendar date it happened (e.g. "On August 8, 2025"); write it as recent instead ("recently," "this week") — a hardcoded date reads as stale the moment it's read after the fact. Assume the reader has already seen the headline: give what happened a sentence at most, and spend the article on why it happened, why it matters and what it connects to.`
+      ? ` This is current news. Don't spell out the exact calendar date it happened (e.g. "On August 8, 2025"); write it as recent instead ("recently," "this week") — a hardcoded date reads as stale the moment it's read after the fact. Assume the reader has already seen the headline: the WHAT states what happened in plain facts, and the WHY sections carry why it happened and why it matters.`
       : isQuote
         ? ` The context above is the quote's attribution; use it accurately as given.`
         : ` Don't spell out an exact calendar date unless the date itself is the point of the story.`;
@@ -40,7 +40,7 @@ export function articleUserPrompt({ topicLabel, path, newsContext, nodeType, her
   // leaving "vary it" to the model — see openerVariety.js for why a
   // stateless per-call instruction alone wasn't producing real variety
   // across separate articles for one active user.
-  const openerNote = `\n\nFor the second paragraph's opening sentence specifically, use this exact approach: ${nextOpenerShape()}.`;
+  const openerNote = `\n\nFor the WHY IT HAPPENS paragraph's opening sentence specifically, use this exact approach: ${nextOpenerShape()}.`;
   return `TASK: read-more article
 
 Today's date is ${today}.

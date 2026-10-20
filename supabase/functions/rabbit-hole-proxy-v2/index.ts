@@ -230,7 +230,8 @@ const TONE_LAB_MODELS = new Set(["claude-sonnet-5", "claude-haiku-4-5", "claude-
 // smaller model far better than more adjectives: closing off the specific
 // instruction it over-obeys (the article task's "dial the energy back and
 // plainly define the topic" first paragraph, which Sonnet treats as one
-// clause and Haiku turns into a textbook paragraph), and showing the voice
+// clause and Haiku turns into a textbook paragraph — now scoped to the
+// page's WHY sections, since its WHAT is meant to be plain), and showing the voice
 // as worked examples in the conversation itself (HAIKU_ARTICLE_EXAMPLES).
 // Applied only for Haiku, so Sonnet's prompt — the reference voice — stays
 // byte-for-byte unchanged. Cached as its own block (same 1h TTL as the
@@ -238,10 +239,10 @@ const TONE_LAB_MODELS = new Set(["claude-sonnet-5", "claude-haiku-4-5", "claude-
 const HAIKU_VOICE_REFERENCE = `=== VOICE CORRECTIONS — these override anything above that pulls the other way ===
 The tone section is the most important instruction in this prompt: readers come back for the voice as much as the facts. The example articles earlier in this conversation are written in exactly the right voice — match their energy, rhythm and specificity, never their facts, topics or phrases.
 
-- Where the article task says to dial the energy back and plainly define the topic in the first paragraph, that means ONE plain clause at most, not a paragraph. The voice stays on in every other sentence.
-- The first sentence is a hook that lands on its own: a cold number, a vivid image, or a flat claim that sounds wrong until it's explained.
-- Encyclopedic tells — never write these: opening with "[Topic] is a / an / the...", "refers to", "is known as", "is defined as", "is a type of", "Scientists believe", passive textbook voice ("it is thought that," "it has been shown"), a sentence that lists three facts with no reaction, and any closing summary ("Overall," "In short," "Ultimately," "Today, X remains...").
-- Every paragraph needs at least one moment of attitude: an object given a personality, an absurd-but-accurate comparison, or a short deadpan sentence reacting to the fact.
+- The WHAT paragraph is the one place the voice steps back on purpose: plain, factual and direct, like the examples. Everything else — both catch lines and both WHY paragraphs — carries the full voice.
+- Each WHY paragraph and catch line opens with something that lands on its own: a cold number, a vivid image, or a flat claim that sounds wrong until it's explained.
+- Encyclopedic tells — never in a WHY paragraph or catch line: opening with "[Topic] is a / an / the...", "refers to", "is known as", "is defined as", "is a type of", "Scientists believe", passive textbook voice ("it is thought that," "it has been shown"), a sentence that lists three facts with no reaction, and any closing summary ("Overall," "In short," "Ultimately," "Today, X remains...").
+- Every WHY paragraph needs at least one moment of attitude: an object given a personality, an absurd-but-accurate comparison, or a short deadpan sentence reacting to the fact.
 - Sentence length swings hard: a long breathless run held together by commas and dashes, then a short flat sentence that lands the punch.
 - Everything is specific: names, numbers, mechanisms, places. No vague intensifiers ("incredible," "amazing," "fascinating," "truly") and no filler ("it's worth noting," "interestingly").
 - It sounds like an excited expert telling a friend something they can't believe — not an encyclopedia, a textbook or a press release.`;
@@ -253,6 +254,78 @@ The tone section is the most important instruction in this prompt: readers come 
 // quoted in the system prompt — a smaller model copies a voice from its
 // own prior answers much more faithfully. Article calls only.
 const HAIKU_ARTICLE_EXAMPLES = [
+  {
+    user: `TASK: read-more article
+
+Today's date is 2026-10-05.
+
+Path so far: Sarcasm
+Topic: "Sarcasm"
+
+Begin with a title line.`,
+    assistant: `TITLE: Sarcasm
+
+WHAT: Sarcasm is saying the opposite of what you mean, usually to mock or needle someone. The word comes from the Greek "sarkazein," literally "to tear flesh," which later came to mean snarling like a dog and then speaking with bitter contempt. Understanding it takes extra work from the brain: a listener has to catch the gap between the words and the speaker's tone, face and situation.
+
+WHY IT HAPPENS: Teeth Behind The Words | Sarcasm lets someone bite without technically saying one mean thing.
+Saying the opposite of what you mean is a strangely efficient weapon. The speaker lands the insult while keeping a perfectly deniable script, and the listener does the dirty work of decoding it. That decoding runs through right-hemisphere regions that read tone of voice and facial expression, which is exactly why sarcasm dies in plain text and why a flat "great, love that" can sting harder than an honest complaint ever could.
+
+WHY IT MATTERS: A Test For Damaged Brains | Doctors can spot certain brain injuries by checking who still hears sarcasm.
+Damage to those right-hemisphere regions can strip a person of the ability to hear sarcasm while their grammar, vocabulary and memory stay perfectly intact — every word arrives, the entire point goes missing. Clinicians use that blind spot as a clue, and children only master it somewhere around age eight to ten, which makes a well-timed eye-roll one of the more sophisticated things a human brain pulls off.`,
+  },
+  {
+    user: `TASK: read-more article
+
+Today's date is 2026-10-05.
+
+Path so far: why does bread go stale → Starch Retrogradation
+Topic: "Starch Retrogradation"`,
+    assistant: `WHAT: Starch retrogradation is the process that makes bread go stale. Flour starch is made of two molecules, amylose and amylopectin, packed into orderly granules. Baking floods them with water and bursts them into a soft gel; as the bread cools, those molecules slowly re-form tight crystalline structures, squeezing moisture out of the crumb and making it firm.
+
+WHY IT HAPPENS: The Starch Wants Back | The molecules never forget the tidy crystal they were before the oven wrecked it.
+Amylose is the sprinter — its straight chains snap back into tight double-helix bundles within hours of the loaf leaving the oven. Branchy amylopectin is the slowpoke, spending days crawling back toward crystal order and hauling water out of the crumb as it goes. Cool, above-freezing temperatures are the sweet spot for all that shuffling, so the reorganizing runs fastest right around fridge temperature.
+
+WHY IT MATTERS: Your Fridge Betrays You | The appliance built to keep food fresh is quietly turning bread into bricks.
+Bread kept around four degrees Celsius stales several times faster than bread left on the counter. Freezing locks the molecules in place almost completely, and a few minutes in a hot oven melts the crystals back into gel, which is why freezer bread toasts back to life and a day-old baguette can be rescued — briefly, before it re-stales even faster the second time.`,
+  },
+  {
+    user: `TASK: read-more article
+
+Today's date is 2026-10-06.
+
+Path so far: Pennsylvania Bear Breaks Into Restaurant
+Topic: "Pennsylvania Bear Breaks Into Restaurant"
+
+Begin with a title line.`,
+    assistant: `TITLE: Bear Walks Into Restaurant
+
+WHAT: A black bear walked into a Pennsylvania restaurant this week, went up to the host stand, looked around the lobby and left to raid the dumpster out back. Security cameras recorded the whole visit and no one was hurt. Pennsylvania has around twenty thousand black bears, and sightings around homes and businesses have become increasingly common.
+
+WHY IT HAPPENS: A Nose For Buffets | A bear can smell food from over a mile away, and dumpsters smell incredible.
+To a nose that sensitive, a restaurant's trash is basically a neon sign reading all you can eat. As black bear populations spread into suburbs and strip malls, bears start treating buildings as one more stretch of forest floor, and once a dumpster pays off, an excellent spatial memory for food brings them back to the same spot, sometimes for years.
+
+WHY IT MATTERS: Fed Bears Don't Last | A bear that learns people mean food usually ends up relocated or worse.
+Bears that get easy meals around people grow bolder, and bold bears near restaurants and schools are the ones wildlife officers end up moving or putting down. That's why towns push bear-proof bins and fines for leaving trash out — locking a dumpster is less about protecting the lobby than about keeping the bear alive.`,
+  },
+];
+
+// The two-paragraph article format (with inline [[links]]) that app
+// builds before the What / Why layout still send. Kept so this function
+// works with either app build, whichever is live: a request whose system
+// prompt asks for the What / Why layout gets the examples and corrections
+// above; any other gets these, unchanged from before.
+const HAIKU_VOICE_REFERENCE_LEGACY = `=== VOICE CORRECTIONS — these override anything above that pulls the other way ===
+The tone section is the most important instruction in this prompt: readers come back for the voice as much as the facts. The example articles earlier in this conversation are written in exactly the right voice — match their energy, rhythm and specificity, never their facts, topics or phrases.
+
+- Where the article task says to dial the energy back and plainly define the topic in the first paragraph, that means ONE plain clause at most, not a paragraph. The voice stays on in every other sentence.
+- The first sentence is a hook that lands on its own: a cold number, a vivid image, or a flat claim that sounds wrong until it's explained.
+- Encyclopedic tells — never write these: opening with "[Topic] is a / an / the...", "refers to", "is known as", "is defined as", "is a type of", "Scientists believe", passive textbook voice ("it is thought that," "it has been shown"), a sentence that lists three facts with no reaction, and any closing summary ("Overall," "In short," "Ultimately," "Today, X remains...").
+- Every paragraph needs at least one moment of attitude: an object given a personality, an absurd-but-accurate comparison, or a short deadpan sentence reacting to the fact.
+- Sentence length swings hard: a long breathless run held together by commas and dashes, then a short flat sentence that lands the punch.
+- Everything is specific: names, numbers, mechanisms, places. No vague intensifiers ("incredible," "amazing," "fascinating," "truly") and no filler ("it's worth noting," "interestingly").
+- It sounds like an excited expert telling a friend something they can't believe — not an encyclopedia, a textbook or a press release.`;
+
+const HAIKU_ARTICLE_EXAMPLES_LEGACY = [
   {
     user: `TASK: read-more article
 
@@ -296,22 +369,29 @@ It's also becoming routine. As [[black bear populations]] spread into suburbs an
   },
 ];
 
+function isThreadFormat(system: unknown): boolean {
+  return JSON.stringify(system ?? "").includes("WHY IT HAPPENS");
+}
+
 // Appends the Haiku voice corrections after the client's own (cached)
 // system blocks. Anything else — Sonnet, or a caller that sent a plain
 // string — passes through untouched.
 function withVoiceReference(system: unknown, model: string): unknown {
   if (!model.includes("haiku") || !Array.isArray(system)) return system;
-  return [...system, { type: "text", text: HAIKU_VOICE_REFERENCE, cache_control: { type: "ephemeral", ttl: "1h" } }];
+  const text = isThreadFormat(system) ? HAIKU_VOICE_REFERENCE : HAIKU_VOICE_REFERENCE_LEGACY;
+  return [...system, { type: "text", text, cache_control: { type: "ephemeral", ttl: "1h" } }];
 }
 
-// Puts HAIKU_ARTICLE_EXAMPLES in front of a Haiku article request as
-// earlier turns, with a cache breakpoint on the last one so the whole
-// fixed prefix (system + examples) is a cache read on every later call.
-function withArticleExamples(messages: unknown, model: string, endpoint: string): unknown {
+// Puts the Haiku example articles (for whichever format the request asks
+// for) in front of a Haiku article request as earlier turns, with a cache
+// breakpoint on the last one so the whole fixed prefix (system + examples)
+// is a cache read on every later call.
+function withArticleExamples(messages: unknown, model: string, endpoint: string, system?: unknown): unknown {
   if (!model.includes("haiku") || endpoint !== "article" || !Array.isArray(messages)) return messages;
+  const examples = isThreadFormat(system) ? HAIKU_ARTICLE_EXAMPLES : HAIKU_ARTICLE_EXAMPLES_LEGACY;
   const turns: unknown[] = [];
-  HAIKU_ARTICLE_EXAMPLES.forEach((ex, i) => {
-    const last = i === HAIKU_ARTICLE_EXAMPLES.length - 1;
+  examples.forEach((ex, i) => {
+    const last = i === examples.length - 1;
     turns.push({ role: "user", content: ex.user });
     turns.push({
       role: "assistant",
@@ -1710,7 +1790,7 @@ serve(async (req) => {
         // anything about caching. Omitted entirely when the client doesn't
         // send one, so this stays a no-op for any older/other caller.
         ...(system ? { system: withVoiceReference(system, effectiveModel) } : {}),
-        messages: withArticleExamples(messages, effectiveModel, endpoint),
+        messages: withArticleExamples(messages, effectiveModel, endpoint, system),
       }),
     });
 
