@@ -2328,6 +2328,7 @@ export default function Hyfax() {
                               onClick={() => (PREVIEWS_ENABLED ? togglePreview(child.id) : openThread(child.id))}
                               aria-expanded={PREVIEWS_ENABLED ? open : undefined}
                               data-precompute="thread"
+                              data-label={child.label}
                               className="w-full text-left px-4 py-3 flex items-center gap-3"
                             >
                               <div className="min-w-0 flex-1">

@@ -106,7 +106,11 @@ async function openHero(i) {
 async function threadLabels() {
   // One entry per thread element, in page order (so an index here is its
   // locator's nth).
-  return (await page.locator('[data-precompute="thread"]').allInnerTexts()).map((t) => t.split("\n")[0].trim());
+  // A card names itself in data-label (its first line is the Direct /
+  // Indirect / Tangent kicker); an in-text link is named by its text.
+  return page.locator('[data-precompute="thread"]').evaluateAll((els) =>
+    els.map((el) => (el.dataset.label || el.innerText.split("\n")[0]).trim())
+  );
 }
 
 // Mark every riddle solved for this browser so the game card offers
@@ -139,7 +143,7 @@ async function openThread(i, label) {
   const t = Date.now();
   try {
     await openHero(i);
-    // Matched on the exact label (a card's first line, or a link's text),
+    // Matched on the exact label (a card's data-label, or a link's text),
     // so "Ice" never clicks "Glacier Ice".
     const index = (await threadLabels()).indexOf(label);
     if (index === -1) {
