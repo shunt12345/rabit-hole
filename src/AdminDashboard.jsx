@@ -284,6 +284,7 @@ export default function AdminDashboard() {
     since: defaultSince(),
     until: defaultUntil(),
     includeTest: false,
+    variant: "",
   });
   const [adoptionStats, setAdoptionStats] = useState(null);
   const [adoptionLoading, setAdoptionLoading] = useState(false);
@@ -301,6 +302,7 @@ export default function AdminDashboard() {
       if (filters.since) params.set("since", new Date(filters.since).toISOString());
       if (filters.until) params.set("until", new Date(filters.until + "T23:59:59").toISOString());
       if (filters.includeTest) params.set("includeTest", "1");
+      if (filters.variant) params.set("variant", filters.variant);
       const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-adoption-stats?${params.toString()}`, {
         headers: {
           apikey: SUPABASE_ANON_KEY,
@@ -681,6 +683,19 @@ export default function AdminDashboard() {
               style={{ backgroundColor: COLORS.bg, borderColor: COLORS.border, color: COLORS.text }}
             />
           </label>
+          <label className="text-xs" style={{ color: COLORS.dim }}>
+            Variant
+            <select
+              value={adoptionFilters.variant}
+              onChange={(e) => setAdoptionFilters((f) => ({ ...f, variant: e.target.value }))}
+              className="block mt-1 rounded-lg border px-2 py-1.5 text-sm"
+              style={{ backgroundColor: COLORS.bg, borderColor: COLORS.border, color: COLORS.text }}
+            >
+              <option value="">All</option>
+              <option value="cards">Cards</option>
+              <option value="scroll">Scroll</option>
+            </select>
+          </label>
           <label className="flex items-center gap-1.5 text-xs" style={{ color: COLORS.dim }}>
             <input
               type="checkbox"
@@ -715,7 +730,9 @@ export default function AdminDashboard() {
               <StatCard
                 label="Activated"
                 value={adoptionStats.funnel.activated}
-                sub={`${pct(adoptionStats.funnel.activatedPct)} of landed`}
+                sub={`${pct(adoptionStats.funnel.activatedPct)} of landed · ${adoptionStats.funnel.activatedByTap ?? 0} by tap, ${
+                  adoptionStats.funnel.activatedByScroll ?? 0
+                } by scroll`}
               />
               <StatCard label="Deep" value={adoptionStats.funnel.deep} sub={`${pct(adoptionStats.funnel.deepPct)} of landed`} />
               <StatCard
@@ -724,6 +741,33 @@ export default function AdminDashboard() {
                 sub={`${pct(adoptionStats.funnel.signedUpPct)} of landed`}
               />
             </div>
+
+            {adoptionStats.variants?.length > 0 && (
+              <div className="rounded-2xl border p-4 mb-6" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
+                <div className="rh-mono rh-text-10 uppercase tracking-wider mb-2" style={{ color: COLORS.dim }}>
+                  Cards vs. scroll test
+                </div>
+                <Table
+                  columns={[
+                    { key: "variant", label: "Variant", render: (r) => (r.variant === "scroll" ? "Scroll" : "Cards") },
+                    { key: "landed", label: "Landed" },
+                    {
+                      key: "activatedPct",
+                      label: "Activated",
+                      render: (r) => `${pct(r.activatedPct)} (${r.activatedByTap} tap · ${r.activatedByScroll} scroll)`,
+                    },
+                    { key: "deepPct", label: "Deep", render: (r) => pct(r.deepPct) },
+                    { key: "signedUpPct", label: "Signed up", render: (r) => pct(r.signedUpPct) },
+                    { key: "pagesPerSession", label: "Pages/session", render: (r) => r.pagesPerSession.toFixed(1) },
+                  ]}
+                  rows={adoptionStats.variants}
+                  emptyText="No visitors in either group yet."
+                />
+                <div className="text-xs mt-2" style={{ color: COLORS.dim }}>
+                  Same source, campaign and dates as above, whatever variant is picked. Test traffic is never in a group.
+                </div>
+              </div>
+            )}
 
             <div className="grid md:grid-cols-2 gap-4 mb-6">
               <div className="rounded-2xl border p-4" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>

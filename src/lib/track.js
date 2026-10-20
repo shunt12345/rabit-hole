@@ -7,6 +7,7 @@
 // break or even visibly delay the app.
 import { getVisitorId, isTestMode } from "./visitor.js";
 import { getAttribution } from "./attribution.js";
+import { reportedVariant } from "./variant.js";
 import { getAccessToken } from "./auth.js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -27,6 +28,7 @@ export async function trackEvent(type, { page, sessionId, includeAuth = true } =
       type,
       page: page || null,
       isTest: isTestMode(),
+      variant: reportedVariant(),
       utmSource: attribution.utmSource || null,
       utmCampaign: attribution.utmCampaign || null,
       utmContent: attribution.utmContent || null,

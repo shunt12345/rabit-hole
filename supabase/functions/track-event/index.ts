@@ -64,7 +64,9 @@ const ADMIN_USER_IDS = new Set(
     .filter(Boolean)
 );
 
-const EVENT_TYPES = new Set(["land", "tap", "article_view", "signup"]);
+const EVENT_TYPES = new Set(["land", "tap", "article_view", "signup", "scroll_continue"]);
+// The "cards" vs "scroll" test group (see src/lib/variant.js).
+const VARIANTS = new Set(["cards", "scroll"]);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function clip(s: unknown, max: number): string | null {
@@ -84,6 +86,7 @@ serve(async (req) => {
     const type = typeof body?.type === "string" ? body.type : "";
     const page = clip(body?.page, 200);
     const isTest = !!body?.isTest;
+    const variant = typeof body?.variant === "string" && VARIANTS.has(body.variant) ? body.variant : null;
 
     if (!UUID_RE.test(visitorId) || !UUID_RE.test(sessionId) || !EVENT_TYPES.has(type)) {
       return new Response(JSON.stringify({ error: "invalid visitorId/sessionId/type" }), {
@@ -134,6 +137,18 @@ serve(async (req) => {
       .insert({ session_id: sessionId, visitor_id: visitorId, utm_source: utmSource, utm_campaign: utmCampaign, utm_content: utmContent, rdt_cid: rdtCid });
     if (sessionError && sessionError.code !== "23505") {
       console.error("track-event: session insert failed", sessionError);
+    }
+
+    // A visitor's test group is set once and never changed (only where
+    // it's still empty), and never on test traffic.
+    if (variant && !linkIsTest) {
+      const { error: variantError } = await supabase
+        .from("visitors")
+        .update({ variant })
+        .eq("visitor_id", visitorId)
+        .is("variant", null)
+        .eq("is_test", false);
+      if (variantError) console.error("track-event: variant update failed", variantError);
     }
 
     if (userId || linkIsTest) {

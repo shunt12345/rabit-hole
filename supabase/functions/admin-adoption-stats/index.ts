@@ -137,6 +137,7 @@ type VisitorRow = {
   first_campaign: string | null;
   user_id: string | null;
   is_test: boolean;
+  variant: string | null;
 };
 type SessionRow = { session_id: string; visitor_id: string; started_at: string };
 type EventRow = { visitor_id: string; session_id: string; type: string; created_at: string };
@@ -166,6 +167,9 @@ serve(async (req) => {
     const sourceFilter = url.searchParams.get("source"); // "reddit" | "email" | "direct" | "other" | null
     const campaignFilter = url.searchParams.get("campaign");
     const includeTest = url.searchParams.get("includeTest") === "1";
+    // The "cards" vs "scroll" test group (src/lib/variant.js); null = all.
+    const variantParam = url.searchParams.get("variant");
+    const variantFilter = variantParam === "cards" || variantParam === "scroll" ? variantParam : null;
     const now = new Date();
     const since = url.searchParams.get("since") || new Date(now.getTime() - 60 * DAY_MS).toISOString();
     const until = url.searchParams.get("until") || now.toISOString();
@@ -182,7 +186,7 @@ serve(async (req) => {
     const visitorRows = await readAllRows<VisitorRow>((from, to) => {
       let q = supabase
         .from("visitors")
-        .select("visitor_id, first_seen_at, first_source, first_campaign, user_id, is_test")
+        .select("visitor_id, first_seen_at, first_source, first_campaign, user_id, is_test, variant")
         .order("visitor_id")
         .range(from, to);
       if (!includeTest) q = q.eq("is_test", false);
@@ -190,16 +194,20 @@ serve(async (req) => {
       return q;
     });
 
-    const scopedVisitors = visitorRows.filter(
+    // Source/campaign scope before the variant filter: the side-by-side
+    // comparison below covers both groups whatever variant is picked.
+    const channelVisitors = visitorRows.filter(
       (v) => !sourceFilter || channelOf(v.first_source) === sourceFilter
     );
+    const scopedVisitors = channelVisitors.filter((v) => !variantFilter || v.variant === variantFilter);
     const scopedIds = scopedVisitors.map((v) => v.visitor_id);
 
     if (scopedIds.length === 0) {
       return new Response(
         JSON.stringify({
-          filters: { source: sourceFilter, campaign: campaignFilter, since, until, includeTest },
-          funnel: { landed: 0, activated: 0, deep: 0, signedUp: 0, activatedPct: 0, deepPct: 0, signedUpPct: 0 },
+          filters: { source: sourceFilter, campaign: campaignFilter, since, until, includeTest, variant: variantFilter },
+          funnel: { landed: 0, activated: 0, activatedByTap: 0, activatedByScroll: 0, deep: 0, signedUp: 0, activatedPct: 0, deepPct: 0, signedUpPct: 0 },
+          variants: [],
           depth: { avgPagesPerSession: 0, medianPagesPerSession: 0, sessionCount: 0 },
           newVsReturning: [],
           retentionCohort: [],
@@ -209,10 +217,15 @@ serve(async (req) => {
       );
     }
 
-    const [sessionRows, eventRows] = await Promise.all([
-      readForVisitors<SessionRow>("sessions", "session_id, visitor_id, started_at", "session_id", scopedIds),
-      readForVisitors<EventRow>("events", "visitor_id, session_id, type, created_at", "id", scopedIds),
+    // Fetched for every visitor in the source/campaign scope, so the
+    // variant comparison has both groups even with a variant picked.
+    const fetchIds = variantFilter ? channelVisitors.map((v) => v.visitor_id) : scopedIds;
+    const [sessionRows, allEventRows] = await Promise.all([
+      readForVisitors<SessionRow>("sessions", "session_id, visitor_id, started_at", "session_id", fetchIds),
+      readForVisitors<EventRow>("events", "visitor_id, session_id, type, created_at", "id", fetchIds),
     ]);
+    const scopedIdSet = new Set(scopedIds);
+    const eventRows = variantFilter ? allEventRows.filter((e) => scopedIdSet.has(e.visitor_id)) : allEventRows;
 
     const sessionsByVisitor = new Map<string, SessionRow[]>();
     for (const s of sessionRows) {
@@ -224,7 +237,7 @@ serve(async (req) => {
 
     const eventsBySession = new Map<string, EventRow[]>();
     const eventsByVisitor = new Map<string, EventRow[]>();
-    for (const e of eventRows) {
+    for (const e of allEventRows) {
       const bySession = eventsBySession.get(e.session_id) ?? [];
       bySession.push(e);
       eventsBySession.set(e.session_id, bySession);
@@ -237,64 +250,68 @@ serve(async (req) => {
     // [since, until] only (a cohort of "visitors who landed in this
     // period"), matching the acceptance test's "funnel for
     // utm_campaign=kitchen-crystals" over whatever date range is picked.
-    const landedVisitors = scopedVisitors.filter((v) => v.first_seen_at >= since && v.first_seen_at <= until);
-
-    let landed = 0;
-    let activated = 0;
-    let deep = 0;
-    let signedUp = 0;
-    const allSessionPageCounts: number[] = [];
-
-    for (const v of scopedVisitors) {
-      const sessions = sessionsByVisitor.get(v.visitor_id) ?? [];
-      for (const s of sessions) {
-        const pageCount = (eventsBySession.get(s.session_id) ?? []).filter((e) => e.type === "article_view").length;
-        // Only counted toward Depth for visitors in the selected window —
-        // matches Funnel/Depth's own scope (see landedVisitors above).
-        if (v.first_seen_at >= since && v.first_seen_at <= until) allSessionPageCounts.push(pageCount);
+    // The funnel and depth for one set of visitors, first seen in
+    // [since, until]. A first-session tap or scroll_continue (a thread
+    // followed by scrolling into it) both count as activated.
+    function funnelFor(visitors: VisitorRow[]) {
+      let landed = 0;
+      let activated = 0;
+      let activatedByTap = 0;
+      let activatedByScroll = 0;
+      let deep = 0;
+      let signedUp = 0;
+      const sessionPageCounts: number[] = [];
+      for (const v of visitors) {
+        if (v.first_seen_at < since || v.first_seen_at > until) continue;
+        const sessions = sessionsByVisitor.get(v.visitor_id) ?? [];
+        for (const s of sessions) {
+          sessionPageCounts.push((eventsBySession.get(s.session_id) ?? []).filter((e) => e.type === "article_view").length);
+        }
+        const visitorEvents = eventsByVisitor.get(v.visitor_id) ?? [];
+        if (!visitorEvents.some((e) => e.type === "land")) continue; // "Landed" means an actual land event was recorded, not just a row existing
+        landed += 1;
+        const firstSession = sessions[0];
+        const firstSessionEvents = firstSession ? eventsBySession.get(firstSession.session_id) ?? [] : [];
+        const tapped = firstSessionEvents.some((e) => e.type === "tap");
+        const scrolled = firstSessionEvents.some((e) => e.type === "scroll_continue");
+        if (tapped || scrolled) activated += 1;
+        if (tapped) activatedByTap += 1;
+        if (scrolled) activatedByScroll += 1;
+        if (firstSessionEvents.filter((e) => e.type === "article_view").length >= 3) deep += 1;
+        if (v.user_id || visitorEvents.some((e) => e.type === "signup")) signedUp += 1;
       }
+      return {
+        funnel: {
+          landed,
+          activated,
+          activatedByTap,
+          activatedByScroll,
+          deep,
+          signedUp,
+          activatedPct: landed ? activated / landed : 0,
+          deepPct: landed ? deep / landed : 0,
+          signedUpPct: landed ? signedUp / landed : 0,
+        },
+        depth: {
+          avgPagesPerSession: sessionPageCounts.length ? sessionPageCounts.reduce((a, b) => a + b, 0) / sessionPageCounts.length : 0,
+          medianPagesPerSession: median(sessionPageCounts),
+          sessionCount: sessionPageCounts.length,
+        },
+      };
     }
 
-    for (const v of landedVisitors) {
-      const visitorEvents = eventsByVisitor.get(v.visitor_id) ?? [];
-      const hasLandEvent = visitorEvents.some((e) => e.type === "land");
-      if (!hasLandEvent) continue; // "Landed" means an actual land event was recorded, not just a row existing
-      landed += 1;
-
-      const sessions = sessionsByVisitor.get(v.visitor_id) ?? [];
-      const firstSession = sessions[0];
-      const firstSessionEvents = firstSession ? eventsBySession.get(firstSession.session_id) ?? [] : [];
-      const firstSessionTaps = firstSessionEvents.filter((e) => e.type === "tap").length;
-      const firstSessionPages = firstSessionEvents.filter((e) => e.type === "article_view").length;
-
-      if (firstSessionTaps >= 1) activated += 1;
-      if (firstSessionPages >= 3) deep += 1;
-      if (v.user_id || visitorEvents.some((e) => e.type === "signup")) signedUp += 1;
-    }
-
-    const funnel = {
-      landed,
-      activated,
-      deep,
-      signedUp,
-      activatedPct: landed ? activated / landed : 0,
-      deepPct: landed ? deep / landed : 0,
-      signedUpPct: landed ? signedUp / landed : 0,
-    };
-
-    const depth = {
-      avgPagesPerSession: allSessionPageCounts.length
-        ? allSessionPageCounts.reduce((a, b) => a + b, 0) / allSessionPageCounts.length
-        : 0,
-      medianPagesPerSession: median(allSessionPageCounts),
-      sessionCount: allSessionPageCounts.length,
-    };
+    const { funnel, depth } = funnelFor(scopedVisitors);
+    // Side by side, whatever variant filter is picked.
+    const variants = (["cards", "scroll"] as const).map((name) => {
+      const r = funnelFor(channelVisitors.filter((v) => v.variant === name));
+      return { variant: name, ...r.funnel, pagesPerSession: r.depth.avgPagesPerSession };
+    });
 
     // ---- New vs returning visitors per day — driven by actual activity
     // (any event) on a given NY calendar day, restricted to days inside
     // [since, until]; "returning" per the brief means first_seen_at falls
     // on an earlier calendar day than the activity itself, which is why
-    // this reads from the full scopedVisitors set (not landedVisitors) —
+    // this reads from the full scopedVisitors set (not just those first seen in the window) —
     // a visitor first seen well before the window can still show up here
     // as a returning visit inside it.
     const sinceKey = nyDateKey(since);
@@ -382,9 +399,10 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({
-        filters: { source: sourceFilter, campaign: campaignFilter, since, until, includeTest },
+        filters: { source: sourceFilter, campaign: campaignFilter, since, until, includeTest, variant: variantFilter },
         funnel,
         depth,
+        variants,
         newVsReturning,
         retentionCohort,
         northStar,

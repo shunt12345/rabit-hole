@@ -6,6 +6,7 @@ import ReviewQueue from "./ReviewQueue.jsx";
 import { initRedditPixel } from "./lib/redditPixel.js";
 import { captureAttribution } from "./lib/attribution.js";
 import { applyTestModeFromUrl } from "./lib/visitor.js";
+import { applyVariantFromUrl } from "./lib/variant.js";
 import "./index.css";
 
 // Topic and thread cards light up for as long as a finger is on them.
@@ -78,6 +79,7 @@ captureAttribution();
 // visitor-tracking flow at all — no events ever fire there.
 if (!isOperatorRoute) {
   applyTestModeFromUrl();
+  applyVariantFromUrl();
   initRedditPixel();
 }
 
