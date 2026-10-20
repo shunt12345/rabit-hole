@@ -1273,13 +1273,9 @@ export default function Hyfax() {
   // it opens a page that's already written.
   const [previewByPage, setPreviewByPage] = useState({});
   // A page's Why cards (see the article render): which are open, by
-  // "<page id>:<index>" (see whyIsOpen for how they start); opening one is
-  // a tap.
+  // "<page id>:<index>". All start closed; opening one is a tap.
   const [openWhys, setOpenWhys] = useState({});
-  // The Reddit ad's landing page opens with its first Why already open, so
-  // the explanation is right there; every other card starts closed.
-  const whyIsOpen = (page, index) =>
-    openWhys[`${page.id}:${index}`] ?? (index === 0 && page.heroSource === "reddit_ad_prefill");
+  const whyIsOpen = (page, index) => !!openWhys[`${page.id}:${index}`];
   const toggleWhy = (page, index, why) => {
     const key = `${page.id}:${index}`;
     const opening = !whyIsOpen(page, index);
@@ -1289,27 +1285,33 @@ export default function Hyfax() {
     const { sessionId } = touchSession();
     trackEvent("tap", { page: `${page.label} · ${why.subtitle}`, sessionId });
   };
-  // Scroll group: a Why card opens by itself once the reader has scrolled
-  // its top up past WHY_OPEN_LINE of the screen. Only a real scroll down
-  // does it (not the page just fitting on screen). Logged as
+  // Opening a Why card by scrolling: once the reader has scrolled its top
+  // up past WHY_OPEN_LINE of the screen, it opens by itself. The Reddit ad's
+  // landing page does this for its first Why only (the second is the
+  // reader's to open); the scroll test group, for every Why. Only a real
+  // scroll down does it (not the page just fitting on screen), and never a
+  // card the reader has already opened or closed. Logged as
   // scroll_continue, once per card, and not counted as a tap: the reader
   // didn't choose it.
   const onContentScroll = () => {
     const sc = contentRef.current;
-    if (!scrollVariant || !sc) return;
+    if (!sc) return;
     const down = sc.scrollTop > lastScrollTopRef.current;
     lastScrollTopRef.current = sc.scrollTop;
     const page = nodesRef.current.find((n) => n.id === selectedIdRef.current);
     if (!down || !page?.article) return;
+    const adLanding = page.heroSource === "reddit_ad_prefill";
+    if (!scrollVariant && !adLanding) return;
     const view = sc.getBoundingClientRect();
     const whys = parseThreadPage(page.article).whys;
     sc.querySelectorAll("[data-why]").forEach((card) => {
       const i = Number(card.dataset.why);
       const key = `${page.id}:${i}`;
-      if (page[`whyAutoOpened${i}`] || !whys[i]) return;
+      if (page[`whyAutoOpened${i}`] || !whys[i] || (!scrollVariant && i > 0)) return;
+      if (key in openWhys) return;
       if (card.getBoundingClientRect().top > view.top + view.height * WHY_OPEN_LINE) return;
       page[`whyAutoOpened${i}`] = true;
-      setOpenWhys((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+      setOpenWhys((prev) => (key in prev ? prev : { ...prev, [key]: true }));
       const { sessionId } = touchSession();
       trackEvent("scroll_continue", { page: `${page.label} · ${whys[i].subtitle}`, sessionId });
     });
