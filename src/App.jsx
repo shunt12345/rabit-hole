@@ -213,6 +213,10 @@ ${existingArticle}
   return streamTextFromPrompt({ system: HYFAX_SYSTEM, prompt: userContent, maxTokens: 500, timeoutMs: 30000, endpoint: "continuation", onChunk, nodeType });
 }
 
+// Scroll group: how far up the screen a Why card's top has to be scrolled
+// before it opens by itself (0 = top edge, 1 = bottom edge).
+const WHY_OPEN_LINE = 0.4;
+
 // Set once this page load has checked for a "land" event, so a remounted
 // app (React's dev double-run, a hot reload) can never send a second one.
 let landChecked = false;
@@ -1281,9 +1285,10 @@ export default function Hyfax() {
     trackEvent("tap", { page: `${page.label} · ${why.subtitle}`, sessionId });
   };
   // Scroll group: a Why card opens by itself once the reader has scrolled
-  // it well into view. Only a real scroll down does it (not the page just
-  // fitting on screen). Logged as scroll_continue, once per card, and not
-  // counted as a tap: the reader didn't choose it.
+  // its top up past WHY_OPEN_LINE of the screen. Only a real scroll down
+  // does it (not the page just fitting on screen). Logged as
+  // scroll_continue, once per card, and not counted as a tap: the reader
+  // didn't choose it.
   const onContentScroll = () => {
     const sc = contentRef.current;
     if (!scrollVariant || !sc) return;
@@ -1297,7 +1302,7 @@ export default function Hyfax() {
       const i = Number(card.dataset.why);
       const key = `${page.id}:${i}`;
       if (page[`whyAutoOpened${i}`] || !whys[i]) return;
-      if (card.getBoundingClientRect().top > view.top + view.height * 0.7) return;
+      if (card.getBoundingClientRect().top > view.top + view.height * WHY_OPEN_LINE) return;
       page[`whyAutoOpened${i}`] = true;
       setOpenWhys((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
       const { sessionId } = touchSession();
