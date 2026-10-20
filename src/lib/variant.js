@@ -1,24 +1,29 @@
 // The "cards" vs "scroll" test: each browser is put in one group, at
 // random, the first time it's asked, and stays there. "scroll" visitors
-// get the next thread's page added below the current one as they scroll
-// (see App.jsx); "cards" visitors see the page as before.
+// get a page's Why cards opened for them as they scroll down to them (see
+// App.jsx); "cards" visitors open them by tapping.
 //
 // Test traffic (?hyfax_test=1) is never assigned: it sees "cards" and
-// reports no variant, so it can't land in either group's numbers. To try
-// a group yourself, open any page with ?hyfax_variant=scroll or
-// ?hyfax_variant=cards (?hyfax_variant=0 clears it); that choice stays in
-// this browser and is never reported either.
+// reports no variant, so it can't land in either group's numbers. While
+// the test is live, ?hyfax_variant=scroll or ?hyfax_variant=cards puts
+// this browser in a group to try it (?hyfax_variant=0 clears it), never
+// reported either.
 import { isTestMode } from "./visitor.js";
 
 const VARIANTS = ["cards", "scroll"];
-// Switch for the whole test. Off for now: everyone sees "cards" and nothing
-// is assigned; ?hyfax_variant=scroll still shows the scroll group to try it.
+// Switch for the whole test. Off for now: everyone sees "cards", nothing is
+// assigned, and ?hyfax_variant= is ignored (a browser that was put in the
+// scroll group that way is taken out of it).
 const TEST_LIVE = false;
 const KEY = "hyfax_variant";
 const FORCE_KEY = "hyfax_variant_force";
 
 export function applyVariantFromUrl() {
   try {
+    if (!TEST_LIVE) {
+      localStorage.removeItem(FORCE_KEY);
+      return;
+    }
     const wanted = new URLSearchParams(window.location.search).get("hyfax_variant");
     if (wanted === null) return;
     if (VARIANTS.includes(wanted)) localStorage.setItem(FORCE_KEY, wanted);
@@ -32,6 +37,7 @@ let inMemory = null;
 
 // The group this browser sees.
 export function getVariant() {
+  if (!TEST_LIVE) return "cards";
   try {
     const forced = localStorage.getItem(FORCE_KEY);
     if (VARIANTS.includes(forced)) return forced;
