@@ -28,6 +28,7 @@ import { getProfile, getLifetimeFundedUsd } from "./lib/profile.js";
 import AccountMenu from "./AccountMenu.jsx";
 import LegalModal from "./LegalModal.jsx";
 import { articleUserPrompt, ARTICLE_MAX_TOKENS } from "./lib/articlePrompt.js";
+import { watchForNewBuild, reloadIfNewBuild } from "./lib/freshness.js";
 import { parseThreadPage, threadPagePlainText } from "./lib/threadPage.js";
 import { nextSurpriseTopic } from "./lib/surpriseTopics.js";
 import UsageGauge from "./UsageGauge.jsx";
@@ -603,6 +604,9 @@ export default function Hyfax() {
   useEffect(() => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
+
+  // Picks up a newer deploy at a safe moment (see lib/freshness.js).
+  useEffect(() => watchForNewBuild(() => selectedIdRef.current == null), []);
 
   // Every navigation — a chip, a breadcrumb segment, an in-text link, or a
   // fresh topic — should land you at the top of the new content, not
@@ -1216,6 +1220,7 @@ export default function Hyfax() {
 
   // Back to the home page, at the top.
   const goHome = () => {
+    if (reloadIfNewBuild()) return;
     reset();
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -1735,7 +1740,7 @@ export default function Hyfax() {
           <h1 className="flex items-center">
             <button
               type="button"
-              onClick={reset}
+              onClick={goHome}
               aria-label="Back to home"
               className="flex items-center rh-logo-btn"
               style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}
