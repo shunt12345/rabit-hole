@@ -76,12 +76,14 @@ function typeLine(count, type, desc) {
 // "the topic" reads exactly the same to the model here while keeping this
 // text byte-identical across every request.
 //
-// Direct subtopics are no longer chips: the article marks them inline as
-// [[links]] (see ARTICLE_TASK), so the chip set is only the indirect and
-// tangent leaps, generated after the article has finished.
+// "Where to next": exactly three threads, one of each kind (a direct
+// subtopic, an indirect leap, a tangent), so every page offers a close,
+// a middling and a far-out place to go. The article has no inline links
+// any more, so direct subtopics live here again.
+export const WHERE_MIX = { direct: 1, indirect: 1, tangent: 1 };
 function childrenSpec() {
   const level = OBSCURITY_LEVELS[FIXED_OBSCURITY];
-  const mix = { direct: 0, indirect: level.mix.indirect, tangent: level.mix.tangent };
+  const mix = WHERE_MIX;
   const lines = [
     typeLine(mix.direct, "direct", "concrete, well-established subtopics, mechanisms, or facts directly tied to the topic"),
     typeLine(mix.indirect, "indirect", "adjacent fields, causes, effects, or comparisons connected to the topic but requiring a small conceptual leap"),
@@ -118,35 +120,34 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 {"children": [{"label": "...", "teaser": "...", "type": "indirect"}]}`;
 
 const ARTICLE_TASK = `=== TASK: read-more article ===
-You're writing the "read more" deep-dive for a node in this app.
+You're writing a thread page in this app. It has a WHAT section and two WHY sections, in exactly this plain-text layout (the page's "where to next" threads come from a separate call, not from you):
 
-Write exactly two paragraphs, 130-180 words total — 180 is a hard ceiling, not a target to run past — of genuinely interesting, accurate content about the given topic specifically. The reader already found this topic captivating enough to click into it — reward that curiosity with real substance: concrete facts, an interesting mechanism, a surprising detail, or the "why this matters" behind it. Structure this as flowing prose paragraphs — not a bulleted list, not a dictionary definition, no headers, no title line.
+WHAT: one paragraph
+(blank line)
+WHY IT HAPPENS: Subtitle | Catch line
+one paragraph
+(blank line)
+WHY IT MATTERS: Subtitle | Catch line
+one paragraph
 
-If the user turn gives specific context this topic was picked from, the FIRST PARAGRAPH must state the actual concrete detail from that note — not "somewhere in the piece," the opening. Confirmed live this gets skipped in practice: a piece on a current political pitch opened with over a year of old background from when the idea first surfaced, never once mentioned the actual current detail the note gave it (a specific new condition tied to an upcoming election), and instead hedged with something like "who knows how this played out by now" — vaguer than, and a direct substitute for, the concrete detail it was handed. That is exactly backwards: don't lead with the topic's older backstory and then vaguely gesture at "things may have changed since" — lead WITH the specific detail from the note, using its actual specifics (what changed, what's conditional on what, who said what), then fill in whatever older background helps the reader make sense of it. If the context is a current news event and you don't know what happened after the date in that note, don't guess or hedge about it either — just don't claim anything past what the note actually says.
+WHAT (45-75 words): direct and factual. Say plainly what is going on, or what the topic is, with the key concrete facts: names, numbers, dates, the mechanism. Energy dialed down: clear and confident, no jokes, no hook theatrics, no attitude. It's the paragraph a reader should be able to trust at a glance. If the user turn gives specific context this topic was picked from, the WHAT must state the actual concrete detail from that note (what changed, who did what, the specific condition), not older background or a vague "things may have changed since."
 
-If that context is a quote's attribution (topic is the quote itself, note gives the author), this is a "Quote Of The Day" piece specifically — lead with who said it and when/why it matters that they said it, then use the rest of the piece to cover the quote's real origin story (the actual moment, work, or circumstance it came from, if known) and why it's remembered — the author's life and significance, not just a generic biography. If the precise origin isn't well-documented, say so rather than inventing a plausible-sounding scene for it.
+WHY IT HAPPENS (60-100 words): the cause or mechanism behind it, fully in the tone above.
+WHY IT MATTERS (60-100 words): why it's important or relevant: the stakes, the consequences, what it changes for the reader or the world, or the surprising connection that makes it matter. Fully in the tone above.
 
-For the first paragraph only: open with the same kind of tone-appropriate hook sentence described below, then dial the energy back one notch for the rest of that paragraph — straightforward, factual, plainly defining what the topic actually is before the piece opens back up. From the second paragraph on, write fully in the tone below, energy all the way back up.
+Each WHY line starts with its label, then a Subtitle and a Catch line separated by " | ":
+- Subtitle: 2-5 words, title case, a specific punchy headline for that section of THIS topic (e.g. "Starch Is Homesick", "Your Fridge Betrays You"), never a generic one like "The Cause" or "Why It Matters".
+- Catch line: one sentence, max 16 words, in the tone above, written to make the reader tap to open that section. It shows on the closed card. The paragraph under it continues from it and must not simply repeat it.
 
-The sentence right after that hook has to move the piece FORWARD with new specific information, not just restate the hook in plainer words — confirmed live this happens: a vague hook about "an insider betting their career on an apocalypse timeline" was immediately followed by "That's the headline: a former [Company] researcher resigned and predicted catastrophic outcomes" — which is the exact same fact the hook already conveyed, just less vivid. That whole sentence taught the reader nothing new. Don't use a summary/reveal framing like "That's the headline," "Here's the story," "In short," or "The gist:" to relabel what the previous sentence already said — instead, the very next sentence should add a genuinely new specific (a name, a number, a date, a direct quote, what happens next) that the hook didn't already contain.
+The two WHY paragraphs must not repeat facts already in the WHAT or in each other; each brings something new. Vary how the catch lines and paragraph openings start: drop a startling concrete fact cold, name a specific person, place or object, ask a real question, or state something flatly. Never open with "Picture this", "Imagine", or a stock pivot like "But here's the thing" or "Here's where it gets". Never use a count of the letters or syllables in the topic's own name as a hook number.
 
-That opening hook needs a genuinely different shape each time this runs, same requirement as the second paragraph's opener below — it's drifted into leaning on "Picture this:" (or "Imagine this," "Picture the scene," any close variant) as a default setup, which is exactly the crutch this is meant to avoid. Reach for whichever actually fits this fact best instead: drop a startling concrete number or fact cold with no windup; name a specific person, place, date, or object first; ask a real question; state something flatly with no scene-setting at all; or, when a hypothetical scenario genuinely is the best hook for this particular fact, build it without that stock phrase framing it.
+If the context is a quote's attribution (the topic is the quote itself), this is a Quote Of The Day page: the WHAT says who said it and when or where, the WHY sections cover the real origin of the quote and why it's remembered. If the precise origin isn't well documented, say so rather than inventing a scene.
 
-If you reach for a startling number as the hook, never make that number a literal count of the letters, characters, or syllables in the topic's own name (e.g. "six letters, one acronym" to open a piece about a four-letter word) — that specific kind of claim is exactly the kind you get wrong most often, and a reader can check it in one glance, so being wrong there is worse than skipping a number hook entirely. Pick a number that's actually about the subject matter instead.
+No links, no square brackets, no markdown, no bullet lists, no headers other than the three labels above. Plain text only.
 
-The second paragraph's opening sentence specifically needs a genuinely different shape each time this runs — it's the one line that's drifted into a predictable "and now here's the escalation" pattern. If the user turn assigns a specific approach for this sentence, use exactly that one — it's assigned deliberately to guarantee real variety across separate articles, which asking you to "pick whichever fits" can't do on its own since each call starts fresh with no memory of what an earlier one chose. If none is assigned, pick whichever of these actually fits this fact best, not the same one out of habit: drop a startling concrete number or fact cold with no windup; name a specific person, place, date, or object first; ask a real question; paint a quick physical image or scene; state something flatly with no transition at all. Whatever approach is in play, do NOT open it with a stock pivot phrase like "But here's the thing," "Here's where it gets [wild/weirder/etc.]," "Now here's the part that," "And that's just the beginning," or any close variant — those are exactly the crutch this is meant to break.
+If the user turn asks for a title line, the very first line of the response must be "TITLE: " followed by a short display title for the topic — 1-3 words, title case, trimmed of filler ("How To Build A Fire" → "Build A Fire", "What Causes Rain" → "Rain"), literal, no jokes — then a blank line, then the WHAT line. Otherwise, start with the WHAT line.
 
-It's not just the SHAPE of these two openers that needs to differ — the actual content has to be different too. Whatever specific fact, number, measurement, or description the first paragraph's hook already led with, the second paragraph's opener must NOT restate that same fact in slightly different words (e.g., a structure's size given once in feet, then given again in meters two sentences later — same fact, different units, still a repeat). Reach for a genuinely different piece of the story instead: a different figure, an unrelated detail, the cause, the reaction, or the consequence — something the reader hasn't already read a few lines up.
-
-This shows up constantly on anniversary/"this day in history" topics specifically: both openers separately announcing how long ago it happened ("Fifty-five years ago to the day..." then, two sentences later, "Fifty-five years ago to the day, roughly...") — that's the exact same repeat, just because "how long ago" feels like the obvious number to lead with twice. If the piece is anchored to an anniversary, use that "X years ago" framing in ONE opener only, whichever one earns it more — the other one opens with something that has nothing to do with the date: a person, a place, a count of something involved, a consequence, anything else about the event itself.
-
-Mark exactly two or three inline threads by wrapping a short phrase in double square brackets, like [[starch retrogradation]] — each one a specific, concrete subtopic, mechanism, person, place, or phenomenon directly tied to this topic and interesting enough to deserve its own page. The bracketed phrase is the link a reader taps AND the title of the page it opens, so: 1-4 words, a noun phrase that names the thing (not a verb phrase or a whole clause), written in the sentence's natural case, reading exactly right with the brackets removed. Never bracket this page's own topic, never bracket the same thing twice, no nested brackets, and never two in one sentence. Place the first bracket within the first two sentences and a second one before the first paragraph ends — the piece is short, so links saved for the end may never be reached. These brackets are the only markup allowed.
-
-The bracketed mention should be the FIRST time its idea shows up in the piece. Confirmed live this creates an awkward double-up otherwise: a piece described someone as "one of only a handful of women on death row nationwide" in its own words, then a sentence later linked "women on death row" — the same idea stated twice in a row, reading as an obvious repeat right where the link lands. Either lead straight into the bracketed phrase, or introduce a genuinely different angle before it.
-
-If the user turn asks for a title line, the very first line of the response must be "TITLE: " followed by a short display title for the topic — 1-3 words, title case, trimmed of filler ("How To Build A Fire" → "Build A Fire", "What Causes Rain" → "Rain"), literal, no jokes — then a blank line, then the article. Otherwise, no title line.
-
-Respond with ONLY the article text itself (after the title line, if one was asked for): plain prose paragraphs separated by a blank line. No JSON, no markdown formatting, no preamble like "Here's an article about...".`;
+Respond with ONLY the page text in that layout. No JSON, no preamble like "Here's an article about...".`;
 
 const CONTINUATION_TASK = `=== TASK: continue article ===
 You're extending the "read more" content for a node in this app — the reader already read the deep-dive quoted in the user turn and tapped "Read more on this" because they want a bit more on this SAME topic before moving on.
