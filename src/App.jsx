@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, Fragment } from "react";
+import { useState, useRef, useEffect, Fragment } from "react";
 import { Loader2, ArrowUpRight, AlertCircle, BookOpen, ChevronRight, Share2, Check, Shuffle, Home, ArrowRight } from "lucide-react";
 import {
   callClaude,
@@ -509,20 +509,9 @@ export default function Hyfax() {
   const nodesRef = useRef([]);
   const selectedIdRef = useRef(null);
   const contentRef = useRef(null);
-  // The "scroll" test group (lib/variant.js): below a page's Where cards, a
-  // divider names the next thread, and scrolling to it adds that thread's
-  // page underneath. `feed` is the pages already scrolled past, oldest
-  // first, drawn above the current one.
+  // The "scroll" test group (lib/variant.js): scrolling down a page opens
+  // its Why cards as they come into view; moving on is still a Where tap.
   const [scrollVariant] = useState(() => getVariant() === "scroll");
-  const [feed, setFeed] = useState([]);
-  const continuingRef = useRef(false);
-  const currentPageRef = useRef(null);
-  const dividerRef = useRef(null);
-  // Where the divider sat on screen when it was reached, so the page above
-  // can fold into the feed without the view jumping.
-  const anchorTopRef = useRef(null);
-  const markerRef = useRef(null);
-  const nextThreadRef = useRef(null);
   const lastScrollTopRef = useRef(0);
   const heroRef = useRef(null);
   const articleTextRef = useRef(null);
@@ -633,16 +622,8 @@ export default function Hyfax() {
   // Every navigation — a chip, a breadcrumb segment, an in-text link, or a
   // fresh topic — should land you at the top of the new content, not
   // wherever you happened to have scrolled to on the previous one.
-  // A page followed by scrolling into it (the "scroll" test group) keeps
-  // the reader where they are, with the pages before it stacked above;
-  // any other way of getting to a page starts a fresh feed at the top.
   useEffect(() => {
-    if (continuingRef.current) {
-      continuingRef.current = false;
-    } else {
-      if (contentRef.current) contentRef.current.scrollTop = 0;
-      setFeed([]);
-    }
+    if (contentRef.current) contentRef.current.scrollTop = 0;
     setSelectionInfo(null);
   }, [selectedId]);
 
@@ -1299,6 +1280,30 @@ export default function Hyfax() {
     const { sessionId } = touchSession();
     trackEvent("tap", { page: `${page.label} · ${why.subtitle}`, sessionId });
   };
+  // Scroll group: a Why card opens by itself once the reader has scrolled
+  // it well into view. Only a real scroll down does it (not the page just
+  // fitting on screen). Logged as scroll_continue, once per card, and not
+  // counted as a tap: the reader didn't choose it.
+  const onContentScroll = () => {
+    const sc = contentRef.current;
+    if (!scrollVariant || !sc) return;
+    const down = sc.scrollTop > lastScrollTopRef.current;
+    lastScrollTopRef.current = sc.scrollTop;
+    const page = nodesRef.current.find((n) => n.id === selectedIdRef.current);
+    if (!down || !page?.article) return;
+    const view = sc.getBoundingClientRect();
+    const whys = parseThreadPage(page.article).whys;
+    sc.querySelectorAll("[data-why]").forEach((card) => {
+      const i = Number(card.dataset.why);
+      const key = `${page.id}:${i}`;
+      if (page[`whyAutoOpened${i}`] || !whys[i]) return;
+      if (card.getBoundingClientRect().top > view.top + view.height * 0.7) return;
+      page[`whyAutoOpened${i}`] = true;
+      setOpenWhys((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+      const { sessionId } = touchSession();
+      trackEvent("scroll_continue", { page: `${page.label} · ${whys[i].subtitle}`, sessionId });
+    });
+  };
   // A Where card opens its thread as a page straight away (no preview).
   // The tap is tracked here; the page itself counts when it loads.
   const openThread = (nodeId) => {
@@ -1310,25 +1315,6 @@ export default function Hyfax() {
       trackEvent("tap", { page: node.label, sessionId });
       if (!user && !hasDismissedSignUpPrompt() && recordChipTap() === 3) setShowSignUpPrompt(true);
     }
-    explorePreview(nodeId);
-  };
-  // Scrolled into the divider below a page: the next thread's page joins
-  // underneath, and counts as one of the reader's free pages like any
-  // other. At the free limit there's no divider (the page shows the
-  // sign-up offer instead).
-  const continueScroll = (nodeId) => {
-    const node = nodesRef.current.find((n) => n.id === nodeId);
-    const from = selectedIdRef.current;
-    if (!node || !from || continuingRef.current) return;
-    if (trialExhaustedRef.current && !node.counted) return;
-    if (dividerRef.current && contentRef.current) {
-      anchorTopRef.current = dividerRef.current.getBoundingClientRect().top - contentRef.current.getBoundingClientRect().top;
-    }
-    continuingRef.current = true;
-    node.tapped = true;
-    setFeed((prev) => [...prev, from]);
-    const { sessionId } = touchSession();
-    trackEvent("scroll_continue", { page: node.label, sessionId });
     explorePreview(nodeId);
   };
   const previewId = selectedId ? previewByPage[selectedId] ?? null : null;
@@ -1661,162 +1647,6 @@ export default function Hyfax() {
     .map((n) => ({ ...n, linkPara: articleParas.findIndex((p) => linkLabelsIn(p).some((l) => l.toLowerCase() === n.label.toLowerCase())) }))
     .filter((n) => n.linkPara !== -1);
   const linkableChildren = selectedChildren;
-
-  // The line between pages in the scroll group's feed: "Keep scrolling to
-  // follow" below the current page, "Followed" once that page has joined.
-  // Both are drawn the same size, so one can replace the other in place.
-  const renderFollowLine = (label, kind, ref) => (
-    <div ref={ref} className="mt-8 mb-2 flex items-center gap-3" aria-hidden={kind === "followed" ? "true" : undefined}>
-      <span className="flex-1 h-px" style={{ backgroundColor: "#4A3C2C" }} />
-      <span className="rh-body text-sm text-center leading-snug" style={{ color: "#C9B896" }}>
-        {kind === "next" ? "Keep scrolling to follow: " : "Followed: "}
-        <span className="font-semibold" style={{ color: "#E3A73C" }}>
-          {label}
-        </span>{" "}
-        ↓
-      </span>
-      <span className="flex-1 h-px" style={{ backgroundColor: "#4A3C2C" }} />
-    </div>
-  );
-
-  // A page's What and Why cards (see lib/threadPage.js): one direct
-  // paragraph, then two cards that open in place. "Where" is the thread
-  // cards further down. A page saved in the old format shows its
-  // paragraphs as they are. Also draws the earlier pages of a scroll feed.
-  const renderThreadArticle = (node) => {
-                    const page = parseThreadPage(node.article);
-                    const cursor = (
-                      <span className="rh-cursor-blink" style={{ color: "#E3A73C" }}>
-                        {"▌"}
-                      </span>
-                    );
-                    if (!page.structured) {
-                      return (
-                        <div className="mt-4 pt-4 border-t space-y-4 rh-fade-in" style={{ borderColor: "#4A3C2C", color: "#F1E6D3" }}>
-                          {page.paragraphs.map((para, i, arr) => (
-                            <p key={i}>
-                              {para}
-                              {node.articleStreaming && i === arr.length - 1 ? cursor : null}
-                            </p>
-                          ))}
-                        </div>
-                      );
-                    }
-                    const writingWhy = node.articleStreaming ? page.whys.length - 1 : -1;
-                    return (
-                      <div className="mt-4 pt-4 border-t rh-fade-in" style={{ borderColor: "#4A3C2C", color: "#F1E6D3" }}>
-                        <p className={node.arrivedWhole ? "rh-para-in" : undefined}>
-                          {page.what}
-                          {node.articleStreaming && !page.whys.length ? cursor : null}
-                        </p>
-                        {page.whys.length > 0 && (
-                          <div className="mt-7">
-                            <div className="rh-display text-xl italic mb-3" style={{ color: "#F1E6D3" }}>
-                              Why?
-                            </div>
-                            <div className="flex flex-col gap-2.5">
-                              {page.whys.map((why, i) => {
-                                const key = `${node.id}:${i}`;
-                                const open = !!openWhys[key];
-                                return (
-                                  <div
-                                    key={key}
-                                    className={`rounded-2xl border transition-colors ${open ? "" : "rh-thread-card"} ${node.arrivedWhole ? "rh-para-in" : ""}`}
-                                    style={{
-                                      borderColor: open ? "#E3A73C" : "#E3A73C88",
-                                      backgroundColor: open ? "#2A2015" : "#241B12",
-                                      animationDelay: node.arrivedWhole ? `${150 + i * 120}ms` : undefined,
-                                    }}
-                                  >
-                                    <button
-                                      type="button"
-                                      onClick={() => toggleWhy(node, i, why)}
-                                      aria-expanded={open}
-                                      className="w-full text-left px-4 py-3 flex items-center gap-3"
-                                    >
-                                      <div className="min-w-0 flex-1">
-                                        <div className="rh-mono rh-text-10 uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
-                                          {why.kind}
-                                        </div>
-                                        <div className="rh-body text-base font-semibold mt-0.5" style={{ color: "#F1E6D3" }}>
-                                          {why.subtitle}
-                                        </div>
-                                        {why.hook && (
-                                          <div className="rh-body text-sm mt-0.5 leading-snug" style={{ color: "#B8A886" }}>
-                                            {why.hook}
-                                          </div>
-                                        )}
-                                      </div>
-                                      <span
-                                        className="shrink-0 flex items-center justify-center rounded-full w-8 h-8"
-                                        style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
-                                        aria-hidden="true"
-                                      >
-                                        <ChevronRight size={18} className="rh-chev" style={{ transform: open ? "rotate(90deg)" : "none" }} />
-                                      </span>
-                                    </button>
-                                    {open && (
-                                      <div className="px-4 pb-4 -mt-0.5 space-y-3 rh-fade-in text-base leading-relaxed" style={{ color: "#F1E6D3" }}>
-                                        {(why.body || "").split(/\n\s*\n/).map((para, j, arr) => (
-                                          <p key={j}>
-                                            {para}
-                                            {writingWhy === i && j === arr.length - 1 ? cursor : null}
-                                          </p>
-                                        ))}
-                                        {!why.body && node.articleStreaming && cursor}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-  };
-
-  // The scroll group's next thread: the highlighted (first unvisited) card,
-  // or the first card. Offered once the page has finished writing, and not
-  // at the free limit (the page offers sign-up there instead).
-  const nextThread =
-    scrollVariant && selected?.article && !selected.articleStreaming && !selected.claimRefused
-      ? shownChips.find((c) => !c.explored) || shownChips[0] || null
-      : null;
-  const showDivider = !!nextThread && !(trialExhausted && !nextThread.counted);
-  nextThreadRef.current = showDivider ? nextThread : null;
-
-  // Scrolling down a scroll-group page: past half of it, the next thread's
-  // page starts loading (one ahead, never more; a saved page arrives
-  // instantly anyway), and reaching the divider adds it below. Only a real
-  // scroll down counts, never the page simply being short enough to show
-  // the divider, or the view being re-anchored.
-  const onContentScroll = () => {
-    const sc = contentRef.current;
-    if (!scrollVariant || !sc) return;
-    const down = sc.scrollTop > lastScrollTopRef.current;
-    lastScrollTopRef.current = sc.scrollTop;
-    const next = nextThreadRef.current;
-    if (!down || !next) return;
-    const view = sc.getBoundingClientRect();
-    const page = currentPageRef.current;
-    if (page && !next.article && !next.articleLoading && !trialExhaustedRef.current) {
-      const r = page.getBoundingClientRect();
-      if (view.bottom - r.top > r.height * 0.5) loadArticle(next.id, { preview: true });
-    }
-    if (dividerRef.current && dividerRef.current.getBoundingClientRect().top < view.bottom) continueScroll(next.id);
-  };
-  // The page above folds into the feed (its Where cards and the rest go),
-  // so the view is moved to keep the "followed" line exactly where the
-  // divider was.
-  useLayoutEffect(() => {
-    const sc = contentRef.current;
-    if (anchorTopRef.current === null || !sc || !markerRef.current) return;
-    const top = markerRef.current.getBoundingClientRect().top - sc.getBoundingClientRect().top;
-    sc.scrollTop += top - anchorTopRef.current;
-    anchorTopRef.current = null;
-    lastScrollTopRef.current = sc.scrollTop;
-  }, [feed.length]);
 
   // The free-limit offer. A visitor without an account is offered a free
   // one (more pages a day), and their thread is saved so the sign-in link
@@ -2214,30 +2044,7 @@ export default function Hyfax() {
       {hasStarted && selected && (
         <>
           <div ref={contentRef} onScroll={onContentScroll} className="flex-1 overflow-y-auto px-5 md:px-7 pb-10">
-            {/* The scroll group's feed: pages already scrolled past, each
-                ending on the line naming the thread followed from it. */}
-            {feed.map((id, i) => {
-              const page = nodes.find((n) => n.id === id);
-              const followed = nodes.find((n) => n.id === (feed[i + 1] ?? selected.id));
-              if (!page) return null;
-              return (
-                <div key={`feed-${id}`} className="max-w-2xl mx-auto pt-3">
-                  <h2 className="rh-display text-3xl italic mb-4" style={{ color: "#F1E6D3" }}>
-                    {page.label}
-                  </h2>
-                  {page.type !== "root" && page.teaser && (
-                    <p className="rh-body text-base italic leading-snug -mt-2 mb-4" style={{ color: "#A89478" }}>
-                      {page.teaser}
-                    </p>
-                  )}
-                  <div className="text-base leading-relaxed" style={{ color: "#F5EDDC" }}>
-                    {page.article ? renderThreadArticle(page) : null}
-                  </div>
-                  {renderFollowLine(followed?.label, "followed", i === feed.length - 1 ? markerRef : undefined)}
-                </div>
-              );
-            })}
-            <div ref={currentPageRef} className="max-w-2xl mx-auto rh-fade-in" key={selected.id}>
+            <div className="max-w-2xl mx-auto rh-fade-in" key={selected.id}>
               {/* The trail — where this page sits in the thread, pinned to
                   the top while reading. Shows the page before this one and
                   this one; "…" opens the rest. Any earlier step goes back
@@ -2367,7 +2174,103 @@ export default function Hyfax() {
                 ) : null}
 
                 {selected.article && !selected.claimRefused ? (
-                  renderThreadArticle(selected)
+                  // What / Why (see lib/threadPage.js): one direct paragraph,
+                  // then two cards that open in place. "Where" is the
+                  // thread cards further down. A page saved in the old
+                  // format shows its paragraphs as they are.
+                  (() => {
+                    const page = parseThreadPage(selected.article);
+                    const cursor = (
+                      <span className="rh-cursor-blink" style={{ color: "#E3A73C" }}>
+                        {"▌"}
+                      </span>
+                    );
+                    if (!page.structured) {
+                      return (
+                        <div className="mt-4 pt-4 border-t space-y-4 rh-fade-in" style={{ borderColor: "#4A3C2C", color: "#F1E6D3" }}>
+                          {page.paragraphs.map((para, i, arr) => (
+                            <p key={i}>
+                              {para}
+                              {selected.articleStreaming && i === arr.length - 1 ? cursor : null}
+                            </p>
+                          ))}
+                        </div>
+                      );
+                    }
+                    const writingWhy = selected.articleStreaming ? page.whys.length - 1 : -1;
+                    return (
+                      <div className="mt-4 pt-4 border-t rh-fade-in" style={{ borderColor: "#4A3C2C", color: "#F1E6D3" }}>
+                        <p className={selected.arrivedWhole ? "rh-para-in" : undefined}>
+                          {page.what}
+                          {selected.articleStreaming && !page.whys.length ? cursor : null}
+                        </p>
+                        {page.whys.length > 0 && (
+                          <div className="mt-7">
+                            <div className="rh-display text-xl italic mb-3" style={{ color: "#F1E6D3" }}>
+                              Why?
+                            </div>
+                            <div className="flex flex-col gap-2.5">
+                              {page.whys.map((why, i) => {
+                                const key = `${selected.id}:${i}`;
+                                const open = !!openWhys[key];
+                                return (
+                                  <div
+                                    key={key}
+                                    data-why={i}
+                                    className={`rounded-2xl border transition-colors ${open ? "" : "rh-thread-card"} ${selected.arrivedWhole ? "rh-para-in" : ""}`}
+                                    style={{
+                                      borderColor: open ? "#E3A73C" : "#E3A73C88",
+                                      backgroundColor: open ? "#2A2015" : "#241B12",
+                                      animationDelay: selected.arrivedWhole ? `${150 + i * 120}ms` : undefined,
+                                    }}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleWhy(selected, i, why)}
+                                      aria-expanded={open}
+                                      className="w-full text-left px-4 py-3 flex items-center gap-3"
+                                    >
+                                      <div className="min-w-0 flex-1">
+                                        <div className="rh-mono rh-text-10 uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
+                                          {why.kind}
+                                        </div>
+                                        <div className="rh-body text-base font-semibold mt-0.5" style={{ color: "#F1E6D3" }}>
+                                          {why.subtitle}
+                                        </div>
+                                        {why.hook && (
+                                          <div className="rh-body text-sm mt-0.5 leading-snug" style={{ color: "#B8A886" }}>
+                                            {why.hook}
+                                          </div>
+                                        )}
+                                      </div>
+                                      <span
+                                        className="shrink-0 flex items-center justify-center rounded-full w-8 h-8"
+                                        style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
+                                        aria-hidden="true"
+                                      >
+                                        <ChevronRight size={18} className="rh-chev" style={{ transform: open ? "rotate(90deg)" : "none" }} />
+                                      </span>
+                                    </button>
+                                    {open && (
+                                      <div className="px-4 pb-4 -mt-0.5 space-y-3 rh-fade-in text-base leading-relaxed" style={{ color: "#F1E6D3" }}>
+                                        {(why.body || "").split(/\n\s*\n/).map((para, j, arr) => (
+                                          <p key={j}>
+                                            {para}
+                                            {writingWhy === i && j === arr.length - 1 ? cursor : null}
+                                          </p>
+                                        ))}
+                                        {!why.body && selected.articleStreaming && cursor}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()
                 ) : selected.articleLoading ? (
                   <div className="mt-4 flex items-center gap-1.5 text-base" style={{ color: "#B8A886" }}>
                     <Loader2 size={16} className="animate-spin" /> Digging in…
@@ -2508,8 +2411,6 @@ export default function Hyfax() {
                     </div>
                   </div>
                 )}
-
-                {showDivider && renderFollowLine(nextThread.label, "next", dividerRef)}
 
                 {/* House ad — one per page, funded accounts don't see it. After
                     the Where cards, so it never pushes them below the first

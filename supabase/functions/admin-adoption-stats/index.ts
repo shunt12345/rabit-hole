@@ -251,8 +251,9 @@ serve(async (req) => {
     // period"), matching the acceptance test's "funnel for
     // utm_campaign=kitchen-crystals" over whatever date range is picked.
     // The funnel and depth for one set of visitors, first seen in
-    // [since, until]. A first-session tap or scroll_continue (a thread
-    // followed by scrolling into it) both count as activated.
+    // [since, until]. Activated is a first-session tap. scroll_continue (a
+    // Why card the scroll group had opened for them by scrolling) isn't a
+    // choice the reader made, so it's counted alongside, not as activation.
     function funnelFor(visitors: VisitorRow[]) {
       let landed = 0;
       let activated = 0;
@@ -274,7 +275,7 @@ serve(async (req) => {
         const firstSessionEvents = firstSession ? eventsBySession.get(firstSession.session_id) ?? [] : [];
         const tapped = firstSessionEvents.some((e) => e.type === "tap");
         const scrolled = firstSessionEvents.some((e) => e.type === "scroll_continue");
-        if (tapped || scrolled) activated += 1;
+        if (tapped) activated += 1;
         if (tapped) activatedByTap += 1;
         if (scrolled) activatedByScroll += 1;
         if (firstSessionEvents.filter((e) => e.type === "article_view").length >= 3) deep += 1;

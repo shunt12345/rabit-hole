@@ -11,10 +11,9 @@
 import { isTestMode } from "./visitor.js";
 
 const VARIANTS = ["cards", "scroll"];
-// Off until migration 0063 and the track-event update are live (the old
-// track-event refuses scroll_continue events); everyone sees "cards" and
-// nothing is assigned. A forced group (?hyfax_variant=) still works.
-const TEST_LIVE = false;
+// Switch for the whole test: off, everyone sees "cards" and nothing is
+// assigned (a forced group still works).
+const TEST_LIVE = true;
 const KEY = "hyfax_variant";
 const FORCE_KEY = "hyfax_variant_force";
 

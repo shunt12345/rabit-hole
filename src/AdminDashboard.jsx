@@ -730,9 +730,9 @@ export default function AdminDashboard() {
               <StatCard
                 label="Activated"
                 value={adoptionStats.funnel.activated}
-                sub={`${pct(adoptionStats.funnel.activatedPct)} of landed · ${adoptionStats.funnel.activatedByTap ?? 0} by tap, ${
+                sub={`${pct(adoptionStats.funnel.activatedPct)} of landed (a tap) · ${
                   adoptionStats.funnel.activatedByScroll ?? 0
-                } by scroll`}
+                } had a Why opened by scrolling`}
               />
               <StatCard label="Deep" value={adoptionStats.funnel.deep} sub={`${pct(adoptionStats.funnel.deepPct)} of landed`} />
               <StatCard
@@ -754,7 +754,12 @@ export default function AdminDashboard() {
                     {
                       key: "activatedPct",
                       label: "Activated",
-                      render: (r) => `${pct(r.activatedPct)} (${r.activatedByTap} tap · ${r.activatedByScroll} scroll)`,
+                      render: (r) => pct(r.activatedPct),
+                    },
+                    {
+                      key: "activatedByScroll",
+                      label: "Why opened by scroll",
+                      render: (r) => r.activatedByScroll,
                     },
                     { key: "deepPct", label: "Deep", render: (r) => pct(r.deepPct) },
                     { key: "signedUpPct", label: "Signed up", render: (r) => pct(r.signedUpPct) },
@@ -764,7 +769,7 @@ export default function AdminDashboard() {
                   emptyText="No visitors in either group yet."
                 />
                 <div className="text-xs mt-2" style={{ color: COLORS.dim }}>
-                  Same source, campaign and dates as above, whatever variant is picked. Test traffic is never in a group.
+                  Scroll group: scrolling down opens a page's Why cards. Activated counts taps only (a Why or Where card); a Why opened by scrolling is counted separately. Same source, campaign and dates as above, whatever variant is picked. Test traffic is never in a group.
                 </div>
               </div>
             )}
