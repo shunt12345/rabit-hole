@@ -397,7 +397,63 @@ const QUOTE_CATEGORIES = [
 // people) rather than FAME (is this the most-quoted line this person ever
 // said), which are different axes — a figure's single most iconic line is
 // often their most worn-out one, not their most substantive.
-function quoteOfTheDayPrompt(excludeTopics: string[], recentCategories: string[], seedIdea?: string | null): string {
+// Seen live: Feynman six times in a month, Grace Hopper four, Toni
+// Morrison three, nearly every pick a 20th-century American. Excluding past
+// quotes didn't stop the same people coming back, so recent SPEAKERS are
+// excluded too, and each day leans toward a different part of the world
+// and a different era (quoteLensForToday).
+type QuoteSteer = { categories: string[]; speakers: string[]; lens: { region: string; era: string } | null };
+const NO_QUOTE_STEER: QuoteSteer = { categories: [], speakers: [], lens: null };
+
+const QUOTE_REGIONS = [
+  "Africa",
+  "East Asia",
+  "South or Southeast Asia",
+  "the Middle East or North Africa",
+  "Latin America or the Caribbean",
+  "continental Europe",
+  "the British Isles",
+  "North America",
+  "Eastern Europe or Russia",
+  "Oceania or the Pacific",
+];
+const QUOTE_ERAS = [
+  "the ancient world (before 500 CE)",
+  "500 to 1500",
+  "1500 to 1800",
+  "the 1800s",
+  "1900 to 1960",
+  "1960 to today",
+];
+
+// Today's region and era. Two cycles of different lengths (10 and 6), so
+// the pairings keep changing rather than repeating every week.
+function quoteLensForToday(): { region: string; era: string } {
+  const day = Math.floor(Date.now() / 86_400_000);
+  return { region: QUOTE_REGIONS[day % QUOTE_REGIONS.length], era: QUOTE_ERAS[day % QUOTE_ERAS.length] };
+}
+
+// The speakers of the last 90 days' quotes (any status, so a rejected pick
+// isn't straight back the next day), from the teaser's "— Name, who they
+// were" line.
+const RECENT_QUOTE_SPEAKER_DAYS = 90;
+async function fetchRecentQuoteSpeakers(): Promise<string[]> {
+  const since = new Date(Date.now() - RECENT_QUOTE_SPEAKER_DAYS * 86_400_000).toISOString();
+  const { data, error } = await withTimeout<{ teaser: string | null }[]>(
+    supabase.from("trending_topics_cache").select("teaser").eq("field", QUOTE_FIELD).gte("generated_at", since)
+  );
+  if (error || !data) {
+    console.error("generate-trending-topics: failed to fetch recent quote speakers", error);
+    return [];
+  }
+  const names = data
+    .map((row) => (row.teaser || "").replace(/^[\s—–-]+/, "").split(",")[0].trim())
+    .filter((name) => name && name.length <= 60);
+  return [...new Set(names)];
+}
+
+function quoteOfTheDayPrompt(excludeTopics: string[], steer: QuoteSteer, seedIdea?: string | null): string {
+  const recentCategories = steer.categories;
   const excludeBlock = excludeTopics.length
     ? `\n\nAlready featured recently — pick a different quote this time, not a repeat of any of these: ${excludeTopics.join("; ")}.`
     : "";
@@ -407,6 +463,14 @@ function quoteOfTheDayPrompt(excludeTopics: string[], recentCategories: string[]
   const categoryBlock = recentCategories.length
     ? `\n\nThe last few picks' categories, most recent first: ${recentCategories.join(", ")}. Do not pick from that same category again this time — actively favor whichever of these categories AREN'T in that recent list: ${QUOTE_CATEGORIES.join(", ")}.`
     : "";
+  const speakerBlock = steer.speakers.length
+    ? `\n\nThese people have been quoted recently. Do not quote any of them again, not even a different quote: ${steer.speakers.join("; ")}.`
+    : "";
+  // Not for a suggested quote or speaker, which is already decided.
+  const lensBlock =
+    steer.lens && !seedIdea
+      ? `\n\nToday, look beyond the usual 20th-century American and British names. Pick a speaker from ${steer.lens.region}, ideally from ${steer.lens.era}. If you can't verify a strong quote matching both, keep the region and relax the era. Range across genders, fields and backgrounds over time: a farmer, a chef, a midwife or a chess player can say something as sharp as a Nobel laureate.`
+      : "";
   // seedIdea (suggest-a-topic) hands this a specific quote, speaker, or
   // theme instead of an open choice — same swap-only-the-finding-
   // instruction approach as the other fields above.
@@ -417,7 +481,7 @@ function quoteOfTheDayPrompt(excludeTopics: string[], recentCategories: string[]
 Deliberately range across ALL of these categories over time, not just the ones that come to mind first: ${QUOTE_CATEGORIES.join(", ")} — a scientist or philosopher is a perfectly fine pick sometimes, but so is a politician, an athlete, a tech founder, or a business leader; don't reach for the same kind of figure out of habit every time this runs.`;
   return `You have live web search — use it now.
 
-${pickBlock} Search to confirm BOTH the exact wording AND the attribution are accurate — misattributed quotes are extremely common online (a large share of "Einstein said" or "Mark Twain said" quotes circulating online are fake or misattributed to them), so specifically check whether this one is a known fake before using it. If you can't confirm a real, correctly-attributed quote, pick a different one you can verify instead of using an unconfirmed one.${excludeBlock}${categoryBlock}
+${pickBlock} Search to confirm BOTH the exact wording AND the attribution are accurate — misattributed quotes are extremely common online (a large share of "Einstein said" or "Mark Twain said" quotes circulating online are fake or misattributed to them), so specifically check whether this one is a known fake before using it. If you can't confirm a real, correctly-attributed quote, pick a different one you can verify instead of using an unconfirmed one. A translated quote is fine: give a faithful, widely used English translation.${excludeBlock}${categoryBlock}${speakerBlock}${lensBlock}
 
 Once you've confirmed a real, correctly-attributed quote via search, produce:
 - "topic": the quote itself, in quotation marks, exactly as verified — word for word, no paraphrasing. This can run longer than the usual short label; the whole point is showing the real quote.
@@ -630,7 +694,7 @@ function promptForField(
   field: string,
   excludeTopics: string[],
   recentRiddleCategories: string[] = [],
-  recentQuoteCategories: string[] = [],
+  quoteSteer: QuoteSteer = NO_QUOTE_STEER,
   recentWordTeasers: { topic: string; teaser: string }[] = [],
   perspectiveFocus: string | null = null,
   // Suggest-a-topic (admin-review-queue's "suggest" action, /queue) — a
@@ -643,7 +707,7 @@ function promptForField(
 ): string {
   if (field === "This Day In History") return thisDayInHistoryPrompt(excludeTopics, seedIdea);
   if (field === "Word Of The Day") return wordOfTheDayPrompt(excludeTopics, recentWordTeasers, seedIdea);
-  if (field === QUOTE_FIELD) return quoteOfTheDayPrompt(excludeTopics, recentQuoteCategories, seedIdea);
+  if (field === QUOTE_FIELD) return quoteOfTheDayPrompt(excludeTopics, quoteSteer, seedIdea);
   if (field === RIDDLE_FIELD) return riddlePrompt(excludeTopics, recentRiddleCategories, seedIdea);
   if (field === PERSPECTIVE_FIELD) return perspectivePrompt(excludeTopics, perspectiveFocus || nextPerspectiveFocus(null), seedIdea);
   if (field === TRENDING_MAINSTREAM_FIELDS[0]) return trendingMainstreamPrompt(excludeTopics, "primary", seedIdea);
@@ -753,7 +817,7 @@ async function generateForField(
   field: string,
   excludeTopics: string[],
   recentRiddleCategories: string[] = [],
-  recentQuoteCategories: string[] = [],
+  quoteSteer: QuoteSteer = NO_QUOTE_STEER,
   recentWordTeasers: { topic: string; teaser: string }[] = [],
   perspectiveFocus: string | null = null,
   seedIdea: string | null = null
@@ -803,7 +867,7 @@ async function generateForField(
               field,
               excludeTopics,
               recentRiddleCategories,
-              recentQuoteCategories,
+              quoteSteer,
               recentWordTeasers,
               perspectiveFocus,
               seedIdea
@@ -1199,7 +1263,13 @@ serve(async (req) => {
 
   const recentByField = await fetchRecentTopicsByField();
   const recentRiddleCategories = fieldsToRun.includes(RIDDLE_FIELD) ? await fetchRecentRiddleCategories() : [];
-  const recentQuoteCategories = fieldsToRun.includes(QUOTE_FIELD) ? await fetchRecentQuoteCategories() : [];
+  const quoteSteer: QuoteSteer = fieldsToRun.includes(QUOTE_FIELD)
+    ? {
+        categories: await fetchRecentQuoteCategories(),
+        speakers: await fetchRecentQuoteSpeakers(),
+        lens: quoteLensForToday(),
+      }
+    : NO_QUOTE_STEER;
   const recentWordTeasers = fieldsToRun.includes("Word Of The Day") ? await fetchRecentWordTeasers() : [];
   const perspectiveFocus = fieldsToRun.includes(PERSPECTIVE_FIELD)
     ? nextPerspectiveFocus(await fetchLastPerspectiveFocus())
@@ -1274,7 +1344,7 @@ serve(async (req) => {
         field,
         recentByField[field]!,
         field === RIDDLE_FIELD ? recentRiddleCategories : undefined,
-        field === QUOTE_FIELD ? recentQuoteCategories : undefined,
+        field === QUOTE_FIELD ? quoteSteer : undefined,
         field === "Word Of The Day" ? recentWordTeasers : undefined,
         field === PERSPECTIVE_FIELD ? perspectiveFocus : undefined,
         suggestion
