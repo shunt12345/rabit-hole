@@ -216,10 +216,10 @@ function clueLine(clue: RiddleClue, topic: string, answers: string[]): string {
 // no streak, so nobody is told they've lost one.
 function streakLine(streak: number): string {
   if (streak <= 0) return "";
-  if (streak === 1) return "🔥 You solved yesterday's riddle. Make it two in a row.";
+  if (streak === 1) return "You solved yesterday's riddle. Make it two in a row.";
   const next = streak + 1;
   const goal = next === 7 ? "a full week" : next === 30 ? "a full month" : String(next);
-  return `🔥 ${streak}-day streak. Solve today's to make it ${goal}.`;
+  return `You're on a ${streak}-day streak. Solve today's to make it ${goal}.`;
 }
 
 function riddleGameRowHtml(topic: string, clues: RiddleClue[], answers: string[], streak = 0): string {
@@ -336,12 +336,9 @@ function digestHtml(
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background-color:${COLOR_CARD_BG}; border-radius:16px; overflow:hidden; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
         <tr>
           <td bgcolor="${COLOR_PAGE_BG}" style="background-color:${COLOR_PAGE_BG}; padding:32px 40px; text-align:center;">
-            <img src="${APP_ORIGIN}/hyfax-logo.png" width="120" alt="Hyfax" style="display:block; margin:0 auto; border:0; height:auto;" />
-            <div style="margin-top:8px; font-family:'Courier New',monospace; font-size:10px; letter-spacing:3px; text-transform:uppercase; color:${COLOR_TEXT_FAINT};">
-              thinking with threads
-            </div>
-            <div style="margin-top:18px; font-family:Georgia,'Times New Roman',serif; font-style:italic; font-size:20px; line-height:1.35; color:${COLOR_TEXT_PRIMARY};">
-              Problem solving isn't linear.<br />Neither is your learning.
+            <div style="font-size:18px; font-weight:700; letter-spacing:3px; color:${COLOR_TEXT_PRIMARY};">HYFAX</div>
+            <div style="margin-top:14px; font-size:15px; line-height:1.5; color:${COLOR_TEXT_PRIMARY};">
+              Good morning. Here's today's riddle, and a few things worth a look.
             </div>
           </td>
         </tr>
@@ -350,16 +347,8 @@ function digestHtml(
         </tr>
         ${sectionsHtml}
         <tr>
-          <td style="padding:16px 40px 32px; text-align:center;">
-            <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
-              <tr>
-                <td bgcolor="${COLOR_ACCENT}" style="background-color:${COLOR_ACCENT}; border-radius:999px;">
-                  <a href="${appUrl()}" style="display:inline-block; padding:12px 28px; font-size:14px; font-weight:600; color:${COLOR_PAGE_BG}; text-decoration:none;">
-                    Open Hyfax
-                  </a>
-                </td>
-              </tr>
-            </table>
+          <td style="padding:12px 40px 28px; font-size:14px; line-height:1.5; color:${COLOR_TEXT_MUTED};">
+            More threads to pull at <a href="${appUrl()}" style="color:${COLOR_ACCENT};">hyfax.app</a>.
           </td>
         </tr>
         <tr>
@@ -385,7 +374,7 @@ function digestText(sections: DigestSections, asOfDate: Date | null, unsubscribe
   const topicUrl = (topic: string, section: string) => appUrl(`topic=${encodeURIComponent(topic)}`, section);
   const card = (row: { field: string; topic: string; teaser: string }) =>
     `${row.topic}\n${row.teaser}\n${topicUrl(row.topic, sectionOf(row.field))}`;
-  const parts: string[] = ["Hyfax: thinking with threads"];
+  const parts: string[] = ["Good morning. Here's today's riddle, and a few things worth a look."];
   if (asOfDate) parts.push(asOfDate.toLocaleDateString("en-US", { month: "long", day: "numeric" }));
   if (riddle) {
     const clues = riddle.riddle_game?.clues;
@@ -399,7 +388,7 @@ function digestText(sections: DigestSections, asOfDate: Date | null, unsubscribe
   if (today.length) parts.push(`TODAY\n${today.map(card).join("\n\n")}`);
   if (perspective) parts.push(`PERSPECTIVE\n${card(perspective)}`);
   if (quote) parts.push(`QUOTE OF THE DAY\n"${quote.topic}"\n${quote.teaser}\n${topicUrl(quote.topic, "quote")}`);
-  parts.push(`Open Hyfax: ${appUrl()}`);
+  parts.push(`More threads to pull at hyfax.app: ${appUrl()}`);
   parts.push(`${reason} Turn it off: ${unsubscribeUrl}`);
   return parts.join("\n\n");
 }
