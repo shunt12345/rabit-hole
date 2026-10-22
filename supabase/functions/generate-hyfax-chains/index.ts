@@ -21,13 +21,17 @@ const OUTPUT_PRICE_PER_M = 10.0;
 // Small batches written side by side, each checked as soon as it's done,
 // so the whole run fits well inside the function's time limit (two batches
 // of 12, checked together at the end, ran past it).
-const BATCH_SIZE = 6;
-const BATCHES = 4;
+// Four chains per reply: six ran past the reply's length limit and came
+// back cut off mid-JSON.
+const BATCH_SIZE = 4;
+const BATCHES = 6;
 // Batches run side by side without seeing each other, so each starts its
 // chains in its own subjects (the leaps can still go anywhere).
 const BATCH_FOCUS = [
-  "food, cooking, plants and animals",
-  "the human body, medicine, space and physics",
+  "food, cooking and drink",
+  "plants, animals and the natural world",
+  "the human body, medicine and the mind",
+  "space, physics, chemistry and engineering",
   "history, art, music and language",
   "sport, money, technology and everyday objects",
 ];
@@ -84,8 +88,9 @@ async function callClaude(apiKey: string, prompt: string, maxTokens: number) {
     if (!res.ok) throw new Error(`Anthropic returned ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const data = await res.json();
     const text = (data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
+    if (data.stop_reason === "max_tokens") throw new Error(`Reply cut off at ${maxTokens} tokens (${text.length} chars)`);
     const json = firstJsonObject(text.replace(/```json|```/g, ""));
-    if (!json) throw new Error(`No JSON in response: ${text.slice(0, 300)}`);
+    if (!json) throw new Error(`No JSON in response (stop: ${data.stop_reason}): ${text.slice(0, 300)}`);
     const usage = data.usage || {};
     const cost = ((usage.input_tokens || 0) / 1e6) * INPUT_PRICE_PER_M + ((usage.output_tokens || 0) / 1e6) * OUTPUT_PRICE_PER_M;
     return { parsed: JSON.parse(json), cost };
@@ -113,7 +118,7 @@ function validChain(raw: any): Chain | null {
 async function writeBatch(apiKey: string, count: number, avoid: string[], focus: string) {
   const avoidBlock = avoid.length ? `\n\nAlready used recently; don't repeat these titles or their starting topics: ${avoid.join("; ")}.` : "";
   const prompt = `Write ${count} Hyfax chains. Start every chain in this batch (step 1) somewhere in: ${focus}.\n\n${RULES}${avoidBlock}\n\nRespond with ONLY valid JSON: {"chains": [{"title": "...", "steps": [{"title": "...", "link": "", "why": "...", "deep": "..."}, ...]}]}`;
-  const { parsed, cost } = await callClaude(apiKey, prompt, 5000);
+  const { parsed, cost } = await callClaude(apiKey, prompt, 7000);
   const chains = (Array.isArray(parsed?.chains) ? parsed.chains : []).map(validChain).filter(Boolean) as Chain[];
   return { chains, cost };
 }
