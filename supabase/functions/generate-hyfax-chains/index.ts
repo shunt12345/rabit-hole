@@ -103,7 +103,9 @@ async function callClaude(apiKey: string, prompt: string, maxTokens: number) {
 const clean = (v: unknown, max: number) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 
 function validChain(raw: any): Chain | null {
-  const title = clean(raw?.title, 80);
+  // "Wifi Signal To Microwave Popcorn" came back now and then; the joining
+  // word is always a small "to".
+  const title = clean(raw?.title, 80).replace(/\s+to\s+/i, " to ");
   const steps = Array.isArray(raw?.steps) ? raw.steps : [];
   if (!/\bto\b/i.test(title) || steps.length !== 4) return null;
   const out = steps.map((s: any, i: number) => ({
