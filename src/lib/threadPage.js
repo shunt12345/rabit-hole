@@ -59,6 +59,16 @@ export function parseThreadPage(raw) {
     const bar = head.indexOf("|");
     let hook = bar === -1 ? "" : clean(head.slice(bar + 1));
     let body = rest.join("\n").trim();
+    // The paragraph written on the header line itself ("Subtitle | Catch
+    // line. The whole paragraph..."): the first sentence is the catch line,
+    // the rest is the body.
+    if (hook && !body) {
+      const m = hook.match(/^(.+?[.!?]["')\]]*)\s+(\S[\s\S]*)$/);
+      if (m && m[2].split(/\s+/).length >= 12) {
+        hook = m[1];
+        body = m[2];
+      }
+    }
     // No catch line on the header: a one-sentence first paragraph above a
     // longer body is the catch line.
     if (!hook) {
