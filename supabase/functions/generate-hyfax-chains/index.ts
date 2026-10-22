@@ -43,6 +43,8 @@ type Chain = { title: string; steps: Step[] };
 
 const RULES = `A Hyfax chain is four topics on one thread. Each step is an INDIRECT leap from the step just before it (not from the first): the two share one real idea, such as the same mechanism, the same principle, the same word with a genuinely shared meaning, the same material, the same person or the same historical moment, while being different subjects. Step 1 is an everyday-curious starting topic. By step 4 the reader should be somewhere surprising and far from where they started, and the title promises that journey.
 
+The two ends must NOT connect directly. Pick step 1 and step 4 first: they must be in different fields, and nobody should be able to explain step 4 from step 1 in a single sentence (both fermentation, both the same frequency, one copied from the other, one famously found in the other: all too direct). Only the middle steps make the journey possible, so the title sounds impossible until you read the chain.
+
 Example (for the shape only; don't reuse it):
 1. Why Bread Goes Stale: starch re-forms tight crystals as the loaf cools.
 2. Chocolate Bloom (link: "Same idea, new food"): the same crystal comeback, in cocoa butter instead of starch.
@@ -137,6 +139,7 @@ async function checkChains(apiKey: string, chains: Chain[]) {
 For every chain, go leap by leap (1 to 2, 2 to 3, 3 to 4): name the single idea the two steps genuinely share, then judge whether that connection is real science, history or language, or only sounds plausible. Then check every factual claim in every step.
 
 Drop the chain if ANY of these is true:
+- the two ends connect directly: someone could explain step 4 from step 1 in one sentence without the middle steps, or steps 1 and 4 are in the same field (e.g. sourdough and Roman wine are both yeast fermentation; shark skin and swimsuits are copied one from the other; wifi and microwave ovens share a frequency);
 - a leap is a pun, a loose analogy, a "both are about X" stretch, or names a shared idea that isn't actually true (e.g. "same electron behavior" for unrelated colors);
 - any claim is wrong, disputed or a popular myth (e.g. that Grace Hopper's moth gave us the word "bug"; that a word has a folk etymology stated as fact);
 - a number or mechanism is something you can't vouch for;
