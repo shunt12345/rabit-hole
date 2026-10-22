@@ -21,9 +21,10 @@ const OUTPUT_PRICE_PER_M = 10.0;
 // Small batches written side by side, each checked as soon as it's done,
 // so the whole run fits well inside the function's time limit (two batches
 // of 12, checked together at the end, ran past it).
-// Four chains per reply: six ran past the reply's length limit and came
-// back cut off mid-JSON.
-const BATCH_SIZE = 4;
+// Three chains per reply: six ran past the reply's length limit and came
+// back cut off mid-JSON, and the check now thinks before answering, so
+// each batch has to stay small to fit the function's time limit.
+const BATCH_SIZE = 3;
 const BATCHES = 6;
 // Batches run side by side without seeing each other, so each starts its
 // chains in its own subjects (the leaps can still go anywhere).
@@ -38,25 +39,31 @@ const BATCH_FOCUS = [
 const RECENT_TITLE_DAYS = 120;
 const CALL_TIMEOUT_MS = 90_000;
 
-type Step = { title: string; link: string; why: string; deep: string };
+// kind: the kind of leap from the step before ("" for step 1). An indirect
+// leap shares a mechanism or principle; a tangent side-steps through a
+// looser but real link (the same word, person, place, era or material).
+type Step = { title: string; kind: string; link: string; why: string; deep: string };
 type Chain = { title: string; steps: Step[] };
 
-const RULES = `A Hyfax chain is four topics on one thread. Each step is an INDIRECT leap from the step just before it (not from the first): the two share one real idea, such as the same mechanism, the same principle, the same word with a genuinely shared meaning, the same material, the same person or the same historical moment, while being different subjects. Step 1 is an everyday-curious starting topic. By step 4 the reader should be somewhere surprising and far from where they started, and the title promises that journey.
+const RULES = `A Hyfax chain is four topics on one thread. Each step leaps from the step just before it (not from the first), to a different subject that shares one real thing with it. There are two kinds of leap, and every chain uses both (at least one of each):
+- "indirect": the two share the same mechanism, law or principle (the same crystal comeback in starch and in cocoa butter).
+- "tangent": a looser side-step through something real they have in common: the same word, the same person, the same place, the same era or the same material (chocolatiers and blacksmiths both "temper"). Step 1 is an everyday-curious starting topic. By step 4 the reader should be somewhere surprising and far from where they started, and the title promises that journey.
 
 The two ends must NOT connect directly. Pick step 1 and step 4 first: they must be in different fields, and nobody should be able to explain step 4 from step 1 in a single sentence (both fermentation, both the same frequency, one copied from the other, one famously found in the other: all too direct). Only the middle steps make the journey possible, so the title sounds impossible until you read the chain.
 
 Example (for the shape only; don't reuse it):
 1. Why Bread Goes Stale: starch re-forms tight crystals as the loaf cools.
-2. Chocolate Bloom (link: "Same idea, new food"): the same crystal comeback, in cocoa butter instead of starch.
-3. Tempering Steel (link: "Same word, new material"): chocolatiers and blacksmiths both temper, heating and cooling on purpose to choose which crystals form.
-4. The Katana's Wavy Line (link: "Same trick, one blade"): a clay-coated spine cools slowly while the edge cools fast, two crystal structures in one blade.
+2. Chocolate Bloom (indirect, link: "Same idea, new food"): the same crystal comeback, in cocoa butter instead of starch.
+3. Tempering Steel (tangent, link: "Same word, new material"): chocolatiers and blacksmiths both temper, heating and cooling on purpose to choose which crystals form.
+4. The Katana's Wavy Line (indirect, link: "Same trick, one blade"): a clay-coated spine cools slowly while the edge cools fast, two crystal structures in one blade.
 Title: "Stale Bread to Samurai Sword"
 
 For each chain:
 - "title": "<start> to <end>", 3 to 7 words, title case, the two ends in everyday words (e.g. "Stale Bread to Samurai Sword", not the technical step names).
 - "steps": exactly 4, each with:
   - "title": 2 to 5 words, title case, specific.
-  - "link": for steps 2 to 4, a 3 to 5 word label naming the kind of leap from the step before ("Same idea, new food"); "" for step 1.
+  - "kind": for steps 2 to 4, "indirect" or "tangent" (see above); "" for step 1.
+  - "link": for steps 2 to 4, a 3 to 5 word label naming the leap from the step before ("Same idea, new food"); "" for step 1.
   - "why": one sentence, at most 28 words. For step 1, what it is; for steps 2 to 4, exactly what it shares with the step before, in a warm, curious voice.
   - "deep": 60 to 95 words that go deeper on this step: the real mechanism, numbers or history, plain and specific.
 - Every fact must be well established. If you aren't sure a detail is true, leave it out. No puns standing in for a real connection, no myths stated as fact.
@@ -78,7 +85,9 @@ function firstJsonObject(text: string): string | null {
   return null;
 }
 
-async function callClaude(apiKey: string, prompt: string, maxTokens: number) {
+// think: let the model reason before answering (the checking pass); the
+// writing pass answers straight away.
+async function callClaude(apiKey: string, prompt: string, maxTokens: number, think = false) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
   try {
@@ -86,7 +95,7 @@ async function callClaude(apiKey: string, prompt: string, maxTokens: number) {
       method: "POST",
       signal: controller.signal,
       headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: MODEL, max_tokens: maxTokens, thinking: { type: "disabled" }, messages: [{ role: "user", content: prompt }] }),
+      body: JSON.stringify({ model: MODEL, max_tokens: maxTokens, thinking: { type: think ? "adaptive" : "disabled" }, messages: [{ role: "user", content: prompt }] }),
     });
     if (!res.ok) throw new Error(`Anthropic returned ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const data = await res.json();
@@ -112,17 +121,21 @@ function validChain(raw: any): Chain | null {
   if (!/\bto\b/i.test(title) || steps.length !== 4) return null;
   const out = steps.map((s: any, i: number) => ({
     title: clean(s?.title, 60),
+    kind: i === 0 ? "" : String(s?.kind || "").trim().toLowerCase() === "tangent" ? "tangent" : "indirect",
     link: i === 0 ? "" : clean(s?.link, 40),
     why: clean(s?.why, 260),
     deep: clean(s?.deep, 900),
   }));
   if (out.some((s: Step, i: number) => !s.title || !s.why || !s.deep || (i > 0 && !s.link))) return null;
+  // Every chain mixes both kinds of leap.
+  const kinds = out.slice(1).map((s: Step) => s.kind);
+  if (!kinds.includes("tangent") || !kinds.includes("indirect")) return null;
   return { title, steps: out };
 }
 
 async function writeBatch(apiKey: string, count: number, avoid: string[], focus: string) {
   const avoidBlock = avoid.length ? `\n\nAlready used recently; don't repeat these titles or their starting topics: ${avoid.join("; ")}.` : "";
-  const prompt = `Write ${count} Hyfax chains. Start every chain in this batch (step 1) somewhere in: ${focus}.\n\n${RULES}${avoidBlock}\n\nRespond with ONLY valid JSON: {"chains": [{"title": "...", "steps": [{"title": "...", "link": "", "why": "...", "deep": "..."}, ...]}]}`;
+  const prompt = `Write ${count} Hyfax chains. Start every chain in this batch (step 1) somewhere in: ${focus}.\n\n${RULES}${avoidBlock}\n\nRespond with ONLY valid JSON: {"chains": [{"title": "...", "steps": [{"title": "...", "kind": "", "link": "", "why": "...", "deep": "..."}, ...]}]}`;
   const { parsed, cost } = await callClaude(apiKey, prompt, 7000);
   const chains = (Array.isArray(parsed?.chains) ? parsed.chains : []).map(validChain).filter(Boolean) as Chain[];
   return { chains, cost };
@@ -132,7 +145,7 @@ async function writeBatch(apiKey: string, count: number, avoid: string[], focus:
 // and every stated fact must hold up. A chain with any doubt is dropped.
 async function checkChains(apiKey: string, chains: Chain[]) {
   const listing = chains
-    .map((c, i) => `#${i} ${c.title}\n` + c.steps.map((s, j) => `  ${j + 1}. ${s.title}${s.link ? ` (${s.link})` : ""}: ${s.why} ${s.deep}`).join("\n"))
+    .map((c, i) => `#${i} ${c.title}\n` + c.steps.map((s, j) => `  ${j + 1}. ${s.title}${s.kind ? ` [${s.kind}: ${s.link}]` : ""}: ${s.why} ${s.deep}`).join("\n"))
     .join("\n\n");
   const prompt = `You're the strict fact-checker for Hyfax chains, and readers trust every word. Each chain is four steps; each step must share ONE real, specific idea with the step just before it.
 
@@ -143,13 +156,15 @@ Drop the chain if ANY of these is true:
 - a leap is a pun, a loose analogy, a "both are about X" stretch, or names a shared idea that isn't actually true (e.g. "same electron behavior" for unrelated colors);
 - any claim is wrong, disputed or a popular myth (e.g. that Grace Hopper's moth gave us the word "bug"; that a word has a folk etymology stated as fact);
 - a number or mechanism is something you can't vouch for;
-- a step refers to something the chain never introduced.
+- a step refers to something the chain never introduced;
+- a step's own explanation contradicts its connecting line (e.g. calling a collapse resonance, then explaining it wasn't);
+- the title misdescribes the chain's ends (e.g. calling mutineers "shipwrecked").
 Be hard to please: a real chain should survive a specialist's red pen. Expect to drop a lot of them; dropping a good chain costs little, keeping a wrong one costs readers' trust.
 
 ${listing}
 
 Respond with ONLY valid JSON: {"keep": [indexes of chains that pass], "dropped": [{"index": n, "reason": "..."}]}`;
-  const { parsed, cost } = await callClaude(apiKey, prompt, 3000);
+  const { parsed, cost } = await callClaude(apiKey, prompt, 12000, true);
   const keep = new Set((Array.isArray(parsed?.keep) ? parsed.keep : []).map(Number));
   return { kept: chains.filter((_, i) => keep.has(i)), dropped: parsed?.dropped || [], cost };
 }

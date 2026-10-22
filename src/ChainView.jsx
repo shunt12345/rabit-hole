@@ -6,6 +6,14 @@ import { ChevronRight, Shuffle, ArrowRight } from "lucide-react";
 // explanation, and can be dug into as its own Hyfax page. Pre-written, so
 // reading a chain costs no searches; digging into a step counts like any
 // other page.
+// The leap's kind, as on the Where cards: an indirect leap shares a
+// mechanism, a tangent side-steps through a looser real link. Chains
+// written before kinds existed show as indirect.
+const KINDS = {
+  indirect: { label: "Indirect", color: "#9DB38E" },
+  tangent: { label: "Tangent", color: "#C48BB3" },
+};
+
 export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened }) {
   const [open, setOpen] = useState({});
   const toggle = (i) => {
@@ -31,6 +39,7 @@ export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened })
       {chain.steps.map((step, i) => {
         const isOpen = !!open[i];
         const main = i === 0;
+        const kind = KINDS[step.kind] || KINDS.indirect;
         return (
           <div key={i}>
             {i > 0 && (
@@ -51,8 +60,8 @@ export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened })
             >
               <button type="button" onClick={() => toggle(i)} aria-expanded={isOpen} className="w-full text-left px-4 py-3.5 flex items-start gap-3">
                 <div className="min-w-0 flex-1">
-                  <div className="rh-mono rh-text-10 uppercase tracking-wider font-semibold flex justify-between" style={{ color: main ? "#E3A73C" : "#9DB38E" }}>
-                    <span>{main ? "Start here" : "Indirect"}</span>
+                  <div className="rh-mono rh-text-10 uppercase tracking-wider font-semibold flex justify-between" style={{ color: main ? "#E3A73C" : kind.color }}>
+                    <span>{main ? "Start here" : kind.label}</span>
                     <span style={{ color: "#6B5B45" }}>
                       {i + 1} / {chain.steps.length}
                     </span>
