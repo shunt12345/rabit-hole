@@ -58,6 +58,7 @@ For each chain:
   - "why": one sentence, at most 28 words. For step 1, what it is; for steps 2 to 4, exactly what it shares with the step before, in a warm, curious voice.
   - "deep": 60 to 95 words that go deeper on this step: the real mechanism, numbers or history, plain and specific.
 - Every fact must be well established. If you aren't sure a detail is true, leave it out. No puns standing in for a real connection, no myths stated as fact.
+- Each leap must name a shared idea a specialist would agree with: the same physical law, the same nerve, the same material, the same invention. "Both involve X" in a loose sense isn't a leap.
 - Range widely across subjects: food, nature, the body, space, history, art, music, sport, language, technology, money, everyday objects. No two chains in a batch share a starting subject.
 - Plain text only, no markdown.`;
 
@@ -129,14 +130,21 @@ async function checkChains(apiKey: string, chains: Chain[]) {
   const listing = chains
     .map((c, i) => `#${i} ${c.title}\n` + c.steps.map((s, j) => `  ${j + 1}. ${s.title}${s.link ? ` (${s.link})` : ""}: ${s.why} ${s.deep}`).join("\n"))
     .join("\n\n");
-  const prompt = `You're fact-checking Hyfax chains before readers see them. Each is four steps; each step must share one real idea with the step just before it, and every fact must be well established.
+  const prompt = `You're the strict fact-checker for Hyfax chains, and readers trust every word. Each chain is four steps; each step must share ONE real, specific idea with the step just before it.
 
-Drop a chain if ANY of these is true: a leap is a pun or a stretch rather than a real shared idea; any stated fact is wrong, disputed, a popular myth, or a number you can't vouch for; a step repeats the one before it.
+For every chain, go leap by leap (1 to 2, 2 to 3, 3 to 4): name the single idea the two steps genuinely share, then judge whether that connection is real science, history or language, or only sounds plausible. Then check every factual claim in every step.
+
+Drop the chain if ANY of these is true:
+- a leap is a pun, a loose analogy, a "both are about X" stretch, or names a shared idea that isn't actually true (e.g. "same electron behavior" for unrelated colors);
+- any claim is wrong, disputed or a popular myth (e.g. that Grace Hopper's moth gave us the word "bug"; that a word has a folk etymology stated as fact);
+- a number or mechanism is something you can't vouch for;
+- a step refers to something the chain never introduced.
+Be hard to please: a real chain should survive a specialist's red pen. Expect to drop a lot of them; dropping a good chain costs little, keeping a wrong one costs readers' trust.
 
 ${listing}
 
 Respond with ONLY valid JSON: {"keep": [indexes of chains that pass], "dropped": [{"index": n, "reason": "..."}]}`;
-  const { parsed, cost } = await callClaude(apiKey, prompt, 2000);
+  const { parsed, cost } = await callClaude(apiKey, prompt, 3000);
   const keep = new Set((Array.isArray(parsed?.keep) ? parsed.keep : []).map(Number));
   return { kept: chains.filter((_, i) => keep.has(i)), dropped: parsed?.dropped || [], cost };
 }
