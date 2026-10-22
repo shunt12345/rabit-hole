@@ -216,11 +216,12 @@ Once you've found a real, currently-trending story, produce:
   (An invented example of the shape only, not a real story.) Restating (wrong): "A factory fire in Dhaka has killed 40 workers and injured dozens more."
   The why (right): "Dhaka's factory fires keep happening for the same reason: inspections stopped once the export orders came back."
 - "source_url": the URL of the real source you found via search, supporting the story — must be a specific page that actually discusses THIS exact story, not a homepage, an unrelated video, or a generic live-updates/liveblog page that merely happens to be from a relevant outlet
+- "facts": 3 to 5 short, plain sentences of what the reporting actually confirms: who, what, and when, plus any figures exactly as reported. Include what has NOT happened yet if it matters (e.g. "The shares have not started trading yet."). Only what your search confirms; no estimates of your own. The page written about this story is held to these facts, so anything missing here can't appear there.
 
 ${SOURCE_URL_CHECK}
 
 Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this shape:
-{"topic": "...", "teaser": "...", "source_url": "..."}`;
+{"topic": "...", "teaser": "...", "source_url": "...", "facts": ["...", "..."]}`;
 }
 
 // Appended to every prompt's source_url instruction. Confirmed live that
@@ -967,6 +968,17 @@ async function generateForField(
     category = perspectiveFocus || undefined;
   }
 
+  // Trending only (migration 0064): the story's confirmed facts, which the
+  // story's own page is written from, so it can't invent details the
+  // teaser doesn't carry (seen live: an IPO date, amount raised and
+  // valuation, none of them in the reporting).
+  let facts: string | undefined;
+  if (TRENDING_MAINSTREAM_FIELDS.includes(field)) {
+    const raw = Array.isArray(parsed.facts) ? parsed.facts : typeof parsed.facts === "string" ? parsed.facts.split(/\n+/) : [];
+    const lines = raw.map((f: unknown) => String(f).trim()).filter(Boolean).slice(0, 6);
+    facts = lines.length ? lines.join("\n") : undefined;
+  }
+
   // Perspective-only (see migration 0048) — which way this entry actually
   // shifted scale, so the hero card can show "Human · Micro" instead of
   // just repeating the section header's own "Perspective" label. Same
@@ -1003,6 +1015,7 @@ async function generateForField(
     ...(riddleGame ? { riddle_game: riddleGame } : {}),
     ...(category ? { category } : {}),
     ...(direction ? { direction } : {}),
+    ...(facts ? { facts } : {}),
     source_url: sourceUrl || null,
     input_tokens: inputTokens,
     output_tokens: outputTokens,

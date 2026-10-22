@@ -62,7 +62,7 @@ function unauthorized(corsHeaders: Record<string, string>) {
 }
 
 const REVIEW_COLUMNS =
-  "id, batch_date, field, topic, teaser, source_url, options, category, direction, generated_at, input_tokens, output_tokens, model, cost_usd, status, publish_at, riddle_game";
+  "id, batch_date, field, topic, teaser, source_url, options, category, direction, generated_at, input_tokens, output_tokens, model, cost_usd, status, publish_at, riddle_game, facts";
 
 // The fields a suggestion can target — every named field generate-
 // trending-topics knows how to seed (see its own promptForField/seedIdea

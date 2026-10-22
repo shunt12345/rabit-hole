@@ -67,6 +67,15 @@ function ReviewCard({ row, onDecide, busy, replaces }) {
           <p className="text-sm mt-1" style={{ color: COLORS.dim }}>
             {row.teaser}
           </p>
+          {/* A Trending pick's confirmed facts: its page is written from
+              these alone, so they're worth a glance before approving. */}
+          {row.facts && (
+            <ul className="text-xs mt-2 pl-4 list-disc space-y-0.5" style={{ color: COLORS.text }}>
+              {row.facts.split("\n").map((f, i) => (
+                <li key={i}>{f}</li>
+              ))}
+            </ul>
+          )}
           {Array.isArray(row.options) && row.options.length > 0 && (
             <p className="text-xs mt-1" style={{ color: COLORS.dim }}>
               Decoys: {row.options.join(", ")}
