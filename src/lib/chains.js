@@ -40,6 +40,19 @@ export function nextChain(pool, currentId = null) {
   return pick;
 }
 
+// The Hyfax of the Day: the approved threads in a fixed order, one per US
+// Eastern calendar day in rotation. send-daily-digest picks the same way
+// (threadOfTheDay there), so the homepage and the email always agree.
+export function nyDayNumber(date = new Date()) {
+  const [y, m, d] = date.toLocaleDateString("en-CA", { timeZone: "America/New_York" }).split("-").map(Number);
+  return Math.floor(Date.UTC(y, m - 1, d) / 86_400_000);
+}
+export function threadOfTheDay(pool, date = new Date()) {
+  if (!pool.length) return null;
+  const ordered = [...pool].sort((a, b) => a.id - b.id);
+  return ordered[nyDayNumber(date) % ordered.length];
+}
+
 export function isChainTitle(text, chain) {
   return !!chain && text.trim().toLowerCase() === chain.title.trim().toLowerCase();
 }

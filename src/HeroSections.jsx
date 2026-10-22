@@ -18,7 +18,7 @@ import {
   storyContext,
 } from "./lib/heroPicks.js";
 
-export default function HeroSections({ trendingTopics, previewRiddle, visible, rootLoading, user, onStartTopic, onSignUp, adSlot }) {
+export default function HeroSections({ trendingTopics, previewRiddle, visible, rootLoading, user, onStartTopic, onSignUp, adSlot, threadOfDay, onOpenThread }) {
   const { newsTopics, todayTopics, quoteTopic, riddleTopic, perspectiveTopic } = heroPicks(trendingTopics, previewRiddle);
   // Which card was tapped ("quote", "today-0", "news-1", ...).
   const [selectedKey, setSelectedKey] = useState(null);
@@ -35,6 +35,36 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
             day: "numeric",
           })}
         </div>
+      )}
+
+      {/* The Hyfax of the Day (lib/chains.js): the day's four-step thread,
+          first thing on the page. Opens the thread itself; reading it
+          costs no searches. */}
+      {threadOfDay && (
+        <button
+          type="button"
+          data-precompute="hero"
+          onClick={() => onOpenThread(threadOfDay)}
+          disabled={rootLoading}
+          className="rh-chip mt-3 w-full max-w-md mx-auto text-left p-5 rounded-2xl border-2 transition-colors block"
+          style={{ borderColor: "#E3A73C", background: "linear-gradient(160deg,#2E2216,#1F1811)" }}
+        >
+          <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
+            Hyfax of the Day
+          </span>
+          <span className="block rh-display italic text-2xl leading-tight mt-1.5" style={{ color: "#F1E6D3" }}>
+            {threadOfDay.title}
+          </span>
+          <span className="block rh-body text-sm mt-1" style={{ color: "#A89478" }}>
+            Four steps on one thread
+          </span>
+          <span className="block rh-body text-sm mt-3 leading-snug" style={{ color: "#C9BA9C" }}>
+            {threadOfDay.steps.map((s) => s.title).join("  →  ")}
+          </span>
+          <span className="block rh-body text-sm font-semibold mt-3" style={{ color: "#E3A73C" }}>
+            Follow the thread →
+          </span>
+        </button>
       )}
 
       {/* Order: Trending first (what visitors half-saw in their feed, and

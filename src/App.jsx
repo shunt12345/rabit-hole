@@ -32,7 +32,7 @@ import { watchForNewBuild, reloadIfNewBuild } from "./lib/freshness.js";
 import { getVariant } from "./lib/variant.js";
 import { parseThreadPage, threadPagePlainText, hasPlaceholderHeaders } from "./lib/threadPage.js";
 import { nextSurpriseTopic } from "./lib/surpriseTopics.js";
-import { fetchChainPool, nextChain, isChainTitle } from "./lib/chains.js";
+import { fetchChainPool, nextChain, isChainTitle, threadOfTheDay } from "./lib/chains.js";
 import ChainView from "./ChainView.jsx";
 import UsageGauge from "./UsageGauge.jsx";
 import MiniGauge from "./MiniGauge.jsx";
@@ -676,8 +676,17 @@ export default function Hyfax() {
     fetchChainPool()
       .then((pool) => {
         setChainPool(pool);
+        // The email's Hyfax of the Day link (?thread=<id>) opens it.
+        const linked = Number(new URLSearchParams(window.location.search).get("thread"));
+        const linkedChain = linked ? pool.find((c) => c.id === linked) : null;
+        if (linkedChain && !nodesRef.current.length) {
+          setSpunChain(linkedChain);
+          showChain(linkedChain);
+          return;
+        }
         if (nodesRef.current.length || openChainRef.current || inputValRef.current) return;
-        const chain = nextChain(pool);
+        // A different thread from the Hyfax of the Day card just below.
+        const chain = nextChain(pool, threadOfTheDay(pool)?.id);
         if (!chain) return;
         setInputVal(chain.title);
         setSpunChain(chain);
@@ -1303,7 +1312,7 @@ export default function Hyfax() {
     if (reloadIfNewBuild()) return;
     reset();
     // Home arrives with a fresh chain in the search box, like a first visit.
-    const chain = nextChain(chainPool);
+    const chain = nextChain(chainPool, threadOfTheDay(chainPool)?.id);
     if (chain) {
       setInputVal(chain.title);
       setSpunChain(chain);
@@ -2057,6 +2066,11 @@ export default function Hyfax() {
               user={user}
               onStartTopic={startTopic}
               onSignUp={openAccountModal}
+              threadOfDay={threadOfTheDay(chainPool)}
+              onOpenThread={(chain) => {
+                setSpunChain(chain);
+                showChain(chain);
+              }}
               adSlot={
                 // House ad (Section H) — between the riddle and "Trending".
                 // Funded accounts don't see ads. Seeded off the browser's
