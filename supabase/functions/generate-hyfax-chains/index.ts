@@ -15,17 +15,12 @@ import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-// Opus: building four real leaps between far-apart ends is the hardest
-// writing job in the app, and Sonnet's batches came back about half weak.
-// Only ~18 chains a day, so the stronger model costs little. CHAIN_MODEL
-// overrides it.
-const MODEL = Deno.env.get("CHAIN_MODEL") ?? "claude-opus-5-5";
+const MODEL = Deno.env.get("CHAIN_MODEL") ?? "claude-sonnet-5";
 const PRICES: Record<string, { input: number; output: number }> = {
-  "claude-opus-5-5": { input: 5.0, output: 25.0 },
   "claude-sonnet-5": { input: 2.0, output: 10.0 },
 };
-const INPUT_PRICE_PER_M = (PRICES[MODEL] ?? PRICES["claude-opus-5-5"]).input;
-const OUTPUT_PRICE_PER_M = (PRICES[MODEL] ?? PRICES["claude-opus-5-5"]).output;
+const INPUT_PRICE_PER_M = (PRICES[MODEL] ?? PRICES["claude-sonnet-5"]).input;
+const OUTPUT_PRICE_PER_M = (PRICES[MODEL] ?? PRICES["claude-sonnet-5"]).output;
 // Small batches written side by side, each checked as soon as it's done,
 // so the whole run fits well inside the function's time limit (two batches
 // of 12, checked together at the end, ran past it).
