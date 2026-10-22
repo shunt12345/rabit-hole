@@ -122,7 +122,7 @@ function validChain(raw: any): Chain | null {
   const out = steps.map((s: any, i: number) => ({
     title: clean(s?.title, 60),
     kind: i === 0 ? "" : String(s?.kind || "").trim().toLowerCase() === "tangent" ? "tangent" : "indirect",
-    link: i === 0 ? "" : clean(s?.link, 40),
+    link: i === 0 ? "" : clean(s?.link, 60),
     why: clean(s?.why, 260),
     deep: clean(s?.deep, 900),
   }));
