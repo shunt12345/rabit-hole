@@ -413,6 +413,65 @@ function SlotChecklist({ slot, fields, approved, rows }) {
   );
 }
 
+// A pending Hyfax thread (migration 0066): its four steps as readers will
+// see them, each leap's kind and label, and the deeper text on tap.
+// Approving puts it into Spin a thread's pool.
+const KIND_COLORS = { indirect: "#9DB38E", tangent: "#C48BB3" };
+function ChainReviewCard({ chain, onDecide, busy }) {
+  return (
+    <div className="rounded-2xl border p-4" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
+      <div className="rh-mono rh-text-10 uppercase tracking-wider mb-1" style={{ color: COLORS.accent }}>
+        Hyfax thread{chain.model ? ` · ${chain.model}` : ""}
+      </div>
+      <div className="text-base font-semibold mb-3" style={{ color: COLORS.text }}>
+        {chain.title}
+      </div>
+      <ol className="flex flex-col gap-2 mb-3">
+        {chain.steps.map((step, i) => (
+          <li key={i} className="text-sm">
+            <details>
+              <summary className="cursor-pointer" style={{ color: COLORS.text }}>
+                <span className="font-semibold">
+                  {i + 1}. {step.title}
+                </span>
+                {step.kind && (
+                  <span className="rh-mono rh-text-10 uppercase tracking-wider ml-2" style={{ color: KIND_COLORS[step.kind] || COLORS.dim }}>
+                    {step.kind} · {step.link}
+                  </span>
+                )}
+                <div className="text-xs mt-0.5 ml-4" style={{ color: COLORS.dim }}>
+                  {step.why}
+                </div>
+              </summary>
+              <p className="text-xs mt-1 ml-4 leading-relaxed" style={{ color: COLORS.text }}>
+                {step.deep}
+              </p>
+            </details>
+          </li>
+        ))}
+      </ol>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => onDecide(chain.id, "approve")}
+          disabled={busy}
+          className="flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-40"
+          style={{ backgroundColor: COLORS.accent, color: "#14100C" }}
+        >
+          <Check size={13} /> Approve
+        </button>
+        <button
+          onClick={() => onDecide(chain.id, "reject")}
+          disabled={busy}
+          className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs disabled:opacity-40"
+          style={{ borderColor: COLORS.border, color: COLORS.dim }}
+        >
+          <X size={13} /> Reject
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function ReviewQueue() {
   const [user, setUser] = useState(undefined); // undefined = still checking, null = signed out
   const [email, setEmail] = useState("");
@@ -441,6 +500,7 @@ export default function ReviewQueue() {
   const [suggestText, setSuggestText] = useState("");
   const [suggesting, setSuggesting] = useState(false);
   const [suggestError, setSuggestError] = useState(null);
+  const [chains, setChains] = useState([]);
 
   useEffect(() => {
     getCurrentUser().then(setUser);
@@ -475,6 +535,11 @@ export default function ReviewQueue() {
       setSlot(data.slot || null);
       setSlotApproved(data.approved || []);
       setFields(data.fields || []);
+      // Pending Hyfax threads; a queue function without this action yet
+      // just shows none.
+      call("listChains")
+        .then((r) => setChains(r.chains || []))
+        .catch(() => setChains([]));
     } catch (e) {
       setError(e.message === "__forbidden__" ? "This account isn't on the admin allowlist." : e.message || "Failed to load the review queue.");
     } finally {
@@ -521,6 +586,18 @@ export default function ReviewQueue() {
       [60, 120, 180, 240].forEach((s) => setTimeout(load, s * 1000));
     } catch (e) {
       setError(e.message || "Couldn't start a new batch — try again.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const decideChain = async (id, decision) => {
+    setBusyId(`chain-${id}`);
+    try {
+      await call("decideChain", { id, decision });
+      setChains((prev) => prev.filter((c) => c.id !== id));
+    } catch (e) {
+      setError(e.message || "That decision didn't save — try again.");
     } finally {
       setBusyId(null);
     }
@@ -787,6 +864,22 @@ export default function ReviewQueue() {
                 />
               )
             ))}
+          </div>
+        )}
+
+        {chains.length > 0 && (
+          <div className="mt-10">
+            <h2 className="text-sm font-semibold mb-1" style={{ color: COLORS.text }}>
+              Hyfax threads waiting for review ({chains.length})
+            </h2>
+            <p className="text-xs mb-4" style={{ color: COLORS.dim }}>
+              Written daily at 14:40 UTC. Approved threads join Spin a thread straight away. Tap a step to read its deeper text.
+            </p>
+            <div className="flex flex-col gap-3">
+              {chains.map((chain) => (
+                <ChainReviewCard key={chain.id} chain={chain} onDecide={decideChain} busy={busyId !== null} />
+              ))}
+            </div>
           </div>
         )}
       </div>
