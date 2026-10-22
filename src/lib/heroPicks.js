@@ -18,7 +18,7 @@
 // pending/rejected row is unreadable with the anon key regardless of this
 // query string. Kept explicit anyway so this file's own intent reads
 // clearly without having to know the DB-side policy exists.
-export const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=id,field,topic,teaser,source_url,options,category,direction,generated_at,riddle_game,publish_at&status=eq.approved&order=generated_at.desc,id.desc&limit=40`;
+export const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=id,field,topic,teaser,source_url,options,category,direction,generated_at,riddle_game,publish_at,facts&status=eq.approved&order=generated_at.desc,id.desc&limit=40`;
 export const NEWS_FIELDS = ["Trending 1", "Trending 2"];
 // What a Trending story's page is written from: its teaser, plus the facts
 // the reporting confirmed (migration 0064), so the page can't invent
