@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ChevronRight, Shuffle, ArrowRight } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronRight, Shuffle, ArrowRight, ChevronDown } from "lucide-react";
 
 // A Hyfax chain (lib/chains.js): four topics on one thread, each an indirect
 // leap from the one before. Every step opens in place for a deeper
@@ -14,8 +14,59 @@ const KINDS = {
   tangent: { label: "Tangent", color: "#C48BB3" },
 };
 
-export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened }) {
+// The thread unfolds as the reader scrolls: step 1 shows, and each scroll
+// down past the "keep scrolling" line reveals the next step, so the leaps
+// are discovered one at a time rather than given away. Tapping the line
+// reveals it too.
+const REVEAL_LINE = 0.5; // how far up the screen the hint has to rise (0 = top)
+const REVEAL_GAP_MS = 600; // at most one step per this, however fast the scroll
+
+export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened, onStepRevealed }) {
   const [open, setOpen] = useState({});
+  const [revealed, setRevealed] = useState(1);
+  const hintRef = useRef(null);
+  const lastRevealRef = useRef(0);
+  const total = chain.steps.length;
+  const reveal = () => {
+    if (revealed >= total) return;
+    lastRevealRef.current = Date.now();
+    onStepRevealed?.(revealed);
+    setRevealed(revealed + 1);
+  };
+  // A scroll down marks the next step as wanted; it appears once the hint
+  // has risen past REVEAL_LINE and the last reveal is REVEAL_GAP_MS old,
+  // checked again after the gap so a scroll that hit the bottom of the
+  // page during it still counts.
+  const wantedRef = useRef(false);
+  useEffect(() => {
+    const scroller = hintRef.current?.closest(".overflow-y-auto") || window;
+    let lastTop = scroller === window ? window.scrollY : scroller.scrollTop;
+    let timer = null;
+    const check = () => {
+      if (!wantedRef.current || !hintRef.current) return;
+      const wait = REVEAL_GAP_MS - (Date.now() - lastRevealRef.current);
+      if (wait > 0) {
+        clearTimeout(timer);
+        timer = setTimeout(check, wait);
+        return;
+      }
+      if (hintRef.current.getBoundingClientRect().top < window.innerHeight * REVEAL_LINE) {
+        wantedRef.current = false;
+        reveal();
+      }
+    };
+    const onScroll = () => {
+      const top = scroller === window ? window.scrollY : scroller.scrollTop;
+      if (top > lastTop) wantedRef.current = true;
+      lastTop = top;
+      check();
+    };
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      clearTimeout(timer);
+      scroller.removeEventListener("scroll", onScroll);
+    };
+  });
   const toggle = (i) => {
     const opening = !open[i];
     setOpen((prev) => ({ ...prev, [i]: opening }));
@@ -36,12 +87,12 @@ export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened })
         </div>
       </div>
 
-      {chain.steps.map((step, i) => {
+      {chain.steps.slice(0, revealed).map((step, i) => {
         const isOpen = !!open[i];
         const main = i === 0;
         const kind = KINDS[step.kind] || KINDS.indirect;
         return (
-          <div key={i}>
+          <div key={i} className={i > 0 ? "rh-fade-in" : undefined}>
             {i > 0 && (
               <div className="relative ml-8 h-9" aria-hidden="true">
                 <span className="absolute left-0 top-0 bottom-0 border-l-2" style={{ borderColor: "rgba(227,167,60,0.6)" }} />
@@ -97,7 +148,24 @@ export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened })
         );
       })}
 
-      <div className="mt-8 pt-5 border-t text-center" style={{ borderColor: "#3A2E20" }}>
+      {revealed < total ? (
+        // Room to scroll into, so the next step can be reached even when
+        // the page so far fits on the screen.
+        <div ref={hintRef} style={{ minHeight: "75vh" }}>
+          <div className="relative ml-8 h-9" aria-hidden="true">
+            <span className="absolute left-0 top-0 bottom-0 border-l-2 border-dashed" style={{ borderColor: "rgba(227,167,60,0.45)" }} />
+          </div>
+          <button
+            type="button"
+            onClick={reveal}
+            className="w-full flex items-center justify-center gap-1.5 rounded-2xl border border-dashed py-4 rh-body text-sm"
+            style={{ borderColor: "#4A3826", color: "#C9B896" }}
+          >
+            Keep scrolling to reveal step {revealed + 1} <ChevronDown size={16} className="rh-nudge" />
+          </button>
+        </div>
+      ) : (
+      <div className="mt-8 pt-5 border-t text-center rh-fade-in" style={{ borderColor: "#3A2E20" }}>
         <p className="rh-body text-sm mb-4" style={{ color: "#A89478" }}>
           Tap any step to go deeper.
         </p>
@@ -110,6 +178,7 @@ export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened })
           <Shuffle size={15} /> Spin another thread
         </button>
       </div>
+      )}
     </div>
   );
 }
