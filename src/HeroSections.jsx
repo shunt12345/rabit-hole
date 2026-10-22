@@ -38,8 +38,8 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
       )}
 
       {/* The Hyfax of the Day (lib/chains.js): the day's four-step thread,
-          first thing on the page. Opens the thread itself; reading it
-          costs no searches. */}
+          first thing on the page. Only its "A to B" title: the steps in
+          between are the fun of opening it. Reading it costs no searches. */}
       {threadOfDay && (
         <button
           type="button"
@@ -57,9 +57,6 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
           </span>
           <span className="block rh-body text-sm mt-1" style={{ color: "#A89478" }}>
             Four steps on one thread
-          </span>
-          <span className="block rh-body text-sm mt-3 leading-snug" style={{ color: "#C9BA9C" }}>
-            {threadOfDay.steps.map((s) => s.title).join("  →  ")}
           </span>
           <span className="block rh-body text-sm font-semibold mt-3" style={{ color: "#E3A73C" }}>
             Follow the thread →

@@ -188,7 +188,8 @@ function quoteRowHtml(row: { topic: string; teaser: string }): string {
 // The Hyfax of the Day (migration 0065): the day's four-step thread, first
 // in the email as it's first on the homepage. Same pick as the homepage
 // (src/lib/chains.js threadOfTheDay): approved threads in id order, one per
-// US Eastern calendar day in rotation.
+// US Eastern calendar day in rotation. Only its "A to B" title is shown:
+// the steps in between are the fun of opening it.
 type HyfaxThread = { id: number; title: string; steps: { title: string; link?: string }[] };
 function nyDayNumber(date: Date): number {
   const [y, m, d] = date.toLocaleDateString("en-CA", { timeZone: "America/New_York" }).split("-").map(Number);
@@ -205,16 +206,12 @@ async function threadOfTheDay(date: Date): Promise<HyfaxThread | null> {
 }
 function threadRowHtml(thread: HyfaxThread): string {
   const url = appUrl(`thread=${thread.id}`, "hyfax-of-the-day");
-  const steps = thread.steps
-    .map((st, i) => `<span style="display:block; font-size:14px; line-height:1.5; color:${i === 0 ? COLOR_TEXT_PRIMARY : COLOR_TEXT_MUTED}; margin-top:${i ? 6 : 0}px;"><span style="font-family:'Courier New',monospace; font-size:11px; color:${COLOR_ACCENT}; padding-right:8px;">${i + 1}</span>${escapeHtml(st.title)}</span>`)
-    .join("");
   return `
   <tr>
     <td style="padding:0 40px 12px;">
       <a href="${url}" style="display:block; text-decoration:none; background-color:${COLOR_CHIP_BG}; border:1px solid ${COLOR_ACCENT}; border-radius:16px; padding:20px;">
         <span style="display:block; font-family:Georgia,'Times New Roman',serif; font-style:italic; font-size:22px; line-height:1.25; color:${COLOR_TEXT_PRIMARY};">${escapeHtml(thread.title)}</span>
-        <span style="display:block; font-size:13px; color:${COLOR_TEXT_MUTED}; margin:4px 0 14px;">Four steps on one thread</span>
-        ${steps}
+        <span style="display:block; font-size:13px; color:${COLOR_TEXT_MUTED}; margin-top:4px;">Four steps on one thread. How do you get from one to the other?</span>
         <span style="display:block; margin-top:14px; font-size:14px; font-weight:600; color:${COLOR_ACCENT};">Follow the thread</span>
       </a>
     </td>
@@ -415,7 +412,7 @@ function digestText(sections: DigestSections, asOfDate: Date | null, unsubscribe
   const parts: string[] = ["Good morning. Here's today's Hyfax thread, the riddle, and a few things worth a look."];
   if (asOfDate) parts.push(asOfDate.toLocaleDateString("en-US", { month: "long", day: "numeric" }));
   if (thread) {
-    parts.push(`HYFAX OF THE DAY\n${thread.title}\n${thread.steps.map((st, i) => `${i + 1}. ${st.title}`).join("\n")}\nFollow the thread: ${appUrl(`thread=${thread.id}`, "hyfax-of-the-day")}`);
+    parts.push(`HYFAX OF THE DAY\n${thread.title}\nFour steps on one thread. How do you get from one to the other?\nFollow the thread: ${appUrl(`thread=${thread.id}`, "hyfax-of-the-day")}`);
   }
   if (riddle) {
     const clues = riddle.riddle_game?.clues;
