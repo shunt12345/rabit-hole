@@ -15,6 +15,7 @@ import {
   QUOTE_FIELD,
   RIDDLE_FIELD,
   PERSPECTIVE_FIELD,
+  storyContext,
 } from "./lib/heroPicks.js";
 
 export default function HeroSections({ trendingTopics, previewRiddle, visible, rootLoading, user, onStartTopic, onSignUp, adSlot }) {
@@ -59,7 +60,7 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
                   type="button"
                   onClick={() => {
                     setSelectedKey(`news-${i}`);
-                    onStartTopic(t.topic, t.teaser, t.field);
+                    onStartTopic(t.topic, storyContext(t), t.field);
                   }}
                   disabled={rootLoading}
                   className={`rh-chip text-left p-4 rounded-2xl border transition-colors ${

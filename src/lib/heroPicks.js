@@ -20,6 +20,12 @@
 // clearly without having to know the DB-side policy exists.
 export const TRENDING_TOPICS_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/trending_topics_cache?select=id,field,topic,teaser,source_url,options,category,direction,generated_at,riddle_game,publish_at&status=eq.approved&order=generated_at.desc,id.desc&limit=40`;
 export const NEWS_FIELDS = ["Trending 1", "Trending 2"];
+// What a Trending story's page is written from: its teaser, plus the facts
+// the reporting confirmed (migration 0064), so the page can't invent
+// details. Older picks have no facts and pass the teaser alone.
+export function storyContext(pick) {
+  return pick.facts ? `${pick.teaser}\n\nWhat the reporting confirms:\n${pick.facts}` : pick.teaser;
+}
 // What each internal field key actually displays as — kept separate from
 // the field key itself so latestByField (below) can still tell the two
 // mainstream picks apart for lookup purposes while both show the same
