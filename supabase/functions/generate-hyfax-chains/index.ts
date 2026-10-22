@@ -18,12 +18,21 @@ const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPAB
 const MODEL = Deno.env.get("CHAIN_MODEL") ?? "claude-sonnet-5";
 const INPUT_PRICE_PER_M = 2.0;
 const OUTPUT_PRICE_PER_M = 10.0;
-// Two batches written side by side, so a day's pool lands well inside the
-// function's time limit.
-const BATCH_SIZE = 12;
-const BATCHES = 2;
+// Small batches written side by side, each checked as soon as it's done,
+// so the whole run fits well inside the function's time limit (two batches
+// of 12, checked together at the end, ran past it).
+const BATCH_SIZE = 6;
+const BATCHES = 4;
+// Batches run side by side without seeing each other, so each starts its
+// chains in its own subjects (the leaps can still go anywhere).
+const BATCH_FOCUS = [
+  "food, cooking, plants and animals",
+  "the human body, medicine, space and physics",
+  "history, art, music and language",
+  "sport, money, technology and everyday objects",
+];
 const RECENT_TITLE_DAYS = 120;
-const CALL_TIMEOUT_MS = 120_000;
+const CALL_TIMEOUT_MS = 90_000;
 
 type Step = { title: string; link: string; why: string; deep: string };
 type Chain = { title: string; steps: Step[] };
@@ -101,10 +110,10 @@ function validChain(raw: any): Chain | null {
   return { title, steps: out };
 }
 
-async function writeBatch(apiKey: string, count: number, avoid: string[]) {
+async function writeBatch(apiKey: string, count: number, avoid: string[], focus: string) {
   const avoidBlock = avoid.length ? `\n\nAlready used recently; don't repeat these titles or their starting topics: ${avoid.join("; ")}.` : "";
-  const prompt = `Write ${count} Hyfax chains.\n\n${RULES}${avoidBlock}\n\nRespond with ONLY valid JSON: {"chains": [{"title": "...", "steps": [{"title": "...", "link": "", "why": "...", "deep": "..."}, ...]}]}`;
-  const { parsed, cost } = await callClaude(apiKey, prompt, 9000);
+  const prompt = `Write ${count} Hyfax chains. Start every chain in this batch (step 1) somewhere in: ${focus}.\n\n${RULES}${avoidBlock}\n\nRespond with ONLY valid JSON: {"chains": [{"title": "...", "steps": [{"title": "...", "link": "", "why": "...", "deep": "..."}, ...]}]}`;
+  const { parsed, cost } = await callClaude(apiKey, prompt, 5000);
   const chains = (Array.isArray(parsed?.chains) ? parsed.chains : []).map(validChain).filter(Boolean) as Chain[];
   return { chains, cost };
 }
@@ -143,38 +152,40 @@ serve(async (req) => {
   const { data: recent } = await supabase.from("hyfax_chains").select("title").gte("created_at", since).limit(400);
   const avoid = (recent || []).map((r: { title: string }) => r.title);
 
-  const batches = await Promise.allSettled(Array.from({ length: BATCHES }, () => writeBatch(apiKey, perBatch, avoid)));
+  // Each batch is written, then checked, on its own; a batch that fails
+  // either step is just left out of today's pool.
+  const results = await Promise.allSettled(
+    Array.from({ length: BATCHES }, async (_, i) => {
+      const batch = await writeBatch(apiKey, perBatch, avoid, BATCH_FOCUS[i % BATCH_FOCUS.length]);
+      if (!batch.chains.length) return { written: 0, kept: [] as Chain[], dropped: [], cost: batch.cost };
+      // Without the check, nothing from this batch goes out: a wrong chain
+      // is worse than fewer new ones (yesterday's pool keeps spinning).
+      const check = await checkChains(apiKey, batch.chains);
+      return { written: batch.chains.length, kept: check.kept, dropped: check.dropped, cost: batch.cost + check.cost };
+    })
+  );
   let cost = 0;
+  let written = 0;
   const errors: string[] = [];
+  const dropped: unknown[] = [];
   const seen = new Set(avoid.map((t) => t.toLowerCase()));
-  const written: Chain[] = [];
-  for (const b of batches) {
-    if (b.status === "rejected") {
-      errors.push(String(b.reason));
+  const kept: Chain[] = [];
+  for (const r of results) {
+    if (r.status === "rejected") {
+      errors.push(String(r.reason));
       continue;
     }
-    cost += b.value.cost;
-    for (const c of b.value.chains) {
+    cost += r.value.cost;
+    written += r.value.written;
+    dropped.push(...r.value.dropped);
+    for (const c of r.value.kept) {
       if (seen.has(c.title.toLowerCase())) continue;
       seen.add(c.title.toLowerCase());
-      written.push(c);
+      kept.push(c);
     }
   }
-  if (!written.length) {
-    return new Response(JSON.stringify({ error: "No chains written", errors }), { status: 502, headers: { "Content-Type": "application/json" } });
-  }
-
-  let kept = written;
-  let dropped: unknown[] = [];
-  try {
-    const check = await checkChains(apiKey, written);
-    cost += check.cost;
-    kept = check.kept;
-    dropped = check.dropped;
-  } catch (e) {
-    // Without the check, nothing goes out: a wrong chain is worse than a
-    // day with no new ones (yesterday's pool keeps spinning).
-    return new Response(JSON.stringify({ error: `Check failed: ${e}`, written: written.length }), { status: 502, headers: { "Content-Type": "application/json" } });
+  if (!kept.length) {
+    return new Response(JSON.stringify({ error: "No chains kept", written, dropped, errors }), { status: 502, headers: { "Content-Type": "application/json" } });
   }
 
   const perChain = kept.length ? cost / kept.length : 0;
@@ -185,7 +196,7 @@ serve(async (req) => {
     if (error) return new Response(JSON.stringify({ error: `Insert failed: ${error.message}` }), { status: 500, headers: { "Content-Type": "application/json" } });
   }
   return new Response(
-    JSON.stringify({ written: written.length, kept: kept.length, dropped, errors, cost_usd: Number(cost.toFixed(4)), titles: kept.map((c) => c.title) }),
+    JSON.stringify({ written, kept: kept.length, dropped, errors, cost_usd: Number(cost.toFixed(4)), titles: kept.map((c) => c.title) }),
     { headers: { "Content-Type": "application/json" } }
   );
 });
