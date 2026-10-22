@@ -476,6 +476,47 @@ serve(async (req) => {
       });
     }
 
+    // Hyfax threads (migration 0065/0066): new ones wait as pending until
+    // approved here; Spin a thread only offers approved ones.
+    if (action === "listChains") {
+      const { data, error } = await supabase
+        .from("hyfax_chains")
+        .select("id, title, steps, model, created_at")
+        .eq("status", "pending")
+        .order("created_at", { ascending: false })
+        .limit(60);
+      if (error) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ chains: data ?? [] }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "decideChain") {
+      const id = Number(body?.id);
+      const status = body?.decision === "approve" ? "approved" : body?.decision === "reject" ? "rejected" : null;
+      if (!Number.isInteger(id) || !status) {
+        return new Response(JSON.stringify({ error: "decideChain needs id and decision (approve|reject)" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { error } = await supabase.from("hyfax_chains").update({ status }).eq("id", id).eq("status", "pending");
+      if (error) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     return new Response(JSON.stringify({ error: `Unknown action "${action}"` }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -185,6 +185,42 @@ function quoteRowHtml(row: { topic: string; teaser: string }): string {
   </tr>`;
 }
 
+// The Hyfax of the Day (migration 0065): the day's four-step thread, first
+// in the email as it's first on the homepage. Same pick as the homepage
+// (src/lib/chains.js threadOfTheDay): approved threads in id order, one per
+// US Eastern calendar day in rotation.
+type HyfaxThread = { id: number; title: string; steps: { title: string; link?: string }[] };
+function nyDayNumber(date: Date): number {
+  const [y, m, d] = date.toLocaleDateString("en-CA", { timeZone: "America/New_York" }).split("-").map(Number);
+  return Math.floor(Date.UTC(y, m - 1, d) / 86_400_000);
+}
+async function threadOfTheDay(date: Date): Promise<HyfaxThread | null> {
+  const { data, error } = await supabase.from("hyfax_chains").select("id, title, steps").eq("status", "approved").order("id");
+  if (error) {
+    console.error("send-daily-digest: failed to read Hyfax threads", error);
+    return null;
+  }
+  const pool = (data || []).filter((c: HyfaxThread) => Array.isArray(c.steps) && c.steps.length === 4);
+  return pool.length ? pool[nyDayNumber(date) % pool.length] : null;
+}
+function threadRowHtml(thread: HyfaxThread): string {
+  const url = appUrl(`thread=${thread.id}`, "hyfax-of-the-day");
+  const steps = thread.steps
+    .map((st, i) => `<span style="display:block; font-size:14px; line-height:1.5; color:${i === 0 ? COLOR_TEXT_PRIMARY : COLOR_TEXT_MUTED}; margin-top:${i ? 6 : 0}px;"><span style="font-family:'Courier New',monospace; font-size:11px; color:${COLOR_ACCENT}; padding-right:8px;">${i + 1}</span>${escapeHtml(st.title)}</span>`)
+    .join("");
+  return `
+  <tr>
+    <td style="padding:0 40px 12px;">
+      <a href="${url}" style="display:block; text-decoration:none; background-color:${COLOR_CHIP_BG}; border:1px solid ${COLOR_ACCENT}; border-radius:16px; padding:20px;">
+        <span style="display:block; font-family:Georgia,'Times New Roman',serif; font-style:italic; font-size:22px; line-height:1.25; color:${COLOR_TEXT_PRIMARY};">${escapeHtml(thread.title)}</span>
+        <span style="display:block; font-size:13px; color:${COLOR_TEXT_MUTED}; margin:4px 0 14px;">Four steps on one thread</span>
+        ${steps}
+        <span style="display:block; margin-top:14px; font-size:14px; font-weight:600; color:${COLOR_ACCENT};">Follow the thread</span>
+      </a>
+    </td>
+  </tr>`;
+}
+
 // "Riddle me this...." — same click-to-find-out card as the hero page's
 // current design (see App.jsx: the multiple-choice guess was replaced with
 // a single reveal card). Tapping it goes straight to the real answer, same
@@ -305,13 +341,14 @@ function digestHtml(
     perspective: { field: string; topic: string; teaser: string } | null;
     riddle: { topic: string; teaser: string; riddle_game?: { clues?: RiddleClue[]; answers?: string[] } | null } | null;
     trending: { field: string; topic: string; teaser: string }[];
+    thread?: HyfaxThread | null;
   },
   asOfDate: Date | null,
   unsubscribeUrl: string,
   reason: string,
   streak = 0
 ): string {
-  const { quote, today, perspective, riddle, trending } = sections;
+  const { quote, today, perspective, riddle, trending, thread } = sections;
   // Its own order (below), not the hero page's: the email is a daily
   // ritual for people who already know Hyfax, so the riddle leads. Generic topicRowHtml card, same as Today's own
   // rows, rather than a bespoke treatment like quoteRowHtml/riddleRowHtml
@@ -322,6 +359,7 @@ function digestHtml(
     // The riddle leads (the daily reason to open it), then Trending's
     // "why it matters", Today and Perspective, and the quote signs off.
     asOfDate ? asOfHtml(asOfDate) : "",
+    thread ? sectionHeadingHtml("Hyfax of the Day") + threadRowHtml(thread) : "",
     riddle ? sectionHeadingHtml("Riddle me this....") + riddleRowHtml(riddle, streak) : "",
     trending.length ? sectionHeadingHtml("Trending") + trending.map(topicRowHtml).join("\n") : "",
     today.length ? sectionHeadingHtml("Today") + today.map(topicRowHtml).join("\n") : "",
@@ -338,7 +376,7 @@ function digestHtml(
           <td bgcolor="${COLOR_PAGE_BG}" style="background-color:${COLOR_PAGE_BG}; padding:32px 40px; text-align:center;">
             <div style="font-size:18px; font-weight:700; letter-spacing:3px; color:${COLOR_TEXT_PRIMARY};">HYFAX</div>
             <div style="margin-top:14px; font-size:15px; line-height:1.5; color:${COLOR_TEXT_PRIMARY};">
-              Good morning. Here's today's riddle, and a few things worth a look.
+              Good morning. Here's today's Hyfax thread, the riddle, and a few things worth a look.
             </div>
           </td>
         </tr>
@@ -370,12 +408,15 @@ type DigestSections = Parameters<typeof digestHtml>[0];
 // Plain-text twin of digestHtml, sent alongside it: an HTML-only email
 // reads as marketing to Gmail, and some readers prefer text anyway.
 function digestText(sections: DigestSections, asOfDate: Date | null, unsubscribeUrl: string, reason: string, streak = 0): string {
-  const { quote, today, perspective, riddle, trending } = sections;
+  const { quote, today, perspective, riddle, trending, thread } = sections;
   const topicUrl = (topic: string, section: string) => appUrl(`topic=${encodeURIComponent(topic)}`, section);
   const card = (row: { field: string; topic: string; teaser: string }) =>
     `${row.topic}\n${row.teaser}\n${topicUrl(row.topic, sectionOf(row.field))}`;
-  const parts: string[] = ["Good morning. Here's today's riddle, and a few things worth a look."];
+  const parts: string[] = ["Good morning. Here's today's Hyfax thread, the riddle, and a few things worth a look."];
   if (asOfDate) parts.push(asOfDate.toLocaleDateString("en-US", { month: "long", day: "numeric" }));
+  if (thread) {
+    parts.push(`HYFAX OF THE DAY\n${thread.title}\n${thread.steps.map((st, i) => `${i + 1}. ${st.title}`).join("\n")}\nFollow the thread: ${appUrl(`thread=${thread.id}`, "hyfax-of-the-day")}`);
+  }
   if (riddle) {
     const clues = riddle.riddle_game?.clues;
     parts.push(
@@ -605,7 +646,8 @@ serve(async (req) => {
     });
   }
 
-  const sections = { quote, today, perspective, riddle, trending };
+  const thread = await threadOfTheDay(new Date());
+  const sections = { quote, today, perspective, riddle, trending, thread };
   const subject = digestSubject(asOfDate);
   const streaks = riddle ? await riddleStreaks(recipients.filter((r) => !r.id.startsWith("subscriber:")).map((r) => r.id), riddle) : new Map();
   let sent = 0;
