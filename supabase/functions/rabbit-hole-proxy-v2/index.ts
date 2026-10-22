@@ -220,6 +220,13 @@ const MODEL = Deno.env.get("PROXY_MODEL") ?? "claude-haiku-4-5";
 // client still calling it. Overridable separately via ROOT_MODEL.
 const ROOT_MODEL = Deno.env.get("ROOT_MODEL") ?? MODEL;
 
+// The daily picks' pages, written ahead by the precompute job: a stronger
+// model than readers' own searches, since each one is written once and
+// read by every visitor that day, and Haiku was getting facts wrong (seen
+// live: "1 billion bacteria, several times the 8 billion people on
+// Earth"). Costs little: about 28 pages a day. PRECOMPUTE_MODEL overrides.
+const PRECOMPUTE_MODEL = Deno.env.get("PRECOMPUTE_MODEL") ?? "claude-sonnet-5";
+
 // Models the admin Tone Lab may switch to (see effectiveModel in serve()).
 const TONE_LAB_MODELS = new Set(["claude-sonnet-5", "claude-haiku-4-5", "claude-haiku-5-5"]);
 
@@ -1487,9 +1494,11 @@ serve(async (req) => {
     const effectiveModel =
       isAdmin && typeof modelOverride === "string" && TONE_LAB_MODELS.has(modelOverride)
         ? modelOverride
-        : endpoint === "root"
-          ? ROOT_MODEL
-          : MODEL;
+        : isPrecompute
+          ? PRECOMPUTE_MODEL
+          : endpoint === "root"
+            ? ROOT_MODEL
+            : MODEL;
     const { count, error: countError } = sessionCountResult;
     const { count: ipCount, error: ipCountError } = ipCountResult;
 
