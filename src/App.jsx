@@ -30,7 +30,7 @@ import LegalModal from "./LegalModal.jsx";
 import { articleUserPrompt, ARTICLE_MAX_TOKENS } from "./lib/articlePrompt.js";
 import { watchForNewBuild, reloadIfNewBuild } from "./lib/freshness.js";
 import { getVariant } from "./lib/variant.js";
-import { parseThreadPage, threadPagePlainText } from "./lib/threadPage.js";
+import { parseThreadPage, threadPagePlainText, hasPlaceholderHeaders } from "./lib/threadPage.js";
 import { nextSurpriseTopic } from "./lib/surpriseTopics.js";
 import UsageGauge from "./UsageGauge.jsx";
 import MiniGauge from "./MiniGauge.jsx";
@@ -1143,8 +1143,11 @@ export default function Hyfax() {
       node.article = stripMarkdown(cleanStrayBrackets(finalBody));
       node.articleStreaming = false;
       node.articleLoading = false;
-      if (articleCacheKey) writeNewsArticleCache(articleCacheKey, cacheText, nodeUsage, node.label);
-      if (nodeCacheKey) writeNodeArticleCache(nodeCacheKey, cacheText, nodeUsage);
+      // A page that copied the layout's placeholder words isn't saved, so
+      // the next reader gets a fresh one rather than a broken one.
+      const savable = !hasPlaceholderHeaders(finalBody);
+      if (articleCacheKey && savable) writeNewsArticleCache(articleCacheKey, cacheText, nodeUsage, node.label);
+      if (nodeCacheKey && savable) writeNodeArticleCache(nodeCacheKey, cacheText, nodeUsage);
       if (node.type === "root" && !node.resumed) {
         recordRoot(node);
         // Reddit Ads conversion tracking — the first successful topic page

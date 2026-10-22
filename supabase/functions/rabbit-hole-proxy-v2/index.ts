@@ -390,12 +390,15 @@ function withVoiceReference(system: unknown, model: string): unknown {
   return [...system, { type: "text", text, cache_control: { type: "ephemeral", ttl: "1h" } }];
 }
 
-// Puts the Haiku example articles (for whichever format the request asks
-// for) in front of a Haiku article request as earlier turns, with a cache
-// breakpoint on the last one so the whole fixed prefix (system + examples)
-// is a cache read on every later call.
+// Puts the example articles (for whichever format the request asks for)
+// in front of an article request as earlier turns, with a cache breakpoint
+// on the last one so the whole fixed prefix (system + examples) is a cache
+// read on every later call. Always for Haiku; for any other model in the
+// What / Why layout too, since Sonnet without them copied the layout's
+// placeholders ("WHY IT HAPPENS: Subtitle | Catch line") onto real pages.
 function withArticleExamples(messages: unknown, model: string, endpoint: string, system?: unknown): unknown {
-  if (!model.includes("haiku") || endpoint !== "article" || !Array.isArray(messages)) return messages;
+  if (endpoint !== "article" || !Array.isArray(messages)) return messages;
+  if (!model.includes("haiku") && !isThreadFormat(system)) return messages;
   const examples = isThreadFormat(system) ? HAIKU_ARTICLE_EXAMPLES : HAIKU_ARTICLE_EXAMPLES_LEGACY;
   const turns: unknown[] = [];
   examples.forEach((ex, i) => {

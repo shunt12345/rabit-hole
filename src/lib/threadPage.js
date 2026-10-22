@@ -78,6 +78,14 @@ export function parseThreadPage(raw) {
   return { structured: true, what, whys, paragraphs: [] };
 }
 
+// True when a page came back with the layout's own placeholder words in
+// its Why headers ("WHY IT HAPPENS: Subtitle | Catch line"), copied from
+// the instructions instead of written. Such a page isn't saved for other
+// readers (seen live from Sonnet before it was shown example pages).
+export function hasPlaceholderHeaders(raw) {
+  return /^\s*WHY IT (HAPPENS|MATTERS)\s*:\s*<?\s*subtitle\s*>?\s*\|/im.test(raw || "") || /\|\s*<?\s*catch line\s*>?\s*$/im.test(raw || "");
+}
+
 // The page as plain prose, for places that need text rather than layout:
 // a shared link's page, the "continue exploring" preview line, and the
 // expand prompt (so the Where cards go somewhere the page doesn't).

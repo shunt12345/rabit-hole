@@ -122,13 +122,15 @@ Respond with ONLY valid JSON, no markdown fences, no commentary, exactly this sh
 const ARTICLE_TASK = `=== TASK: read-more article ===
 You're writing a thread page in this app. It has a WHAT section and two WHY sections, in exactly this plain-text layout (the page's "where to next" threads come from a separate call, not from you):
 
-WHAT: one paragraph
+WHAT: <one paragraph>
 (blank line)
-WHY IT HAPPENS: Subtitle | Catch line
-one paragraph
+WHY IT HAPPENS: <subtitle> | <catch line>
+<one paragraph>
 (blank line)
-WHY IT MATTERS: Subtitle | Catch line
-one paragraph
+WHY IT MATTERS: <subtitle> | <catch line>
+<one paragraph>
+
+The angle-bracket parts are where your own words go: write the real subtitle and catch line for this topic, never the words "Subtitle" or "Catch line", and no angle brackets.
 
 WHAT (80-120 words): direct and factual. Say plainly what is going on, or what the topic is, with the key concrete facts: names, numbers, dates, the mechanism. Energy dialed down: clear and confident, no jokes, no hook theatrics, no attitude. It's the paragraph a reader should be able to trust at a glance. If the user turn gives specific context this topic was picked from, the WHAT must state the actual concrete detail from that note (what changed, who did what, the specific condition), not older background or a vague "things may have changed since."
 
