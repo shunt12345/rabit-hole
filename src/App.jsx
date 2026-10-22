@@ -32,6 +32,8 @@ import { watchForNewBuild, reloadIfNewBuild } from "./lib/freshness.js";
 import { getVariant } from "./lib/variant.js";
 import { parseThreadPage, threadPagePlainText, hasPlaceholderHeaders } from "./lib/threadPage.js";
 import { nextSurpriseTopic } from "./lib/surpriseTopics.js";
+import { fetchChainPool, nextChain, isChainTitle } from "./lib/chains.js";
+import ChainView from "./ChainView.jsx";
 import UsageGauge from "./UsageGauge.jsx";
 import MiniGauge from "./MiniGauge.jsx";
 import AdCard from "./AdCard.jsx";
@@ -296,6 +298,11 @@ const STARTER_QUESTIONS = [
 export default function Hyfax() {
   const [topic, setTopic] = useState("");
   const [inputVal, setInputVal] = useState("");
+  // Hyfax chains (lib/chains.js): Spin a thread puts a chain's title in the
+  // search box (spunChain), and Dig in on that title opens it (openChain).
+  const [chainPool, setChainPool] = useState([]);
+  const [spunChain, setSpunChain] = useState(null);
+  const [openChain, setOpenChain] = useState(null);
   // Whether inputVal currently holds a "Surprise me" pick rather than
   // something the reader typed themselves — just swaps the little link
   // below the input between "Surprise me" and "Spin again"; the actual
@@ -650,6 +657,55 @@ export default function Hyfax() {
       deepenError: null,
     }));
 
+  // Spin a thread: the next chain's title into the search box (the old
+  // single-topic list if no chains have loaded).
+  const spinThread = () => {
+    const chain = nextChain(chainPool, spunChain?.id);
+    if (chain) {
+      setInputVal(chain.title);
+      setSpunChain(chain);
+    } else {
+      setInputVal(nextSurpriseTopic());
+      setSpunChain(null);
+    }
+    setIsSurprise(true);
+  };
+  // The pool loads once; the home screen's search box arrives already
+  // holding a chain, ready to Dig in or spin past.
+  useEffect(() => {
+    fetchChainPool()
+      .then((pool) => {
+        setChainPool(pool);
+        if (nodesRef.current.length || openChainRef.current || inputValRef.current) return;
+        const chain = nextChain(pool);
+        if (!chain) return;
+        setInputVal(chain.title);
+        setSpunChain(chain);
+        setIsSurprise(true);
+      })
+      .catch((e) => console.warn("Hyfax: chains didn't load", e));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const openChainRef = useRef(null);
+  openChainRef.current = openChain;
+  const inputValRef = useRef("");
+  inputValRef.current = inputVal;
+  const showChain = (chain) => {
+    setOpenChain(chain);
+    setRootError(null);
+    const { sessionId } = touchSession();
+    trackEvent("tap", { page: `Thread · ${chain.title}`, sessionId });
+    window.scrollTo({ top: 0 });
+    if (heroRef.current) heroRef.current.scrollTop = 0;
+  };
+  // Digging into one step opens it as a full page, counted like any other.
+  // The chain is its context, and its pages are saved for everyone (a step
+  // is the same page whoever reaches it).
+  const digIntoChainStep = (chain, step, index) => {
+    setOpenChain(null);
+    startTopic(step.title, `Step ${index + 1} of the Hyfax thread "${chain.title}": ${step.why}`, "hyfax_thread");
+  };
+
   // Tapping the button always does this synchronously and immediately, regardless
   // of anything else — proves the click registered even if startTopic itself
   // fails in some unexpected way.
@@ -658,6 +714,10 @@ export default function Hyfax() {
     try {
       if (!inputVal.trim()) {
         setRootError("Type a topic first.");
+        return;
+      }
+      if (isChainTitle(inputVal, spunChain)) {
+        showChain(spunChain);
         return;
       }
       startTopic(inputVal, undefined, isSurprise ? "spin_a_thread" : "freeform");
@@ -1242,10 +1302,18 @@ export default function Hyfax() {
   const goHome = () => {
     if (reloadIfNewBuild()) return;
     reset();
+    // Home arrives with a fresh chain in the search box, like a first visit.
+    const chain = nextChain(chainPool);
+    if (chain) {
+      setInputVal(chain.title);
+      setSpunChain(chain);
+      setIsSurprise(true);
+    }
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const reset = () => {
+    setOpenChain(null);
     setPreviewByPage({});
     setOpenWhys({});
     prefetchedRef.current.clear();
@@ -1844,7 +1912,28 @@ export default function Hyfax() {
         </div>
       )}
 
-      {!showTopicPage && (
+      {!showTopicPage && openChain && (
+        <div ref={heroRef} className="flex-1 overflow-y-auto px-5 pt-6 pb-10">
+          <ChainView
+            key={openChain.id}
+            chain={openChain}
+            onDigIn={(step, i) => digIntoChainStep(openChain, step, i)}
+            onSpinAgain={() => {
+              const chain = nextChain(chainPool, openChain.id);
+              if (!chain) return;
+              setSpunChain(chain);
+              setInputVal(chain.title);
+              showChain(chain);
+            }}
+            onStepOpened={(i) => {
+              const { sessionId } = touchSession();
+              trackEvent("tap", { page: `Thread · ${openChain.title} · ${openChain.steps[i].title}`, sessionId });
+            }}
+          />
+        </div>
+      )}
+
+      {!showTopicPage && !openChain && (
         <div ref={heroRef} className="flex-1 flex flex-col items-center px-6 pt-10 md:pt-16 pb-10 overflow-y-auto">
           <div className="max-w-md w-full text-center rh-fade-in">
             {/* The brand's main line — home screen only. Each sentence
@@ -1873,8 +1962,7 @@ export default function Hyfax() {
                 <button
                   type="button"
                   onClick={() => {
-                    setInputVal(nextSurpriseTopic());
-                    setIsSurprise(true);
+                    spinThread();
                   }}
                   className="rh-body flex items-center gap-1.5 text-sm font-medium rounded-full px-5 py-3 transition-colors rh-btn-accent"
                   style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
@@ -2488,8 +2576,7 @@ export default function Hyfax() {
                     <button
                       type="button"
                       onClick={() => {
-                        setInputVal(nextSurpriseTopic());
-                        setIsSurprise(true);
+                        spinThread();
                       }}
                       className="rh-body flex items-center gap-1.5 text-sm font-medium rounded-full px-5 py-3 transition-colors rh-btn-accent"
                       style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
@@ -2502,6 +2589,11 @@ export default function Hyfax() {
                       e.preventDefault();
                       const t = inputVal.trim();
                       if (!t) return;
+                      if (isChainTitle(t, spunChain)) {
+                        reset();
+                        showChain(spunChain);
+                        return;
+                      }
                       startTopic(t, undefined, isSurprise ? "spin_a_thread" : "freeform");
                       setInputVal("");
                       setIsSurprise(false);
