@@ -113,6 +113,17 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
   const [streak, setStreak] = useState(0);
   const [shared, setShared] = useState(false);
   const openTimer = useRef(null);
+  // The letter boxes shrink so the longest word fits on one line of the
+  // card (28px wide at most, 4px apart), however narrow the screen.
+  const lettersRef = useRef(null);
+  const [lettersWidth, setLettersWidth] = useState(0);
+  useEffect(() => {
+    const el = lettersRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => setLettersWidth(entry.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const today = playDate(riddle);
 
   useEffect(() => {
@@ -223,6 +234,8 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
   const hintSpots = hintLetterPositions(riddle.topic);
   const maxHints = hintSpots.length;
   const shownLetters = new Set(hintSpots.slice(0, progress.hints));
+  const longestWord = Math.max(1, ...answerBlocks(riddle.topic).map((word) => word.length));
+  const box = lettersWidth ? Math.max(14, Math.min(28, Math.floor((lettersWidth - (longestWord - 1) * 4) / longestWord))) : 28;
   let letterIndex = -1;
 
   return (
@@ -258,13 +271,13 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
         {/* The answer's letters as blocks — how many letters, and words —
             with any letters the hints gave, all filled in once the riddle
             is over. */}
-        <div className="flex flex-wrap gap-x-4 gap-y-2 mb-4" aria-label={done ? riddle.topic : `${letterCount} letters`}>
+        <div ref={lettersRef} className="flex flex-wrap gap-x-4 gap-y-2 mb-4" aria-label={done ? riddle.topic : `${letterCount} letters`}>
           {answerBlocks(riddle.topic).map((word, w) => (
             <div key={w} className="flex gap-1">
               {word.map((b, i) => {
                 if (!b.blank) {
                   return (
-                    <span key={i} className="flex items-end rh-mono text-base" style={{ color: C.dim, height: "32px" }}>
+                    <span key={i} className="flex items-end rh-mono text-base" style={{ color: C.dim, height: `${Math.round(box * 1.15)}px` }}>
                       {b.ch}
                     </span>
                   );
@@ -274,10 +287,11 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
                 return (
                   <span
                     key={i}
-                    className={`flex items-center justify-center rounded-md rh-mono text-base font-semibold uppercase ${done || hinted ? "rh-fade-in" : ""}`}
+                    className={`flex items-center justify-center rounded-md rh-mono font-semibold uppercase ${done || hinted ? "rh-fade-in" : ""}`}
                     style={{
-                      width: "28px",
-                      height: "32px",
+                      width: `${box}px`,
+                      height: `${Math.round(box * 1.15)}px`,
+                      fontSize: `${Math.max(11, Math.round(box * 0.57))}px`,
                       // Bright enough to read as empty squares on the dark card.
                       border: `1.5px solid ${done || hinted ? C.accent : C.label}`,
                       backgroundColor: done ? C.bg : "#2E2318",
