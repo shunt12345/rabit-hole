@@ -84,7 +84,92 @@ export function renderCard({ title, line }) {
   );
 }
 
+// A Hyfax thread's card (/api/og?thread=<id>, from api/thread.js): only its
+// two ends, "From A to B", as on the homepage card. The steps in between
+// stay a surprise for whoever opens the link.
+function endSize(text) {
+  if (text.length <= 18) return 84;
+  if (text.length <= 26) return 72;
+  if (text.length <= 34) return 60;
+  return 50;
+}
+
+export function renderThreadCard({ from, to }) {
+  const small = { display: "flex", fontFamily: "JetBrains Mono", fontSize: 22, letterSpacing: 6, color: "#A89478" };
+  const big = (text) => h("div", { display: "flex", fontFamily: "Fraunces", fontStyle: "italic", fontWeight: 600, fontSize: endSize(text), lineHeight: 1.08, color: "#F1E6D3", maxWidth: 1060 }, text);
+  return new ImageResponse(
+    h(
+      "div",
+      {
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        padding: "48px 72px 52px",
+        backgroundColor: "#14100C",
+        backgroundImage: "radial-gradient(circle at 80% 15%, #2E2216 0%, #1A140E 45%, #100C09 100%)",
+        fontFamily: "Inter",
+        color: "#F1E6D3",
+      },
+      h(
+        "div",
+        { display: "flex", alignItems: "center", justifyContent: "space-between" },
+        { type: "img", props: { src: LOGO, width: 130, height: 68, style: { opacity: 0.95 } } },
+        h("div", { display: "flex", fontFamily: "JetBrains Mono", fontSize: 22, letterSpacing: 6, color: "#E3A73C" }, "A HYFAX THREAD")
+      ),
+      h(
+        "div",
+        { display: "flex", flexDirection: "column", borderLeft: "4px solid #E3A73C", paddingLeft: 36 },
+        h("div", small, "FROM"),
+        h("div", { display: "flex", marginTop: 6 }, big(from)),
+        h("div", { ...small, marginTop: 22 }, "TO"),
+        h("div", { display: "flex", marginTop: 6 }, big(to))
+      ),
+      h(
+        "div",
+        { display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: "2px solid rgba(227,167,60,0.45)", paddingTop: 22 },
+        h("div", { display: "flex", fontFamily: "Inter", fontWeight: 500, fontSize: 26, color: "#C9B896" }, "Four steps on one thread. How do you get there?"),
+        h("div", { display: "flex", fontFamily: "Fraunces", fontStyle: "italic", fontSize: 34, color: "#E3A73C" }, "hyfax.app")
+      )
+    ),
+    { width: 1200, height: 630, fonts: FONTS }
+  );
+}
+
+// Same split as splitThreadTitle in src/lib/chains.js.
+export function splitThreadTitle(title) {
+  const m = String(title || "").match(/^(.+?)\s+to\s+(.+)$/i);
+  return m ? { from: m[1].trim(), to: m[2].trim() } : { from: String(title || ""), to: "" };
+}
+
+async function threadHandler(req, res, id) {
+  let row = null;
+  if (/^[0-9]+$/.test(id)) {
+    try {
+      const apiRes = await fetch(`${SUPABASE_URL}/rest/v1/hyfax_chains?id=eq.${id}&select=title`, {
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+      });
+      if (apiRes.ok) row = (await apiRes.json())?.[0] ?? null;
+    } catch (e) {
+      console.error("api/og: thread fetch failed", e);
+    }
+  }
+  const ends = row && splitThreadTitle(row.title);
+  const card =
+    ends && ends.to
+      ? renderThreadCard(ends)
+      : renderCard({ title: row?.title || "Problem solving isn't linear. Neither is your learning." });
+  const png = Buffer.from(await card.arrayBuffer());
+  res.status(200);
+  res.setHeader("Content-Type", "image/png");
+  // Approved threads keep their title; a day's cache is plenty.
+  res.setHeader("Cache-Control", row ? "public, max-age=86400, s-maxage=604800" : "public, max-age=300");
+  res.end(png);
+}
+
 export default async function handler(req, res) {
+  if (typeof req.query?.thread === "string") return threadHandler(req, res, req.query.thread);
   const id = typeof req.query?.id === "string" ? req.query.id : "";
   let row = null;
   if (/^[A-Za-z0-9]+$/.test(id)) {

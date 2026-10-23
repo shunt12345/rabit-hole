@@ -5,6 +5,10 @@
       "destination": "/api/share?id=:id"
     },
     {
+      "source": "/t/:id",
+      "destination": "/api/thread?id=:id"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

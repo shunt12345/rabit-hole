@@ -65,12 +65,14 @@ const REVEAL_GAP_MS = 600; // at most one step per this, however fast the scroll
 
 export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened, onStepRevealed, onShared }) {
   const [open, setOpen] = useState({});
-  // Share: a link that opens this thread (?thread=<id>), through the phone's
+  // Share: a link that opens this thread (/t/<id>), through the phone's
   // share sheet, or copied where there isn't one. Only the A-to-B title
   // goes with it; the steps stay a surprise.
   const [shared, setShared] = useState(null); // null | "copied" | "error"
   const share = async () => {
-    const url = `${window.location.origin}/?thread=${chain.id}&utm_source=share&utm_content=thread`;
+    // /t/<id> (api/thread.js) gives the link its own preview card, then
+    // opens the thread in the app.
+    const url = `${window.location.origin}/t/${chain.id}`;
     const { from, to } = splitThreadTitle(chain.title);
     const title = to ? `From ${from} to ${to}` : chain.title;
     onShared?.();
