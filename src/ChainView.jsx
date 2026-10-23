@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import ThreadTitle from "./ThreadTitle.jsx";
-import { ChevronRight, Shuffle, ArrowRight, ChevronDown } from "lucide-react";
+import { ChevronRight, Shuffle, ArrowRight, ChevronDown, Share2, Check } from "lucide-react";
+import { splitThreadTitle } from "./lib/chains.js";
 
 // A Hyfax chain (lib/chains.js): four topics on one thread, each an indirect
 // leap from the one before. Every step opens in place for a deeper
@@ -22,8 +23,31 @@ const KINDS = {
 const REVEAL_LINE = 0.5; // how far up the screen the hint has to rise (0 = top)
 const REVEAL_GAP_MS = 600; // at most one step per this, however fast the scroll
 
-export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened, onStepRevealed }) {
+export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened, onStepRevealed, onShared }) {
   const [open, setOpen] = useState({});
+  // Share: a link that opens this thread (?thread=<id>), through the phone's
+  // share sheet, or copied where there isn't one. Only the A-to-B title
+  // goes with it; the steps stay a surprise.
+  const [shared, setShared] = useState(null); // null | "copied" | "error"
+  const share = async () => {
+    const url = `${window.location.origin}/?thread=${chain.id}&utm_source=share&utm_content=thread`;
+    const { from, to } = splitThreadTitle(chain.title);
+    const title = to ? `From ${from} to ${to}` : chain.title;
+    onShared?.();
+    try {
+      if (navigator.share) {
+        await navigator.share({ title, url });
+      } else {
+        await navigator.clipboard.writeText(url);
+        setShared("copied");
+        setTimeout(() => setShared(null), 2000);
+      }
+    } catch (e) {
+      if (e?.name === "AbortError") return; // share sheet dismissed
+      setShared("error");
+      setTimeout(() => setShared(null), 2000);
+    }
+  };
   const [revealed, setRevealed] = useState(1);
   const hintRef = useRef(null);
   const lastRevealRef = useRef(0);
@@ -76,6 +100,31 @@ export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened, o
 
   return (
     <div className="max-w-md w-full mx-auto rh-fade-in">
+      <div className="flex justify-end mb-2">
+        <button
+          type="button"
+          onClick={share}
+          aria-label="Share"
+          className="flex items-center gap-1.5 rh-mono rh-text-10 uppercase tracking-wider rounded-full border font-semibold px-3 py-1.5 transition-colors"
+          style={{
+            borderColor: shared === "error" ? "#D98A6E" : "#E3A73C",
+            color: shared === "error" ? "#D98A6E" : "#E3A73C",
+            backgroundColor: shared === "copied" ? "#E3A73C22" : "transparent",
+          }}
+        >
+          {shared === "copied" ? (
+            <>
+              <Check size={13} /> Link copied
+            </>
+          ) : shared === "error" ? (
+            "Couldn't share"
+          ) : (
+            <>
+              <Share2 size={13} /> Share
+            </>
+          )}
+        </button>
+      </div>
       <div className="text-center mb-6">
         <div className="rh-mono rh-text-10 uppercase tracking-widest mb-2" style={{ color: "#E3A73C" }}>
           A Hyfax thread

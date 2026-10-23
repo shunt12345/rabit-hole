@@ -1934,6 +1934,10 @@ export default function Hyfax() {
               setInputVal(chain.title);
               showChain(chain);
             }}
+            onShared={() => {
+              const { sessionId } = touchSession();
+              trackEvent("tap", { page: `Thread · ${openChain.title} · share`, sessionId });
+            }}
             onStepRevealed={(i) => {
               const { sessionId } = touchSession();
               trackEvent("scroll_continue", { page: `Thread · ${openChain.title} · step ${i + 1}`, sessionId });
