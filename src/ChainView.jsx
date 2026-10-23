@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import ThreadTitle from "./ThreadTitle.jsx";
 import { ChevronRight, Shuffle, ArrowRight, ChevronDown, Share2, Check } from "lucide-react";
 import { splitThreadTitle } from "./lib/chains.js";
@@ -20,6 +20,46 @@ const KINDS = {
 // down past the "keep scrolling" line reveals the next step, so the leaps
 // are discovered one at a time rather than given away. Tapping the line
 // reveals it too.
+// On a wide screen the steps zigzag (left, right, left, right), each a
+// little over half the width, joined by a curved line carrying the leap's
+// label, so the thread fills the screen. Phones keep the single column.
+const SIDE_WIDTH = "md:w-[56%]";
+function sideClass(i) {
+  return `${SIDE_WIDTH} ${i % 2 ? "md:ml-auto" : ""}`;
+}
+// The curve from step i-1's side to step i's (centres at 28% and 72%).
+function WideConnector({ toRight, label, dashed = false }) {
+  const [a, b] = toRight ? [28, 72] : [72, 28];
+  return (
+    <div className="hidden md:block relative h-16" aria-hidden="true">
+      <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 64" preserveAspectRatio="none">
+        <path
+          d={`M${a} 0 C${a} 34, ${b} 30, ${b} 64`}
+          fill="none"
+          stroke={dashed ? "rgba(227,167,60,0.45)" : "rgba(227,167,60,0.6)"}
+          strokeWidth="2"
+          strokeDasharray={dashed ? "6 6" : undefined}
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+      {!dashed && (
+        <span
+          className="absolute -bottom-1 w-2.5 h-2.5 rounded-full -translate-x-1/2"
+          style={{ left: `${b}%`, backgroundColor: "#E3A73C", boxShadow: "0 0 10px rgba(227,167,60,0.8)" }}
+        />
+      )}
+      {label && (
+        <span
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rh-mono rh-text-10 uppercase tracking-wider px-2 whitespace-nowrap"
+          style={{ color: "#8A7A62", backgroundColor: "#14100C" }}
+        >
+          {label}
+        </span>
+      )}
+    </div>
+  );
+}
+
 const REVEAL_LINE = 0.5; // how far up the screen the hint has to rise (0 = top)
 const REVEAL_GAP_MS = 600; // at most one step per this, however fast the scroll
 
@@ -99,7 +139,7 @@ export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened, o
   };
 
   return (
-    <div className="max-w-md w-full mx-auto rh-fade-in">
+    <div className="max-w-md md:max-w-4xl w-full mx-auto rh-fade-in">
       <div className="flex justify-end mb-2">
         <button
           type="button"
@@ -142,9 +182,11 @@ export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened, o
         const main = i === 0;
         const kind = KINDS[step.kind] || KINDS.indirect;
         return (
-          <div key={i} className={i > 0 ? "rh-fade-in" : undefined}>
+          <Fragment key={i}>
+            {i > 0 && <WideConnector toRight={i % 2 === 1} label={step.link} />}
+            <div className={`${i > 0 ? "rh-fade-in" : ""} ${sideClass(i)}`}>
             {i > 0 && (
-              <div className="relative ml-8 h-9" aria-hidden="true">
+              <div className="relative ml-8 h-9 md:hidden" aria-hidden="true">
                 <span className="absolute left-0 top-0 bottom-0 border-l-2" style={{ borderColor: "rgba(227,167,60,0.6)" }} />
                 <span className="absolute -left-1 -bottom-0.5 w-2.5 h-2.5 rounded-full" style={{ backgroundColor: "#E3A73C", boxShadow: "0 0 10px rgba(227,167,60,0.8)" }} />
                 <span className="absolute left-4 top-2.5 rh-mono rh-text-10 uppercase tracking-wider" style={{ color: "#8A7A62" }}>
@@ -194,7 +236,8 @@ export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened, o
                 </div>
               )}
             </div>
-          </div>
+            </div>
+          </Fragment>
         );
       })}
 
@@ -202,9 +245,11 @@ export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened, o
         // Room to scroll into, so the next step can be reached even when
         // the page so far fits on the screen.
         <div ref={hintRef} style={{ minHeight: "75vh" }}>
-          <div className="relative ml-8 h-9" aria-hidden="true">
+          <WideConnector toRight={revealed % 2 === 1} dashed />
+          <div className="relative ml-8 h-9 md:hidden" aria-hidden="true">
             <span className="absolute left-0 top-0 bottom-0 border-l-2 border-dashed" style={{ borderColor: "rgba(227,167,60,0.45)" }} />
           </div>
+          <div className={sideClass(revealed)}>
           <button
             type="button"
             onClick={reveal}
@@ -213,6 +258,7 @@ export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened, o
           >
             Keep scrolling to reveal step {revealed + 1} <ChevronDown size={16} className="rh-nudge" />
           </button>
+          </div>
         </div>
       ) : (
       <div className="mt-8 pt-5 border-t text-center rh-fade-in" style={{ borderColor: "#3A2E20" }}>
