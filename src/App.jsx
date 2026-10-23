@@ -699,7 +699,31 @@ export default function Hyfax() {
   openChainRef.current = openChain;
   const inputValRef = useRef("");
   inputValRef.current = inputVal;
+  // Opening a thread counts as one of the day's free pages, like any other
+  // page (claimPage: logged by the proxy, no generation). Out of free pages,
+  // it opens the sign-up (or add-funds) offer instead; a thread already
+  // opened since the page loaded doesn't count twice.
+  const countedChainsRef = useRef(new Set());
   const showChain = (chain) => {
+    if (!countedChainsRef.current.has(chain.id)) {
+      if (trialExhaustedRef.current) {
+        openAccountModal();
+        return;
+      }
+      countedChainsRef.current.add(chain.id);
+      setTrialStatus((prev) => ({ ...prev, searchesUsed: Math.min(prev.searchesUsed + 1, prev.searchLimit) }));
+      claimPage({ nodeCacheKey: `thread:${chain.id}` })
+        .catch((e) => {
+          // Refused (the free pages ran out first): back to the home page
+          // and its free-limit offer.
+          if (e instanceof TrialExhaustedError) {
+            countedChainsRef.current.delete(chain.id);
+            setOpenChain((open) => (open?.id === chain.id ? null : open));
+            openAccountModal();
+          }
+        })
+        .finally(() => syncActionsToday());
+    }
     setOpenChain(chain);
     setRootError(null);
     const { sessionId } = touchSession();
