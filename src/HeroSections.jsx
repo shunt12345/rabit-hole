@@ -24,13 +24,18 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
   // Which card was tapped ("quote", "today-0", "news-1", ...).
   const [selectedKey, setSelectedKey] = useState(null);
 
+  // On a wide screen (lg) the sections sit in a two-column grid so the page
+  // fills the screen: the Hyfax of the Day beside the riddle, the two
+  // Trending stories side by side, then Today's two, then Perspective
+  // beside the quote. The lg:order classes set that order; phones and
+  // small tablets keep the single column in page order.
   return (
-    <>
+    <div className="lg:grid lg:grid-cols-2 lg:gap-x-6 lg:items-start">
       {/* Date badge — the whole batch's freshness, once, up front. Uses
           the most recent publish across every field, since they all
           refresh together on the same once-daily cron. */}
       {trendingTopics.length > 0 && (
-        <div className="mt-10 rh-mono text-lg font-semibold" style={{ color: "#E3A73C" }}>
+        <div className="mt-10 rh-mono text-lg font-semibold lg:col-span-2 lg:order-1" style={{ color: "#E3A73C" }}>
           {mostRecentDate(trendingTopics).toLocaleDateString(undefined, {
             month: "long",
             day: "numeric",
@@ -47,7 +52,7 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
           data-precompute="hero"
           onClick={() => onOpenThread(threadOfDay)}
           disabled={rootLoading}
-          className="rh-chip mt-3 w-full max-w-md mx-auto text-left p-5 rounded-2xl border-2 transition-colors block"
+          className="rh-chip mt-3 w-full max-w-md lg:max-w-none mx-auto text-left p-5 rounded-2xl border-2 transition-colors block lg:order-2"
           style={{ borderColor: "#E3A73C", background: "linear-gradient(160deg,#2E2216,#1F1811)" }}
         >
           <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
@@ -72,13 +77,13 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
       {/* Trending: real, live-searched stories (see
           supabase/functions/generate-trending-topics). */}
       {newsTopics.length > 0 && visible.news && (
-        <div className="mt-3">
+        <div className="mt-3 lg:mt-10 lg:col-span-2 lg:order-4">
           <div className="flex items-center justify-center gap-1.5 mb-6">
             <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
               Trending
             </span>
           </div>
-          <div className="flex flex-col gap-3 max-w-md mx-auto">
+          <div className="flex flex-col gap-3 max-w-md mx-auto lg:grid lg:grid-cols-2 lg:gap-6 lg:max-w-none">
             {newsTopics.map((t, i) => {
               const isSelected = selectedKey === `news-${i}`;
               return (
@@ -126,6 +131,7 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
       {riddleTopic && visible.riddle && riddleTopic.riddle_game && (
         <RiddleGame
           riddle={riddleTopic}
+          className="lg:order-3 lg:mt-3"
           user={user}
           onSignUp={onSignUp}
           disabled={rootLoading}
@@ -147,14 +153,14 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
         />
       )}
       {riddleTopic && visible.riddle && !riddleTopic.riddle_game && (
-        <div className="mt-10">
-          <div className="flex items-center justify-center gap-1.5 mb-6">
+        <div className="mt-10 lg:order-3 lg:mt-3">
+          <div className="flex items-center justify-center gap-1.5 mb-6 lg:hidden">
             <HelpCircle size={14} style={{ color: "#C9B896" }} />
             <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
               Riddle me this....
             </span>
           </div>
-          <div className="max-w-md mx-auto">
+          <div className="max-w-md mx-auto lg:max-w-none">
             <button
               data-precompute="hero"
               type="button"
@@ -179,7 +185,7 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
         </div>
       )}
 
-      {adSlot}
+      {adSlot && <div className="lg:col-span-2 lg:order-5">{adSlot}</div>}
 
       {/* "Today" — This Day In History + Word Of The Day, same
           source table and card treatment as "Trending"
@@ -187,13 +193,13 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
           See promptForField in supabase/functions/generate-trending-topics.
           Same funded-only gate as "Trending" below. */}
       {todayTopics.length > 0 && visible.today && (
-        <div className="mt-10">
+        <div className="mt-10 lg:col-span-2 lg:order-6">
           <div className="flex items-center justify-center gap-1.5 mb-6">
             <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
               Today
             </span>
           </div>
-          <div className="flex flex-col gap-3 max-w-md mx-auto">
+          <div className="flex flex-col gap-3 max-w-md mx-auto lg:grid lg:grid-cols-2 lg:gap-6 lg:max-w-none">
             {todayTopics.map((t, i) => {
               const isSelected = selectedKey === `today-${i}`;
               return (
@@ -250,13 +256,13 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
           whole new one for a single field, same call Quote Of The
           Day already made. */}
       {perspectiveTopic && visible.today && (
-        <div className="mt-10">
+        <div className="mt-10 lg:order-7 lg:self-stretch lg:flex lg:flex-col">
           <div className="flex items-center justify-center gap-1.5 mb-6">
             <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
               Perspective
             </span>
           </div>
-          <div className="max-w-md mx-auto">
+          <div className="max-w-md mx-auto lg:max-w-none lg:w-full lg:flex-1">
             <button
               data-precompute="hero"
               type="button"
@@ -265,7 +271,7 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
                 onStartTopic(perspectiveTopic.topic, perspectiveTopic.teaser, PERSPECTIVE_FIELD);
               }}
               disabled={rootLoading}
-              className={`rh-chip text-left p-4 rounded-2xl border transition-colors w-full ${
+              className={`rh-chip text-left p-4 rounded-2xl border transition-colors w-full lg:h-full ${
                 rootLoading && !selectedKey === "perspective" ? "opacity-40" : ""
               } ${rootLoading && selectedKey === "perspective" ? "cursor-default" : ""}`}
               style={{
@@ -303,13 +309,13 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
           real history, significance, and author (see ARTICLE_TASK's
           dedicated Quote Of The Day guidance in hyfaxSystemPrompt.js). */}
       {quoteTopic && visible.today && (
-        <div className="mt-10">
+        <div className="mt-10 lg:order-8 lg:self-stretch lg:flex lg:flex-col">
           <div className="flex items-center justify-center gap-1.5 mb-6">
             <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: "#C9B896" }}>
               Quote of the Day
             </span>
           </div>
-          <div className="max-w-md mx-auto">
+          <div className="max-w-md mx-auto lg:max-w-none lg:w-full lg:flex-1">
             <button
               data-precompute="hero"
               type="button"
@@ -318,7 +324,7 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
                 onStartTopic(quoteTopic.topic, quoteTopic.teaser, QUOTE_FIELD);
               }}
               disabled={rootLoading}
-              className={`rh-chip text-left p-5 rounded-2xl border transition-colors w-full ${
+              className={`rh-chip text-left p-5 rounded-2xl border transition-colors w-full lg:h-full ${
                 rootLoading && selectedKey !== "quote" ? "opacity-40" : ""
               } ${rootLoading && selectedKey === "quote" ? "cursor-default" : ""}`}
               style={{
@@ -340,6 +346,6 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
         </div>
       )}
 
-    </>
+    </div>
   );
 }

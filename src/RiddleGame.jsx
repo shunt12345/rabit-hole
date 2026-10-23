@@ -104,7 +104,7 @@ function threadScore(hints) {
   return "🧵".repeat(3 - hints) + "⬜".repeat(hints);
 }
 
-export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disabled }) {
+export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disabled, className = "" }) {
   const game = riddle.riddle_game;
   const key = riddle.preview ? `preview-${riddle.id}` : riddle.id;
   const [progress, setProgress] = useState(() => loadProgress(key));
@@ -226,22 +226,24 @@ export default function RiddleGame({ riddle, user, onSignUp, onOpenAnswer, disab
   let letterIndex = -1;
 
   return (
-    <div className="mt-10" id="riddle" ref={cardRef}>
-      <div className="flex items-center justify-center gap-1.5 mb-6">
+    <div className={`mt-10 ${className}`} id="riddle" ref={cardRef}>
+      {/* Beside the Hyfax of the Day on a wide screen, where "What am I?"
+          is title enough. */}
+      <div className="flex items-center justify-center gap-1.5 mb-6 lg:hidden">
         <HelpCircle size={14} style={{ color: C.label }} />
         <span className="rh-mono text-sm uppercase tracking-wider" style={{ color: C.label }}>
           Riddle me this....
         </span>
       </div>
       {riddle.preview && (
-        <div className="max-w-md mx-auto mb-2 flex items-center justify-between rounded-xl border px-3 py-2 rh-body text-xs" style={{ borderColor: C.accent, color: C.accent }}>
+        <div className="max-w-md lg:max-w-none mx-auto mb-2 flex items-center justify-between rounded-xl border px-3 py-2 rh-body text-xs" style={{ borderColor: C.accent, color: C.accent }}>
           <span>Preview — not live. Nothing you do here is saved.</span>
           <button type="button" onClick={() => update(emptyProgress())} className="underline">
             Reset
           </button>
         </div>
       )}
-      <div className="max-w-md mx-auto text-left p-5 rounded-2xl border" style={{ borderColor: C.border, backgroundColor: C.card }}>
+      <div className="max-w-md lg:max-w-none mx-auto text-left p-5 rounded-2xl border" style={{ borderColor: C.border, backgroundColor: C.card }}>
         <div className="flex items-baseline justify-between mb-3">
           <h3 className="rh-display italic text-2xl" style={{ color: C.text }}>
             What am I?

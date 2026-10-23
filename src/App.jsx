@@ -1952,7 +1952,10 @@ export default function Hyfax() {
 
       {!showTopicPage && !openChain && (
         <div ref={heroRef} className="flex-1 flex flex-col items-center px-6 pt-10 md:pt-16 pb-10 overflow-y-auto">
-          <div className="max-w-md w-full text-center rh-fade-in">
+          {/* Wide screens (lg) widen the page for HeroSections' two-column
+              grid; the headline, Spin and search stay in the narrow column. */}
+          <div className="max-w-md lg:max-w-5xl w-full text-center rh-fade-in">
+            <div className="max-w-md mx-auto">
             {/* The brand's main line — home screen only. Each sentence
                 stays whole, so a narrow screen breaks after "linear." */}
             <h2 className="rh-display rh-hero-headline italic mb-8" style={{ color: "#F1E6D3" }}>
@@ -2033,6 +2036,7 @@ export default function Hyfax() {
                 <AlertCircle size={13} /> {rootError}
               </div>
             )}
+            </div>
 
             {/* Browser-local "continue exploring" hook (see
                 lib/exploredHistory.js) — resurfaces topics already dug
