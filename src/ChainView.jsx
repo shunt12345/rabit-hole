@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import ThreadTitle from "./ThreadTitle.jsx";
 import { ChevronRight, Shuffle, ArrowRight, ChevronDown } from "lucide-react";
 
 // A Hyfax chain (lib/chains.js): four topics on one thread, each an indirect
@@ -79,10 +80,10 @@ export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened, o
         <div className="rh-mono rh-text-10 uppercase tracking-widest mb-2" style={{ color: "#E3A73C" }}>
           A Hyfax thread
         </div>
-        <h2 className="rh-display text-3xl italic leading-tight" style={{ color: "#F1E6D3" }}>
-          {chain.title}
+        <h2 aria-label={chain.title}>
+          <ThreadTitle title={chain.title} size="text-3xl" align="center" />
         </h2>
-        <div className="rh-body text-sm mt-1" style={{ color: "#A89478" }}>
+        <div className="rh-body text-sm mt-3" style={{ color: "#A89478" }}>
           Four steps on one thread
         </div>
       </div>

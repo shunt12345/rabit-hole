@@ -204,14 +204,25 @@ async function threadOfTheDay(date: Date): Promise<HyfaxThread | null> {
   const pool = (data || []).filter((c: HyfaxThread) => Array.isArray(c.steps) && c.steps.length === 4);
   return pool.length ? pool[nyDayNumber(date) % pool.length] : null;
 }
+// The title as its two ends, stacked as on the homepage: a small "From",
+// the first topic large, a small "to", then the second topic large.
+function threadTitleHtml(title: string): string {
+  const m = title.match(/^(.+?)\s+to\s+(.+)$/i);
+  const small = (t: string, top: number) =>
+    `<span style="display:block; font-family:'Courier New',monospace; font-size:11px; letter-spacing:3px; text-transform:uppercase; color:${COLOR_TEXT_MUTED}; margin-top:${top}px;">${t}</span>`;
+  const big = (t: string) =>
+    `<span style="display:block; font-family:Georgia,'Times New Roman',serif; font-style:italic; font-size:24px; line-height:1.2; color:${COLOR_TEXT_PRIMARY};">${escapeHtml(t)}</span>`;
+  return m ? small("From", 0) + big(m[1].trim()) + small("to", 6) + big(m[2].trim()) : big(title);
+}
+
 function threadRowHtml(thread: HyfaxThread): string {
   const url = appUrl(`thread=${thread.id}`, "hyfax-of-the-day");
   return `
   <tr>
     <td style="padding:0 40px 12px;">
       <a href="${url}" style="display:block; text-decoration:none; background-color:${COLOR_CHIP_BG}; border:1px solid ${COLOR_ACCENT}; border-radius:16px; padding:20px;">
-        <span style="display:block; font-family:Georgia,'Times New Roman',serif; font-style:italic; font-size:22px; line-height:1.25; color:${COLOR_TEXT_PRIMARY};">${escapeHtml(thread.title)}</span>
-        <span style="display:block; font-size:13px; color:${COLOR_TEXT_MUTED}; margin-top:4px;">Four steps on one thread. How do you get from one to the other?</span>
+        ${threadTitleHtml(thread.title)}
+        <span style="display:block; font-size:13px; color:${COLOR_TEXT_MUTED}; margin-top:12px;">Four steps on one thread. How do you get from one to the other?</span>
         <span style="display:block; margin-top:14px; font-size:14px; font-weight:600; color:${COLOR_ACCENT};">Follow the thread</span>
       </a>
     </td>

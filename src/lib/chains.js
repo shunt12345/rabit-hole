@@ -53,6 +53,13 @@ export function threadOfTheDay(pool, date = new Date()) {
   return ordered[nyDayNumber(date) % ordered.length];
 }
 
+// "Coin Flips to Encrypted Bank Transfers" as its two ends, for the
+// From / to layout. A title without " to " keeps it all as the start.
+export function splitThreadTitle(title) {
+  const m = String(title || "").match(/^(.+?)\s+to\s+(.+)$/i);
+  return m ? { from: m[1].trim(), to: m[2].trim() } : { from: String(title || ""), to: "" };
+}
+
 export function isChainTitle(text, chain) {
   return !!chain && text.trim().toLowerCase() === chain.title.trim().toLowerCase();
 }

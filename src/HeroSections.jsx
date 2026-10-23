@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { HelpCircle } from "lucide-react";
 import RiddleGame from "./RiddleGame.jsx";
+import ThreadTitle from "./ThreadTitle.jsx";
 import SourceCredit from "./SourceCredit.jsx";
 import {
   heroPicks,
@@ -52,10 +53,10 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
           <span className="rh-mono text-xs uppercase tracking-wider font-semibold" style={{ color: "#E3A73C" }}>
             Hyfax of the Day
           </span>
-          <span className="block rh-display italic text-2xl leading-tight mt-1.5" style={{ color: "#F1E6D3" }}>
-            {threadOfDay.title}
+          <span className="block mt-3">
+            <ThreadTitle title={threadOfDay.title} />
           </span>
-          <span className="block rh-body text-sm mt-1" style={{ color: "#A89478" }}>
+          <span className="block rh-body text-sm mt-3" style={{ color: "#A89478" }}>
             Four steps on one thread
           </span>
           <span className="block rh-body text-sm font-semibold mt-3" style={{ color: "#E3A73C" }}>
