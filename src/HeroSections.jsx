@@ -45,7 +45,7 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
 
       {/* The Hyfax of the Day (lib/chains.js): the day's four-step thread,
           first thing on the page. Only its "A to B" title: the steps in
-          between are the fun of opening it. Reading it costs no searches. */}
+          between are the fun of opening it. Opening it counts as one page. */}
       {threadOfDay && (
         <button
           type="button"

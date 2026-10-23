@@ -6,7 +6,7 @@ import { splitThreadTitle } from "./lib/chains.js";
 // A Hyfax chain (lib/chains.js): four topics on one thread, each an indirect
 // leap from the one before. Every step opens in place for a deeper
 // explanation, and can be dug into as its own Hyfax page. Pre-written, so
-// reading a chain costs no searches; digging into a step counts like any
+// opening a chain counts as one page (showChain in App.jsx); digging into a step counts like any
 // other page.
 // The leap's kind, as on the Where cards: an indirect leap shares a
 // mechanism, a tangent side-steps through a looser real link. Chains

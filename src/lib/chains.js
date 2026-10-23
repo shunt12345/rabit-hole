@@ -1,7 +1,7 @@
 // Hyfax chains (migration 0065): four topics on one thread, written ahead in
 // a daily batch. Spin a thread puts a chain's title in the homepage search
 // box; Dig in opens the chain (ChainView.jsx). Reading the pool is a plain
-// anon read, so a spin is instant and never costs a search.
+// anon read, so a spin is instant and free; opening a chain counts as a page.
 
 const POOL_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/hyfax_chains?select=id,title,steps&status=eq.approved&order=created_at.desc&limit=150`;
 const SEEN_KEY = "hyfax-chains-seen";
