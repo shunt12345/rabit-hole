@@ -98,6 +98,9 @@ export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened, o
     if (revealed >= total) return;
     lastRevealRef.current = Date.now();
     onStepRevealed?.(revealed);
+    // The step just passed opens its deeper explanation as the next one
+    // appears (not tracked as a tap: the reader didn't choose it).
+    setOpen((prev) => ({ ...prev, [revealed - 1]: true }));
     setRevealed(revealed + 1);
   };
   // A scroll down marks the next step as wanted; it appears once the hint
