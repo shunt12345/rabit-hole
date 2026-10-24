@@ -107,22 +107,33 @@ export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened, o
   // has risen past REVEAL_LINE and the last reveal is REVEAL_GAP_MS old,
   // checked again after the gap so a scroll that hit the bottom of the
   // page during it still counts.
+  // Once every step is out, the same scroll opens the last step's deeper
+  // explanation, since there's no next step to do it.
+  const lastRef = useRef(null);
+  // Stays true once it has opened, so closing it again doesn't bring back
+  // the scroll room or reopen it.
+  const lastOpenedRef = useRef(false);
+  if (open[total - 1]) lastOpenedRef.current = true;
+  const lastOpen = lastOpenedRef.current;
   const wantedRef = useRef(false);
   useEffect(() => {
-    const scroller = hintRef.current?.closest(".overflow-y-auto") || window;
+    const target = () => (revealed < total ? hintRef.current : lastOpen ? null : lastRef.current);
+    const scroller = (hintRef.current || lastRef.current)?.closest(".overflow-y-auto") || window;
     let lastTop = scroller === window ? window.scrollY : scroller.scrollTop;
     let timer = null;
     const check = () => {
-      if (!wantedRef.current || !hintRef.current) return;
+      const el = target();
+      if (!wantedRef.current || !el) return;
       const wait = REVEAL_GAP_MS - (Date.now() - lastRevealRef.current);
       if (wait > 0) {
         clearTimeout(timer);
         timer = setTimeout(check, wait);
         return;
       }
-      if (hintRef.current.getBoundingClientRect().top < window.innerHeight * REVEAL_LINE) {
+      if (el.getBoundingClientRect().top < window.innerHeight * REVEAL_LINE) {
         wantedRef.current = false;
-        reveal();
+        if (revealed < total) reveal();
+        else setOpen((prev) => ({ ...prev, [total - 1]: true }));
       }
     };
     const onScroll = () => {
@@ -189,7 +200,7 @@ export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened, o
         return (
           <Fragment key={i}>
             {i > 0 && <WideConnector toRight={i % 2 === 1} label={step.link} />}
-            <div className={`${i > 0 ? "rh-fade-in" : ""} ${sideClass(i)}`}>
+            <div ref={i === total - 1 ? lastRef : undefined} className={`${i > 0 ? "rh-fade-in" : ""} ${sideClass(i)}`}>
             {i > 0 && (
               <div className="relative ml-8 h-9 md:hidden" aria-hidden="true">
                 <span className="absolute left-0 top-0 bottom-0 border-l-2" style={{ borderColor: "rgba(227,167,60,0.6)" }} />
@@ -266,7 +277,8 @@ export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened, o
           </div>
         </div>
       ) : (
-      <div className="mt-8 pt-5 border-t text-center rh-fade-in" style={{ borderColor: "#3A2E20" }}>
+      // Room to keep scrolling until the last step has opened.
+      <div className="mt-8 pt-5 border-t text-center rh-fade-in" style={{ borderColor: "#3A2E20", minHeight: lastOpen ? undefined : "60vh" }}>
         <p className="rh-body text-sm mb-4" style={{ color: "#A89478" }}>
           Tap any step to go deeper.
         </p>
