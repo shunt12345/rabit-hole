@@ -49,7 +49,6 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
       {threadOfDay && (
         <button
           type="button"
-          data-precompute="hero"
           onClick={() => onOpenThread(threadOfDay)}
           disabled={rootLoading}
           className="rh-chip mt-3 w-full max-w-md lg:max-w-none mx-auto text-left p-5 rounded-2xl border-2 transition-colors block lg:order-2"

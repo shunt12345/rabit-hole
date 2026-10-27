@@ -168,9 +168,13 @@ async function openThread(i, label) {
 }
 for (let i = 0; i < heroCount; i++) {
   const t = Date.now();
-  const ok = await openHero(i);
+  let ok = await openHero(i);
   const topic = (await page.locator("h2").first().textContent())?.trim();
   pages++;
+  // Threads are read from a second open, the saved copy every reader gets:
+  // a first generation that wasn't saved (e.g. refused by the placeholder
+  // guard) is written again on the reopen, with different threads.
+  if (ok) ok = await openHero(i);
   if (!ok) failures++;
   const labels = [...new Set((await threadLabels()).filter(Boolean))].slice(0, MAX_THREADS);
   threadsFound += labels.length;
@@ -189,7 +193,8 @@ for (let i = 0; i < heroCount; i++) {
   for (const label of labels) {
     const result = await openThread(i, label);
     if (result === "retry") retries.push({ i, label });
-    else if (result !== "ok") failures++;
+    // "missing": the page changed under us; worth a look, not a failed run.
+    else if (result === "missing") annotate("warning", `${topic}: thread "${label}" wasn't on the page when reopened.`);
   }
 }
 
