@@ -33,7 +33,9 @@ function reportingEnabled() {
 
 export function initTikTokPixel() {
   if (!reportingEnabled()) return;
-  if (window.ttq) return; // already initialized (React.StrictMode double-invoke in dev)
+  // Already loaded: by index.html's base code on the live site (where
+  // TikTok's setup checker looks for it), or a StrictMode double-invoke.
+  if (window.ttq) return;
 
   /* eslint-disable */
   !(function (w, d, t) {
