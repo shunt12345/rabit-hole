@@ -23,7 +23,7 @@ export default function DigestSignup({ source }) {
     setState("sending");
     try {
       await subscribeToDigest(email.trim(), source);
-      reportTikTokSubscribe();
+      reportTikTokSubscribe(email.trim());
       setState("sent");
     } catch (err) {
       setError(err.message);

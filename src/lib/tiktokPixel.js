@@ -14,6 +14,8 @@
 //   engagement signal the Reddit campaign reports as Lead
 // - CompleteRegistration the first time a brand-new account signs in
 // - Subscribe when the daily email form is submitted
+// Each is mirrored server-side through report-tiktok-event (TikTok's Events
+// API) with the same event_id; see track() below.
 // Day-7 retention isn't something a web pixel reports; /admin's retention
 // cohort table does that, filtered to the TikTok source (utm_source=tiktok).
 import { isNewAccount } from "./auth.js";
@@ -34,6 +36,7 @@ function reportingEnabled() {
 
 export function initTikTokPixel() {
   if (!reportingEnabled()) return;
+  ttclid(); // keep the ad click id before the URL changes
   // Already loaded: by index.html's base code on the live site (where
   // TikTok's setup checker looks for it), or a StrictMode double-invoke.
   if (window.ttq) return;
@@ -67,13 +70,57 @@ export function initTikTokPixel() {
   /* eslint-enable */
 }
 
-function track(event, props) {
-  if (!reportingEnabled() || !window.ttq) return;
+// TikTok's ad click id, kept for the visit it arrived on so a conversion
+// later in the visit (a sign-up, the email form) still carries it.
+const TTCLID_KEY = "hyfax-ttclid";
+function ttclid() {
   try {
-    window.ttq.track(event, props || {});
-  } catch (e) {
-    console.error("Hyfax: TikTok pixel event failed", e);
+    const fromUrl = new URLSearchParams(window.location.search).get("ttclid");
+    if (fromUrl) sessionStorage.setItem(TTCLID_KEY, fromUrl);
+    return fromUrl || sessionStorage.getItem(TTCLID_KEY) || "";
+  } catch (_) {
+    return "";
   }
+}
+// The pixel's own first-party browser id.
+function ttpCookie() {
+  const m = document.cookie.match(/(?:^|;\s*)_ttp=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : "";
+}
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+// Each event goes two ways with one event_id: the browser pixel, and the
+// report-tiktok-event function (TikTok's Events API), which still lands
+// when an ad blocker or Safari stops the pixel. TikTok dedupes the pair.
+// Fire-and-forget: a failed report only means one event under-counts.
+function track(event, props, email) {
+  if (!reportingEnabled()) return;
+  const eventId = crypto.randomUUID();
+  if (window.ttq) {
+    try {
+      window.ttq.track(event, props || {}, { event_id: eventId });
+    } catch (e) {
+      console.error("Hyfax: TikTok pixel event failed", e);
+    }
+  }
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+  fetch(`${SUPABASE_URL}/functions/v1/report-tiktok-event`, {
+    method: "POST",
+    keepalive: true,
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+    body: JSON.stringify({
+      event,
+      eventId,
+      url: window.location.href,
+      referrer: document.referrer || undefined,
+      ttclid: ttclid() || undefined,
+      ttp: ttpCookie() || undefined,
+      contentName: props?.content_name,
+      email: email || undefined,
+    }),
+  }).catch((e) => console.error("Hyfax: failed to report TikTok event server-side", e));
 }
 
 // Once per browser, for a genuinely new account (see redditPixel.js's
@@ -87,7 +134,7 @@ export function maybeReportTikTokSignUp(user) {
   } catch (_) {
     // storage unavailable: a rare double-count beats never reporting
   }
-  track("CompleteRegistration");
+  track("CompleteRegistration", {}, user.email);
 }
 
 // Once per session, the first topic page that loads.
@@ -103,6 +150,6 @@ export function maybeReportTikTokPage(topic) {
   track("ViewContent", { content_type: "product", content_name: String(topic || "").slice(0, 100) });
 }
 
-export function reportTikTokSubscribe() {
-  track("Subscribe");
+export function reportTikTokSubscribe(email) {
+  track("Subscribe", {}, email);
 }
