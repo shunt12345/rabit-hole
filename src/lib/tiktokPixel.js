@@ -1,5 +1,5 @@
-// TikTok Pixel — same posture as lib/redditPixel.js: only initializes when
-// VITE_TIKTOK_PIXEL_ID is set, and never for a ?hyfax_test=1 browser, so
+// TikTok Pixel — same posture as lib/redditPixel.js: only initializes on
+// hyfax.app (or wherever VITE_TIKTOK_PIXEL_ID is set), and never for a ?hyfax_test=1 browser, so
 // local dev and the operator's own testing can't report conversions to the
 // real ad account.
 //
@@ -19,7 +19,13 @@
 import { isNewAccount } from "./auth.js";
 import { isTestMode } from "./visitor.js";
 
-const PIXEL_ID = import.meta.env.VITE_TIKTOK_PIXEL_ID;
+// The pixel ID isn't a secret (it's in every page that loads the pixel).
+// Hyfax's own is the default on the live site only, so local dev and
+// preview deploys stay silent; VITE_TIKTOK_PIXEL_ID overrides it.
+const HYFAX_PIXEL_ID = "DBHLDJ3C77UASCMGRVU0";
+const PIXEL_ID =
+  import.meta.env.VITE_TIKTOK_PIXEL_ID ||
+  (typeof window !== "undefined" && /(^|\.)hyfax\.app$/.test(window.location.hostname) ? HYFAX_PIXEL_ID : undefined);
 
 function reportingEnabled() {
   return !!PIXEL_ID && !isTestMode() && typeof window !== "undefined";
