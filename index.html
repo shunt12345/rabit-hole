@@ -14,9 +14,11 @@
     <meta name="description" content="Problem solving isn't linear. Neither is your learning. Follow any question across science, food, history and more, one thread at a time." />
     <link rel="canonical" href="https://www.hyfax.app/" />
     <!-- TikTok Pixel Code Start — TikTok's base code, here in the HTML so
-         TikTok's setup checker can find it. Live site only, and off for a
-         ?hyfax_test=1 browser (see lib/visitor.js); events are reported
-         from lib/tiktokPixel.js. -->
+         TikTok's setup checker can find it. Off for local dev, Vercel preview
+         deploys and a ?hyfax_test=1 browser (see lib/visitor.js), and on
+         everywhere else: TikTok's checker loads the page under its own
+         address, so an allow-list of hyfax.app hides it. Events are
+         reported from lib/tiktokPixel.js. -->
     <script>
       (function () {
         var test = false;
@@ -24,7 +26,7 @@
           var q = new URLSearchParams(location.search).get("hyfax_test");
           test = q ? q !== "0" : localStorage.getItem("hyfax_test") === "1";
         } catch (e) {}
-        if (test || !/(^|\.)hyfax\.app$/.test(location.hostname)) return;
+        if (test || /^(localhost|127\.0\.0\.1)$|\.vercel\.app$/.test(location.hostname)) return;
         !function (w, d, t) {
           w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(
           var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};n=document.createElement("script")
