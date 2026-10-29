@@ -4,6 +4,7 @@ import Hyfax from "./App.jsx";
 import AdminDashboard from "./AdminDashboard.jsx";
 import ReviewQueue from "./ReviewQueue.jsx";
 import { initRedditPixel } from "./lib/redditPixel.js";
+import { initTikTokPixel } from "./lib/tiktokPixel.js";
 import { captureAttribution } from "./lib/attribution.js";
 import { applyTestModeFromUrl } from "./lib/visitor.js";
 import { applyVariantFromUrl } from "./lib/variant.js";
@@ -81,6 +82,7 @@ if (!isOperatorRoute) {
   applyTestModeFromUrl();
   applyVariantFromUrl();
   initRedditPixel();
+  initTikTokPixel();
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(

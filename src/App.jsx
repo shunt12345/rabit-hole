@@ -16,6 +16,7 @@ import { HYFAX_SYSTEM, WHERE_MIX } from "./lib/hyfaxSystemPrompt.js";
 import { createPacedReveal } from "./lib/pacedReveal.js";
 import { getCurrentUser, onAuthStateChange, isNewAccount, getAccessToken } from "./lib/auth.js";
 import { maybeReportSignUp, maybeReportLead } from "./lib/redditPixel.js";
+import { maybeReportTikTokSignUp, maybeReportTikTokPage } from "./lib/tiktokPixel.js";
 import { isRedditVisit } from "./lib/attribution.js";
 import DigestSignup from "./DigestSignup.jsx";
 import SourceCredit from "./SourceCredit.jsx";
@@ -383,6 +384,7 @@ export default function Hyfax() {
       // account, no-ops for a returning sign-in or when no Reddit Pixel is
       // configured.
       maybeReportSignUp(u);
+      maybeReportTikTokSignUp(u);
       // Adoption analytics' own "signup" event (see lib/track.js) — same
       // isNewAccount() check as the Reddit pixel above, just a separate
       // concern (every signup counts here, Pixel-configured or not).
@@ -1246,6 +1248,7 @@ export default function Hyfax() {
         // Reddit Ads conversion tracking — the first successful topic page
         // in a session is the real engagement signal for this campaign.
         maybeReportLead(user?.email);
+        maybeReportTikTokPage(node.label);
       }
     } catch (e) {
       console.error("Hyfax: loadArticle failed", e);

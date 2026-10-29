@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Mail, Loader2 } from "lucide-react";
 import { subscribeToDigest, hasDigestSignup } from "./lib/digest.js";
+import { reportTikTokSubscribe } from "./lib/tiktokPixel.js";
 
 // "Get the daily threads by email" — the email-only way into the daily
 // digest, for people who don't want an account (see lib/digest.js). Shown
@@ -22,6 +23,7 @@ export default function DigestSignup({ source }) {
     setState("sending");
     try {
       await subscribeToDigest(email.trim(), source);
+      reportTikTokSubscribe();
       setState("sent");
     } catch (err) {
       setError(err.message);

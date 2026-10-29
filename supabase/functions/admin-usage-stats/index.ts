@@ -133,7 +133,7 @@ serve(async (req) => {
     // levels.
     // "email" is the daily digest's own links (send-daily-digest tags them).
     const channelOf = (r: { utm_source?: string | null }) =>
-      r.utm_source === "reddit" ? "reddit" : r.utm_source === "email" ? "email" : "direct/other";
+      r.utm_source === "reddit" || r.utm_source === "tiktok" || r.utm_source === "email" ? r.utm_source : "direct/other";
 
     // Daily requests/sessions/spend, full 30-day window — channel-agnostic,
     // unchanged shape (the stat cards read daily[0] directly, and
