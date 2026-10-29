@@ -17,7 +17,7 @@ import { createPacedReveal } from "./lib/pacedReveal.js";
 import { getCurrentUser, onAuthStateChange, isNewAccount, getAccessToken } from "./lib/auth.js";
 import { maybeReportSignUp, maybeReportLead } from "./lib/redditPixel.js";
 import { maybeReportTikTokSignUp, maybeReportTikTokPage } from "./lib/tiktokPixel.js";
-import { isRedditVisit, isAdVisit } from "./lib/attribution.js";
+import { isAdVisit, getAttribution } from "./lib/attribution.js";
 import DigestSignup from "./DigestSignup.jsx";
 import SourceCredit from "./SourceCredit.jsx";
 import MushroomIcon from "./MushroomIcon.jsx";
@@ -919,11 +919,11 @@ export default function Hyfax() {
     try {
       const params = new URLSearchParams(window.location.search);
       const urlTopic = params.get("topic");
-      // Skipped on a Reddit-attributed visit — that gets its own richer
+      // Skipped on an ad visit (Reddit or TikTok) — that gets its own richer
       // handling (below: ?q= override, autofire straight onto the topic
       // page) rather than the plain auto-fire this path does. The two
       // params aren't expected to co-occur in practice.
-      if (urlTopic && urlTopic.trim() && nodesRef.current.length === 0 && !isRedditVisit()) {
+      if (urlTopic && urlTopic.trim() && nodesRef.current.length === 0 && !isAdVisit()) {
         startTopic(urlTopic, undefined, "url_param");
       }
     } catch (e) {
@@ -932,8 +932,8 @@ export default function Hyfax() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Reddit ad landing flow (see lib/attribution.js + the ad brief this was
-  // built for): a Reddit visitor never sees the plain hero — the exact
+  // Ad landing flow (see lib/attribution.js + the ad brief this was built
+  // for), for the Reddit and TikTok ads alike: an ad visitor never sees the plain hero — the exact
   // question the ad shows someone typing gets submitted for them,
   // immediately, no tap required, landing straight on that topic's page
   // (the same streaming-in-place every normal topic transition already
@@ -944,7 +944,7 @@ export default function Hyfax() {
   // once, and only if nothing's already loaded (matches the ?topic=
   // effect's own guard above).
   useEffect(() => {
-    if (!isRedditVisit() || nodesRef.current.length > 0) return;
+    if (!isAdVisit() || nodesRef.current.length > 0) return;
     try {
       const params = new URLSearchParams(window.location.search);
       const q = (params.get("q") || "why does bread go stale").trim();
@@ -956,9 +956,10 @@ export default function Hyfax() {
       // write attempt is harmless best-effort, per handleNewsCacheWrite's
       // own existence check) and just falls through to a fresh generation.
       const matchedStarter = STARTER_QUESTIONS.find((s) => s.topic.toLowerCase() === q.toLowerCase());
-      startTopic(q, matchedStarter?.teaser || "From a Reddit ad", "reddit_ad_prefill");
+      // reddit_ad_prefill / tiktok_ad_prefill, so /admin keeps the two apart.
+      startTopic(q, matchedStarter?.teaser || "From an ad", `${getAttribution().utmSource}_ad_prefill`);
     } catch (e) {
-      console.error("Hyfax: failed to auto-start Reddit ad landing", e);
+      console.error("Hyfax: failed to auto-start ad landing", e);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1411,7 +1412,7 @@ export default function Hyfax() {
     lastScrollTopRef.current = sc.scrollTop;
     const page = nodesRef.current.find((n) => n.id === selectedIdRef.current);
     if (!down || !page?.article) return;
-    const adLanding = page.heroSource === "reddit_ad_prefill";
+    const adLanding = /_ad_prefill$/.test(page.heroSource || "");
     if (!scrollVariant && !adLanding) return;
     const view = sc.getBoundingClientRect();
     const whys = parseThreadPage(page.article).whys;
@@ -1879,11 +1880,11 @@ export default function Hyfax() {
           centered logo/tagline on narrow phones — moved to their own
           full-width row below instead, where there's actually room. */}
       <div className="grid grid-cols-3 items-start p-5 md:p-7 shrink-0 max-w-4xl mx-auto w-full">
-        {/* Reddit ad visitors land straight on an article and would never
+        {/* Ad visitors (Reddit, TikTok) land straight on an article and would never
             see the home page otherwise, so they get a plain way back to it.
             Everyone else already knows the logo does this. */}
         <div>
-          {nodes.length > 0 && isRedditVisit() && (
+          {nodes.length > 0 && isAdVisit() && (
             <button
               type="button"
               onClick={goHome}
@@ -2607,12 +2608,12 @@ export default function Hyfax() {
                   </div>
                 )}
 
-                {/* The end of every page. Reddit ad visitors get one bright
+                {/* The end of every page. Ad visitors (Reddit, TikTok) get one bright
                     button to the home page (they've never seen it); everyone
                     else gets Spin a thread and the Dig in box, so the next
                     topic starts right here. */}
                 <div className="mt-6 pt-6 border-t" style={{ borderColor: "#4A3C2C" }}>
-                  {isRedditVisit() ? (
+                  {isAdVisit() ? (
                     <div className="flex justify-center">
                       <button
                         type="button"
