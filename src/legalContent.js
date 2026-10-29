@@ -11,7 +11,7 @@
 // disclosure obligations attach to what the product IS, not to how it's
 // marketed. That's a separate question from the UI's own wording choices
 // (which deliberately avoid branding the product around "AI").
-export const LEGAL_LAST_UPDATED = "September 3, 2026";
+export const LEGAL_LAST_UPDATED = "October 29, 2026";
 
 export const TERMS_SECTIONS = [
   {
@@ -75,34 +75,38 @@ export const PRIVACY_SECTIONS = [
   },
   {
     heading: "3. Who we share it with",
-    body: `We share data with the vendors that help us run the Service, and only as needed for that purpose: our backend/database/authentication provider (Supabase), our payment processor (Stripe), and a third-party text-generation API provider used to produce content. We don't sell your personal information.`,
+    body: `We share data with the vendors that help us run the Service, and only as needed for that purpose: our backend/database/authentication provider (Supabase), our payment processor (Stripe), a third-party text-generation API provider used to produce content, and the advertising platforms we use to measure our ads (Reddit and TikTok; see section 5). We don't sell your personal information.`,
   },
   {
     heading: "4. Local storage",
-    body: `The app stores small pieces of state on your device (such as cached news content and session info) to make repeat visits faster. This stays on your device and isn't a tracking mechanism for other sites. Hyfax uses an anonymous ID stored in your browser to count return visits. It contains no personal information.`,
+    body: `The app stores small pieces of state on your device (such as cached news content and session info) to make repeat visits faster. This stays on your device. Hyfax uses an anonymous ID stored in your browser to count return visits. It contains no personal information.`,
   },
   {
-    heading: "5. Data retention",
+    heading: "5. Advertising measurement",
+    body: `We use advertising pixels from Reddit and TikTok to measure whether our ads work. These pixels may set cookies or read identifiers in your browser, and send those platforms information such as the page you visited, the ad you came from, and actions like opening a topic page, creating an account, or signing up for our daily email. When you create an account or open a topic page while signed in, we may also send Reddit your email address in hashed (scrambled, non-readable) form so it can match the action to an ad. These platforms handle that information under their own privacy policies. We don't use it to show you ads on Hyfax, and we don't sell your personal information. You can limit this through your browser's privacy settings, an ad or tracker blocker, or the ad preferences in your Reddit or TikTok account.`,
+  },
+  {
+    heading: "6. Data retention",
     body: `We keep account and usage data for as long as your account is active, and for a reasonable period after that for billing records, fraud prevention, and legal compliance.`,
   },
   {
-    heading: "6. Your choices",
+    heading: "7. Your choices",
     body: `You can request access to or deletion of your account data by contacting us. Deleting your account does not retroactively erase billing records we're required to keep.`,
   },
   {
-    heading: "7. Children's privacy",
+    heading: "8. Children's privacy",
     body: `The Service isn't directed to children under 13, and we don't knowingly collect personal information from them. If you believe a child has provided us information, contact us and we'll delete it.`,
   },
   {
-    heading: "8. Security",
+    heading: "9. Security",
     body: `We use reasonable technical and organizational measures to protect your data, but no method of transmission or storage is 100% secure.`,
   },
   {
-    heading: "9. Changes to this policy",
+    heading: "10. Changes to this policy",
     body: `We may update this Privacy Policy from time to time. Continued use of the Service after an update means you accept the revised policy. Material changes will be reflected by updating the date below.`,
   },
   {
-    heading: "10. Contact",
+    heading: "11. Contact",
     body: `Questions about this Privacy Policy can be sent to the account/support address for the Service.`,
   },
 ];

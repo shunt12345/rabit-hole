@@ -173,8 +173,8 @@ const FREE_SEARCH_LIMIT = Number(Deno.env.get("FREE_SEARCH_LIMIT") ?? "4");
 // A free account gets more than an anonymous visitor, so signing up is
 // worth something — the limit's own message offers exactly that.
 const SIGNED_IN_SEARCH_LIMIT = Number(Deno.env.get("SIGNED_IN_SEARCH_LIMIT") ?? "10");
-// An anonymous visitor who arrived from the Reddit ad gets a longer first
-// look before the sign-up offer. Attribution is captured once per browser
+// An anonymous visitor who arrived from a Reddit or TikTok ad gets a longer
+// first look before the sign-up offer. Attribution is captured once per browser
 // session (lib/attribution.js), so this covers the visit the ad started;
 // a later visit that didn't come through the ad is back to the normal
 // limit. The utm value is client-supplied — an accepted looseness, same
@@ -188,7 +188,7 @@ const PREVIEW_DAILY_LIMIT = Number(Deno.env.get("PREVIEW_DAILY_LIMIT") ?? "40");
 
 function searchLimitFor(userId: string | null, utmSource?: string) {
   if (userId) return SIGNED_IN_SEARCH_LIMIT;
-  return utmSource === "reddit" ? REDDIT_SEARCH_LIMIT : FREE_SEARCH_LIMIT;
+  return utmSource === "reddit" || utmSource === "tiktok" ? REDDIT_SEARCH_LIMIT : FREE_SEARCH_LIMIT;
 }
 
 function trialHeaders(searchesUsed: number, funded: boolean, limit: number) {

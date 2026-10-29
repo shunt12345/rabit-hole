@@ -61,3 +61,11 @@ export function getAttribution() {
 export function isRedditVisit() {
   return getAttribution().utmSource === "reddit";
 }
+
+// A visit an ad started (Reddit or TikTok): the proxy gives these a longer
+// free look (searchLimitFor in rabbit-hole-proxy-v2), so the gauge starts
+// from the same limit.
+export function isAdVisit() {
+  const s = getAttribution().utmSource;
+  return s === "reddit" || s === "tiktok";
+}
