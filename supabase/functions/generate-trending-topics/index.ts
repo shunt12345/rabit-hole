@@ -1096,14 +1096,20 @@ function withTimeout<T>(query: PromiseLike<{ data: T | null; error: any }>): Pro
 async function fetchRecentTopicsByField(): Promise<Record<string, string[] | null>> {
   const entries = await Promise.all(
     FIELDS.map(async (field): Promise<[string, string[] | null]> => {
-      const { data, error } = await withTimeout<{ topic: string }[]>(
-        supabase
-          .from("trending_topics_cache")
-          .select("topic")
-          .eq("field", field)
-          .order("generated_at", { ascending: false })
-          .limit(RECENT_EXCLUDE_COUNT + 30)
-      );
+      const read = () =>
+        withTimeout<{ topic: string }[]>(
+          supabase
+            .from("trending_topics_cache")
+            .select("topic")
+            .eq("field", field)
+            .order("generated_at", { ascending: false })
+            .limit(RECENT_EXCLUDE_COUNT + 30)
+        );
+      // One more try on a failed read: a slow moment here used to skip the
+      // field for the whole day (seen in generation_error_log as "failed to
+      // fetch its exclude history").
+      let { data, error } = await read();
+      if (error || !data) ({ data, error } = await read());
       if (error || !data) {
         console.error(`generate-trending-topics: failed to fetch recent topics for field "${field}"`, error);
         return [field, null];
@@ -1210,11 +1216,40 @@ async function fetchRecentWordTeasers(): Promise<{ topic: string; teaser: string
   return data;
 }
 
+// A field's pick gets up to FIELD_ATTEMPTS tries before the day goes without
+// it. Seen in generation_error_log: the Riddle failed on most days, nearly
+// always on a first try that picked a topic it had just been told to avoid
+// ("Library Of Alexandria" two days running) or came back without its two
+// decoys, and one failure used to leave the card empty for the day. A
+// repeat pick is named again on the retry, at the front of the avoid list.
+// No new try starts past RETRY_WINDOW_MS into the run, so retries can't push
+// the whole run past the cron's 170s wait.
+const FIELD_ATTEMPTS = 3;
+const RETRY_WINDOW_MS = 90_000;
+let runStartedAt = Date.now();
+async function withRetries<T>(field: string, exclude: string[], attempt: (exclude: string[]) => Promise<T>): Promise<T> {
+  let avoid = exclude;
+  let lastError: unknown;
+  for (let i = 0; i < FIELD_ATTEMPTS; i++) {
+    if (i > 0 && Date.now() - runStartedAt > RETRY_WINDOW_MS) break;
+    try {
+      return await attempt(avoid);
+    } catch (e) {
+      lastError = e;
+      const repeat = String((e as any)?.message ?? e).match(/exclude list: "(.+)"$/)?.[1];
+      if (repeat) avoid = [repeat, ...avoid.filter((t) => t !== repeat)];
+      console.warn(`generate-trending-topics: "${field}" attempt ${i + 1} failed`, e);
+    }
+  }
+  throw lastError;
+}
+
 serve(async (req) => {
   // The slot is fixed when the request starts: generation can run past
   // 07:00, and a pick written for today's date (This Day In History) must
   // not then be scheduled for tomorrow.
   const requestStartedAt = new Date();
+  runStartedAt = requestStartedAt.getTime();
   const cronSecret = Deno.env.get("CRON_SECRET");
   if (!cronSecret || req.headers.get("x-cron-secret") !== cronSecret) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -1330,15 +1365,8 @@ serve(async (req) => {
       // the same story (seen live: both picks were the France protests).
       const sibling = TRENDING_MAINSTREAM_FIELDS.find((f) => f !== field)!;
       const siblingRecent = (recentByField[sibling] || []).slice(0, 3);
-      const value = await generateForField(
-        apiKey,
-        field,
-        [...recentByField[field]!, ...siblingRecent, ...justPicked],
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        suggestion
+      const value = await withRetries(field, [...recentByField[field]!, ...siblingRecent, ...justPicked], (exclude) =>
+        generateForField(apiKey, field, exclude, undefined, undefined, undefined, undefined, suggestion)
       );
       results.push({ status: "fulfilled", value });
       justPicked = [...justPicked, value.topic];
@@ -1352,15 +1380,17 @@ serve(async (req) => {
       if (recentByField[field] === null) {
         return Promise.reject(new Error(`Skipped "${field}": failed to fetch its exclude history`));
       }
-      return generateForField(
-        apiKey,
-        field,
-        recentByField[field]!,
-        field === RIDDLE_FIELD ? recentRiddleCategories : undefined,
-        field === QUOTE_FIELD ? quoteSteer : undefined,
-        field === "Word Of The Day" ? recentWordTeasers : undefined,
-        field === PERSPECTIVE_FIELD ? perspectiveFocus : undefined,
-        suggestion
+      return withRetries(field, recentByField[field]!, (exclude) =>
+        generateForField(
+          apiKey,
+          field,
+          exclude,
+          field === RIDDLE_FIELD ? recentRiddleCategories : undefined,
+          field === QUOTE_FIELD ? quoteSteer : undefined,
+          field === "Word Of The Day" ? recentWordTeasers : undefined,
+          field === PERSPECTIVE_FIELD ? perspectiveFocus : undefined,
+          suggestion
+        )
       );
     })
   );
