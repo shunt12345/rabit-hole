@@ -82,7 +82,7 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
               Trending
             </span>
           </div>
-          <div className="flex flex-col gap-3 max-w-md mx-auto lg:grid lg:grid-cols-2 lg:gap-6 lg:max-w-none">
+          <div className={`flex flex-col gap-3 max-w-md mx-auto ${newsTopics.length > 1 ? "lg:grid lg:grid-cols-2 lg:gap-6 lg:max-w-none" : ""}`}>
             {newsTopics.map((t, i) => {
               const isSelected = selectedKey === `news-${i}`;
               return (
@@ -198,7 +198,9 @@ export default function HeroSections({ trendingTopics, previewRiddle, visible, r
               Today
             </span>
           </div>
-          <div className="flex flex-col gap-3 max-w-md mx-auto lg:grid lg:grid-cols-2 lg:gap-6 lg:max-w-none">
+          {/* A day with one pick (the other missing or stale) centres it
+              rather than leaving half the wide row empty. */}
+          <div className={`flex flex-col gap-3 max-w-md mx-auto ${todayTopics.length > 1 ? "lg:grid lg:grid-cols-2 lg:gap-6 lg:max-w-none" : ""}`}>
             {todayTopics.map((t, i) => {
               const isSelected = selectedKey === `today-${i}`;
               return (
