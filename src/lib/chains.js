@@ -16,6 +16,18 @@ export async function fetchChainPool() {
   return rows.filter((r) => Array.isArray(r.steps) && r.steps.length === 4);
 }
 
+// One thread by id, for a link to a thread outside the pool: the TikTok
+// ad's own thread (status 'campaign', migration 0067) is readable but never
+// in Spin a thread or the Hyfax of the Day rotation.
+export async function fetchChain(id) {
+  const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/hyfax_chains?select=id,title,steps&id=eq.${Number(id)}`, {
+    headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY, Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+  });
+  if (!res.ok) throw new Error(`hyfax_chains ${res.status}`);
+  const [row] = await res.json();
+  return row && Array.isArray(row.steps) && row.steps.length === 4 ? row : null;
+}
+
 function loadSeen() {
   try {
     const ids = JSON.parse(localStorage.getItem(SEEN_KEY) || "[]");

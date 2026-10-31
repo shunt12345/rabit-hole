@@ -33,7 +33,7 @@ import { watchForNewBuild, reloadIfNewBuild } from "./lib/freshness.js";
 import { getVariant } from "./lib/variant.js";
 import { parseThreadPage, threadPagePlainText, hasPlaceholderHeaders } from "./lib/threadPage.js";
 import { nextSurpriseTopic } from "./lib/surpriseTopics.js";
-import { fetchChainPool, nextChain, isChainTitle, threadOfTheDay } from "./lib/chains.js";
+import { fetchChainPool, fetchChain, nextChain, isChainTitle, threadOfTheDay } from "./lib/chains.js";
 import ChainView from "./ChainView.jsx";
 import UsageGauge from "./UsageGauge.jsx";
 import MiniGauge from "./MiniGauge.jsx";
@@ -678,12 +678,20 @@ export default function Hyfax() {
     fetchChainPool()
       .then((pool) => {
         setChainPool(pool);
-        // The email's Hyfax of the Day link (?thread=<id>) opens it.
+        // A thread link (?thread=<id>: the email's Hyfax of the Day, a
+        // shared thread, the TikTok ad) opens it; a thread outside the pool
+        // (the ad's own, migration 0067) is fetched by id.
         const linked = Number(new URLSearchParams(window.location.search).get("thread"));
-        const linkedChain = linked ? pool.find((c) => c.id === linked) : null;
-        if (linkedChain && !nodesRef.current.length) {
-          setSpunChain(linkedChain);
-          showChain(linkedChain);
+        if (linked && !nodesRef.current.length) {
+          const inPool = pool.find((c) => c.id === linked);
+          if (inPool) {
+            setSpunChain(inPool);
+            showChain(inPool);
+            return;
+          }
+          fetchChain(linked)
+            .then((chain) => chain && !nodesRef.current.length && showChain(chain))
+            .catch((e) => console.warn("Hyfax: linked thread didn't load", e));
           return;
         }
         if (nodesRef.current.length || openChainRef.current || inputValRef.current) return;
@@ -714,6 +722,10 @@ export default function Hyfax() {
       }
       countedChainsRef.current.add(chain.id);
       setTrialStatus((prev) => ({ ...prev, searchesUsed: Math.min(prev.searchesUsed + 1, prev.searchLimit) }));
+      // A thread is a page like any topic: the first one in a visit is the
+      // ads' engagement signal too (the TikTok ad lands on a thread).
+      maybeReportLead(user?.email);
+      maybeReportTikTokPage(chain.title);
       claimPage({ nodeCacheKey: `thread:${chain.id}` })
         .catch((e) => {
           // Refused (the free pages ran out first): back to the home page
@@ -945,6 +957,9 @@ export default function Hyfax() {
   // effect's own guard above).
   useEffect(() => {
     if (!isAdVisit() || nodesRef.current.length > 0) return;
+    // An ad link to a thread (?thread=<id>, the TikTok ad) opens that thread
+    // instead (see the chain pool effect above).
+    if (new URLSearchParams(window.location.search).get("thread")) return;
     try {
       const params = new URLSearchParams(window.location.search);
       const q = (params.get("q") || "why does bread go stale").trim();
@@ -1884,7 +1899,7 @@ export default function Hyfax() {
             see the home page otherwise, so they get a plain way back to it.
             Everyone else already knows the logo does this. */}
         <div>
-          {nodes.length > 0 && isAdVisit() && (
+          {(nodes.length > 0 || openChain) && isAdVisit() && (
             <button
               type="button"
               onClick={goHome}
