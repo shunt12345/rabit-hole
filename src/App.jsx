@@ -304,6 +304,17 @@ export default function Hyfax() {
   const [chainPool, setChainPool] = useState([]);
   const [spunChain, setSpunChain] = useState(null);
   const [openChain, setOpenChain] = useState(null);
+  // A thread link (?thread=<id>, e.g. the TikTok ad) shows nothing until
+  // the thread is open, rather than the homepage (and its house ad) for the
+  // moment it takes to load.
+  const [awaitingLinkedThread, setAwaitingLinkedThread] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return !!params.get("thread") && !params.get("topic");
+    } catch (_) {
+      return false;
+    }
+  });
   // Whether inputVal currently holds a "Surprise me" pick rather than
   // something the reader typed themselves — just swaps the little link
   // below the input between "Surprise me" and "Spin again"; the actual
@@ -687,13 +698,16 @@ export default function Hyfax() {
           if (inPool) {
             setSpunChain(inPool);
             showChain(inPool);
+            setAwaitingLinkedThread(false);
             return;
           }
           fetchChain(linked)
             .then((chain) => chain && !nodesRef.current.length && showChain(chain))
-            .catch((e) => console.warn("Hyfax: linked thread didn't load", e));
+            .catch((e) => console.warn("Hyfax: linked thread didn't load", e))
+            .finally(() => setAwaitingLinkedThread(false));
           return;
         }
+        setAwaitingLinkedThread(false);
         if (nodesRef.current.length || openChainRef.current || inputValRef.current) return;
         // A different thread from the Hyfax of the Day card just below.
         const chain = nextChain(pool, threadOfTheDay(pool)?.id);
@@ -702,7 +716,13 @@ export default function Hyfax() {
         setSpunChain(chain);
         setIsSurprise(true);
       })
-      .catch((e) => console.warn("Hyfax: chains didn't load", e));
+      .catch((e) => {
+        console.warn("Hyfax: chains didn't load", e);
+        setAwaitingLinkedThread(false);
+      });
+    // Never wait on a slow network for long: the homepage after 6s.
+    const giveUp = setTimeout(() => setAwaitingLinkedThread(false), 6000);
+    return () => clearTimeout(giveUp);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const openChainRef = useRef(null);
@@ -1993,7 +2013,7 @@ export default function Hyfax() {
         </div>
       )}
 
-      {!showTopicPage && !openChain && (
+      {!showTopicPage && !openChain && !awaitingLinkedThread && (
         <div ref={heroRef} className="flex-1 flex flex-col items-center px-6 pt-10 md:pt-16 pb-10 overflow-y-auto">
           {/* Wide screens (lg) widen the page for HeroSections' two-column
               grid; the headline, Spin and search stay in the narrow column. */}
