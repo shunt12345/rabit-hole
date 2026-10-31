@@ -1259,10 +1259,21 @@ async function verifyRootChildPair(rootCacheKey: string, childLabel: string): Pr
 
 // Same anti-poisoning rule as handleNewsCacheWrite always had: a client can
 // only create a cache row for a topic generate-trending-topics actually
-// produced, never an arbitrary string.
+// produced, never an arbitrary string — or a step of a published Hyfax
+// thread (approved, or the ads' 'campaign' thread), whose "Dig into" opens
+// the step as its own page. Before threads counted, no step page was ever
+// saved, so every reader waited for a fresh one.
 async function isRealTrendingTopic(cacheKey: string): Promise<boolean> {
   const { data } = await supabase.from("trending_topics_cache").select("topic").eq("topic", cacheKey).limit(1).maybeSingle();
-  return !!data;
+  if (data) return true;
+  const { data: chain } = await supabase
+    .from("hyfax_chains")
+    .select("id")
+    .in("status", ["approved", "campaign"])
+    .contains("steps", [{ title: cacheKey }])
+    .limit(1)
+    .maybeSingle();
+  return !!chain;
 }
 
 // Handles `nodeCacheWrite` — the branch-level equivalent of
