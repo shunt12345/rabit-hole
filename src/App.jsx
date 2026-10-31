@@ -1990,6 +1990,7 @@ export default function Hyfax() {
             key={openChain.id}
             chain={openChain}
             onDigIn={(step, i) => digIntoChainStep(openChain, step, i)}
+            onHome={isAdVisit() ? goHome : undefined}
             onSpinAgain={() => {
               const chain = nextChain(chainPool, openChain.id);
               if (!chain) return;

@@ -63,7 +63,10 @@ function WideConnector({ toRight, label, dashed = false }) {
 const REVEAL_LINE = 0.5; // how far up the screen the hint has to rise (0 = top)
 const REVEAL_GAP_MS = 600; // at most one step per this, however fast the scroll
 
-export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened, onStepRevealed, onShared }) {
+// onHome: ad visitors only (see App.jsx) — they landed on this thread and
+// have never seen the home page, so the end offers it, as an ad landing
+// article's end does.
+export default function ChainView({ chain, onDigIn, onSpinAgain, onHome, onStepOpened, onStepRevealed, onShared }) {
   const [open, setOpen] = useState({});
   // Share: a link that opens this thread (/t/<id>), through the phone's
   // share sheet, or copied where there isn't one. Only the A-to-B title
@@ -282,11 +285,23 @@ export default function ChainView({ chain, onDigIn, onSpinAgain, onStepOpened, o
         <p className="rh-body text-sm mb-4" style={{ color: "#A89478" }}>
           Tap any step to go deeper.
         </p>
+        {onHome && (
+          <div className="flex justify-center mb-4">
+            <button
+              type="button"
+              onClick={onHome}
+              className="rh-body flex items-center gap-2 text-base font-semibold rounded-full px-6 py-3.5 transition-colors rh-btn-accent shadow-lg"
+              style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
+            >
+              Today's picks, insights &amp; knowledge <ArrowRight size={17} />
+            </button>
+          </div>
+        )}
         <button
           type="button"
           onClick={onSpinAgain}
-          className="rh-body inline-flex items-center gap-1.5 text-sm font-medium rounded-full px-5 py-3 transition-colors rh-btn-accent"
-          style={{ backgroundColor: "#E3A73C", color: "#14100C" }}
+          className={`rh-body inline-flex items-center gap-1.5 text-sm font-medium rounded-full px-5 py-3 transition-colors ${onHome ? "border rh-btn-outline" : "rh-btn-accent"}`}
+          style={onHome ? { borderColor: "#5A4630", color: "#C9B896" } : { backgroundColor: "#E3A73C", color: "#14100C" }}
         >
           <Shuffle size={15} /> Spin another thread
         </button>
