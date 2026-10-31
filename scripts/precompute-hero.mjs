@@ -13,8 +13,14 @@
 // Reddit pixel) and adds PRECOMPUTE_SECRET to each proxy request, which
 // rabbit-hole-proxy-v2 accepts in place of the free-page limit.
 //
+// Then the ad landing: each step's "Dig into" page of the ads' own threads
+// (AD_THREAD_IDS, the TikTok ad's thread 68), and of the threads "Spin
+// another thread" offers an ad visitor next, which are the newest approved
+// threads in order (SPIN_THREADS of them).
+//
 // Env: PRECOMPUTE_SECRET (required), APP_URL (default https://www.hyfax.app),
-// MAX_TOPICS / MAX_THREADS (caps for a test run, default all), CHROMIUM_PATH / CHROMIUM_ARGS for
+// MAX_TOPICS / MAX_THREADS (caps for a test run, default all), AD_THREAD_IDS
+// (default "68"), SPIN_THREADS (default 3), CHROMIUM_PATH / CHROMIUM_ARGS for
 // running somewhere other than a stock runner.
 import { chromium } from "playwright";
 
@@ -23,6 +29,8 @@ const SECRET = (process.env.PRECOMPUTE_SECRET || "").trim();
 const MAX_TOPICS = Number(process.env.MAX_TOPICS || Infinity);
 const MAX_THREADS = Number(process.env.MAX_THREADS || Infinity);
 const PAGE_TIMEOUT_MS = 120_000;
+const AD_THREAD_IDS = (process.env.AD_THREAD_IDS ?? "68").split(",").map(Number).filter(Boolean);
+const SPIN_THREADS = Number(process.env.SPIN_THREADS ?? 3);
 
 if (!SECRET) {
   console.error("PRECOMPUTE_SECRET is not set.");
@@ -58,6 +66,8 @@ const riddleIds = new Set();
 let secretAccepted = null;
 // The proxy's own verdict on the secret (X-Precompute), if it sends one.
 let proxyVerdict = null;
+const threadsById = new Map();
+let spinPool = [];
 page.on("request", (r) => r.url().includes("rabbit-hole-proxy-v2") && inflight++);
 const settle = (r) => r.url().includes("rabbit-hole-proxy-v2") && inflight--;
 page.on("requestfinished", settle);
@@ -67,6 +77,18 @@ page.on("response", async (res) => {
     const funded = res.headers()["x-trial-funded"];
     proxyVerdict = proxyVerdict || res.headers()["x-precompute"] || null;
     if (funded !== undefined) secretAccepted = secretAccepted || funded === "1";
+  }
+  // Hyfax threads the site loads (the Spin pool, newest first, and any
+  // thread opened by id), for the ad-landing pass at the end.
+  if (res.url().includes("/rest/v1/hyfax_chains")) {
+    try {
+      const rows = await res.json();
+      for (const row of rows) if (row?.id && Array.isArray(row.steps)) threadsById.set(row.id, row);
+      if (res.url().includes("status=eq.approved")) spinPool = rows.map((r) => r.id);
+    } catch {
+      // Not JSON (an error) — nothing to collect.
+    }
+    return;
   }
   if (!res.url().includes("/rest/v1/trending_topics_cache")) return;
   try {
@@ -206,7 +228,51 @@ for (const { i, label } of retries) {
   if ((await openThread(i, label)) !== "ok") failures++;
 }
 
-const summary = `${heroCount} topics, ${threadsFound} threads, ${pages} pages opened, ${failures} timed out`;
+// The ad landing. Opens the thread by link, reveals steps up to step i,
+// opens step i and taps its "Dig into", which loads (and caches) that step's
+// page exactly as a reader's tap would.
+async function digIntoStep(threadId, i, title) {
+  const t = Date.now();
+  try {
+    await page.goto(`${APP_URL}/?hyfax_test=1&thread=${threadId}`);
+    await page.getByText("Four steps on one thread").first().waitFor({ timeout: 30_000 });
+    for (let k = 0; k < i; k++) {
+      await page.getByRole("button", { name: /Keep scrolling to reveal step/ }).click();
+      await page.waitForTimeout(300);
+    }
+    const card = page.locator("button[aria-expanded]", { hasText: title }).first();
+    if ((await card.getAttribute("aria-expanded")) !== "true") await card.click();
+    await page.getByRole("button", { name: `Dig into ${title}` }).click();
+    const done = await waitUntilDone();
+    pages++;
+    console.log(`   - ${title}: ${done ? "ok" : "timed out"} (${((Date.now() - t) / 1000).toFixed(1)}s)`);
+    return done;
+  } catch (e) {
+    console.log(`   - ${title}: failed (${e.message.split("\n")[0]})`);
+    return false;
+  }
+}
+// Loads the ad threads (by link) so their steps are known; the Spin pool
+// was collected when the home page loaded.
+for (const id of AD_THREAD_IDS) {
+  await page.goto(`${APP_URL}/?hyfax_test=1&thread=${id}`);
+  await page.waitForTimeout(3000);
+}
+const landingThreads = [...AD_THREAD_IDS, ...spinPool.filter((id) => !AD_THREAD_IDS.includes(id)).slice(0, SPIN_THREADS)];
+for (const id of landingThreads) {
+  const thread = threadsById.get(id);
+  if (!thread) {
+    console.log(`\nThread ${id}: not found, skipped`);
+    failures++;
+    continue;
+  }
+  console.log(`\nThread ${id}: ${thread.title}`);
+  for (let i = 0; i < thread.steps.length; i++) {
+    if (!(await digIntoStep(id, i, thread.steps[i].title)) && !(await digIntoStep(id, i, thread.steps[i].title))) failures++;
+  }
+}
+
+const summary = `${heroCount} topics, ${threadsFound} threads, ${landingThreads.length} landing threads, ${pages} pages opened, ${failures} timed out`;
 console.log(`\nDone: ${summary}.`);
 annotate(failures || !threadsFound ? "error" : "notice", `Precompute: ${summary}.`);
 await browser.close();
