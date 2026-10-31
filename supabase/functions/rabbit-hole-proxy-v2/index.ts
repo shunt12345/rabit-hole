@@ -1270,7 +1270,9 @@ async function isRealTrendingTopic(cacheKey: string): Promise<boolean> {
     .from("hyfax_chains")
     .select("id")
     .in("status", ["approved", "campaign"])
-    .contains("steps", [{ title: cacheKey }])
+    // Written out as a JSON containment filter: .contains() with a JS array
+    // sends a Postgres array literal, which never matches a jsonb column.
+    .filter("steps", "cs", JSON.stringify([{ title: cacheKey }]))
     .limit(1)
     .maybeSingle();
   return !!chain;
