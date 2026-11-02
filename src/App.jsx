@@ -746,7 +746,11 @@ export default function Hyfax() {
       // ads' engagement signal too (the TikTok ad lands on a thread).
       maybeReportLead(user?.email);
       maybeReportTikTokPage(chain.title);
-      claimPage({ nodeCacheKey: `thread:${chain.id}` })
+      // Logged as a first page with where it came from, so /admin's
+      // "what visitors open first" lists thread opens too: the TikTok ad's
+      // landing as tiktok_ad_thread (as the Reddit ad's is reddit_ad_prefill).
+      const utm = getAttribution().utmSource;
+      claimPage({ nodeType: "root", nodeCacheKey: `thread:${chain.id}`, heroSource: isAdVisit() ? `${utm}_ad_thread` : "hyfax_thread" })
         .catch((e) => {
           // Refused (the free pages ran out first): back to the home page
           // and its free-limit offer.

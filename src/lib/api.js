@@ -344,11 +344,11 @@ export async function streamTextFromPrompt({ onChunk, onUsage, timeoutMs, ...req
 // Exploring a thread whose page its preview already loaded: counts that
 // page as one of the reader's free pages (no text is fetched). Throws
 // TrialExhaustedError if the free pages are already used up.
-export async function claimPage({ nodeType, newsCacheKey, nodeCacheKey }) {
+export async function claimPage({ nodeType, newsCacheKey, nodeCacheKey, heroSource }) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
   try {
-    const body = await proxyBody({ endpoint: "article", nodeType, newsCacheKey, nodeCacheKey, extra: { claimPage: true } });
+    const body = await proxyBody({ endpoint: "article", nodeType, newsCacheKey, nodeCacheKey, heroSource, extra: { claimPage: true } });
     await postToProxy(body, controller, () => {});
   } finally {
     clearTimeout(timeoutId);
