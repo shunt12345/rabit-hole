@@ -20,7 +20,9 @@ concurrency:
 
 jobs:
   precompute:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest became 26.04 (Nov 2026), where Playwright 1.56
+    # has no Chromium build, so the job failed before running.
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
