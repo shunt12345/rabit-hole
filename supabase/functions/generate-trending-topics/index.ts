@@ -730,8 +730,8 @@ const PER_FIELD_TIMEOUT_MS = 60_000;
 // 2026-10-07 Riddle failed with "Unexpected non-whitespace character after
 // JSON", losing that day's pick entirely. Brace counting skips braces
 // inside string values, so a "}" within a teaser can't end it early.
-function firstJsonObject(text: string): string | null {
-  const start = text.indexOf("{");
+function firstJsonObject(text: string, from = 0): string | null {
+  const start = text.indexOf("{", from);
   if (start === -1) return null;
   let depth = 0;
   let inString = false;
@@ -752,6 +752,28 @@ function firstJsonObject(text: string): string | null {
     }
   }
   return null;
+}
+
+// The model's final answer: the LAST complete top-level object that parses.
+// Seen live (the Riddle, most days in early November): it opens with a stub
+// ({"teaser": "placeholder", "options": []}), writes "Wait, I need to
+// actually produce the real content", then gives the real answer — and
+// reading only the first object failed the field every time.
+function lastJsonObject(text: string): string | null {
+  let found: string | null = null;
+  let from = 0;
+  while (true) {
+    const obj = firstJsonObject(text, from);
+    if (!obj) break;
+    try {
+      JSON.parse(obj);
+      found = obj;
+    } catch {
+      // not a whole object; keep looking past it
+    }
+    from = text.indexOf(obj, from) + obj.length;
+  }
+  return found ?? firstJsonObject(text);
 }
 
 function parseRiddleGame(parsed: any, topic: string) {
@@ -801,7 +823,7 @@ Respond with ONLY valid JSON, no markdown fences: {"title": "...", "field": "...
   if (!res.ok) throw new Error(`Anthropic returned ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
   const text = (data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
-  const json = firstJsonObject(text.replace(/```json|```/g, "").trim());
+  const json = lastJsonObject(text.replace(/```json|```/g, "").trim());
   const parsed = json ? JSON.parse(json) : null;
   const clue = {
     title: String(parsed?.title || "").trim(),
@@ -893,7 +915,7 @@ async function generateForField(
     .join("");
 
   const cleaned = text.replace(/```json|```/g, "").trim();
-  const json = firstJsonObject(cleaned);
+  const json = lastJsonObject(cleaned);
   if (!json) {
     throw new Error(`No JSON in response: ${text.slice(0, 300)}`);
   }
@@ -1237,7 +1259,11 @@ async function withRetries<T>(field: string, exclude: string[], attempt: (exclud
     } catch (e) {
       lastError = e;
       const repeat = String((e as any)?.message ?? e).match(/exclude list: "(.+)"$/)?.[1];
-      if (repeat) avoid = [repeat, ...avoid.filter((t) => t !== repeat)];
+      // Moving it up the list alone wasn't enough ("The Guillotine" came
+      // back on all three tries), so the retry says outright that it was
+      // just picked. The plain topic stays in the list too, which is what
+      // the exact-repeat check compares against.
+      if (repeat) avoid = [`${repeat} (your previous attempt picked this and it has already run: choose something unrelated, from a different category)`, ...avoid];
       console.warn(`generate-trending-topics: "${field}" attempt ${i + 1} failed`, e);
     }
   }
