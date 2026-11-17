@@ -264,6 +264,8 @@ function defaultUntil() {
   return new Date().toISOString().slice(0, 10);
 }
 
+const todayRow = (rows) => (rows || []).find((r) => r.day === new Date().toISOString().slice(0, 10));
+
 export default function AdminDashboard() {
   const [user, setUser] = useState(undefined); // undefined = still checking, null = signed out
   const [email, setEmail] = useState("");
@@ -474,10 +476,13 @@ export default function AdminDashboard() {
         {stats && (
           <>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-              <StatCard label="Requests today" value={stats.daily[0]?.requests ?? 0} />
-              <StatCard label="Unique sessions today" value={stats.daily[0]?.uniqueSessions ?? 0} />
-              <StatCard label="Spend today" value={usd(stats.daily[0]?.spendUsd)} />
-              <StatCard label="New sign-ups today" value={stats.dailySignups[0]?.count ?? 0} />
+              {/* Today's own row (UTC, as the daily trend is keyed), not the
+                  newest row: a day with no activity has no row, and the
+                  newest one used to show here as "today". */}
+              <StatCard label="Requests today" value={todayRow(stats.daily)?.requests ?? 0} />
+              <StatCard label="Unique sessions today" value={todayRow(stats.daily)?.uniqueSessions ?? 0} />
+              <StatCard label="Spend today" value={usd(todayRow(stats.daily)?.spendUsd ?? 0)} />
+              <StatCard label="New sign-ups today" value={todayRow(stats.dailySignups)?.count ?? 0} />
             </div>
 
             <div className="rounded-2xl border p-4 mb-6" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
